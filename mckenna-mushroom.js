@@ -1,107 +1,115 @@
 const output = [];
-const cx = grid.cols / 2;
-const cy = grid.rows / 2 + grid.rows * 0.1;
-const mckennaText = " CONCRESCENCE ✦ ESCHATON ✦ NOVELTY ✦ TIME WAVE ZERO ✦ TRANSCENDENTAL OBJECT ✦ HYPERSPACE ✦ MACHINE ELVES ✦ ";
-
-const cGold = '#d4af37';
-const cPurple = '#800080';
-const cMagenta = '#ff00ff';
+const text = " CONCRESCENCE · ESCHATON · NOVELTY · TIME WAVE ZERO · ARCHAIC REVIVAL · MACHINE ELVES · TRANSCENDENTAL OBJECT · ";
+const borderChars = "✧✦❁❀✿✾✽✺✹✸✶✷".split("");
 
 for (let y = 0; y < grid.rows; y++) {
     const row = [];
     for (let x = 0; x < grid.cols; x++) {
-        const dx = x - cx;
-        const dy = y - cy;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const angle = Math.atan2(dy, dx);
+        // Normalized coordinates (-1 to 1)
+        let nx = (x - grid.cols / 2) / (grid.cols / 2);
+        let ny = (y - grid.rows / 2) / (grid.rows / 2);
         
-        const mx = (x * 12) - mouse.x;
-        const my = (y * 12) - mouse.y;
-        const mouseDist = Math.sqrt(mx*mx + my*my);
-        const interact = mouse.isPressed ? 60 / (1 + mouseDist * 0.05) : 0;
-        
-        let char = ' ';
-        let color = '#000000';
-        let size = 12 + interact * 0.15;
-        
-        const capWidth = grid.cols * 0.22;
-        const capHeight = grid.rows * 0.35;
-        const stemWidth = grid.cols * 0.04;
-        const stemHeight = grid.rows * 0.35;
-        
-        const breath = 1 + 0.05 * Math.sin(time * 2);
-        const normDy = Math.max(0, dy / -capHeight);
-        const bellWidth = capWidth * breath * (1 - Math.pow(normDy, 1.5));
-        const isCapBody = dy <= 0 && dy >= -capHeight && Math.abs(dx) <= bellWidth;
-        const capEdgeDist = Math.abs(Math.abs(dx) - bellWidth);
-        const isCapEdge = isCapBody && capEdgeDist < 1.5;
-        const isGills = isCapBody && dy > -2 && !isCapEdge;
-        
-        const isStem = dy > 0 && dy < stemHeight && Math.abs(dx) < stemWidth * (1 + 0.2 * Math.sin(dy * 0.3 - time * 2));
-        const isMycelium = dy >= stemHeight && dy < stemHeight + 3 && Math.abs(dx) < stemWidth * (1 + (dy - stemHeight) * 1.5);
-        
-        const haloRadius = capWidth * 1.5;
-        const isHalo = dist < haloRadius && dy < stemHeight * 0.2;
-        const haloRing = Math.abs(dist - haloRadius) < 1;
-        
-        const edgeX = Math.min(x, grid.cols - 1 - x);
-        const edgeY = Math.min(y, grid.rows - 1 - y);
-        const isBorder = edgeX < 2 || edgeY < 2;
-        const cornerDist = Math.min(
-            Math.hypot(x, y), Math.hypot(grid.cols-x, y),
-            Math.hypot(x, grid.rows-y), Math.hypot(grid.cols-x, grid.rows-y)
-        );
-        const isOrnament = cornerDist < grid.cols * 0.15 && Math.sin(cornerDist * 0.8 - time * 1.5) > 0.2;
+        // Aspect-ratio corrected coordinates for shapes
+        let aspect = grid.cols / grid.rows;
+        let cx = nx * aspect * 0.55; 
+        let cy = ny;
 
-        const capPattern = Math.sin(dx * 1.2 + time * 4) * Math.cos(dy * 1.2 - time * 3);
-        const spiral = Math.sin(dist * 0.4 - angle * 5 - time * 3 + interact * 0.05);
+        // Mouse distance & Lens Distortion (Op Art Funnel/Tunnel)
+        const cellW = 10; 
+        const cellH = 12;
+        const dx = (x * cellW) - mouse.x;
+        const dy = (y * cellH) - mouse.y;
+        const distMouse = Math.sqrt(dx * dx + dy * dy);
         
-        if (isBorder || isOrnament) {
-            const bChars = "§≈~()*+°";
-            char = bChars[Math.floor(Math.abs(x + y - time * 3)) % bChars.length];
-            color = cGold;
-            size *= isOrnament ? 1.2 : 1;
-        } else if (isCapEdge) {
-            char = '≈';
-            color = cGold;
-        } else if (isGills) {
-            char = dx % 2 === 0 ? '|' : '¦';
-            color = '#ffccaa';
-        } else if (isCapBody) {
-            char = capPattern > 0 ? '@' : 'O';
-            color = capPattern > 0 ? cMagenta : cPurple;
-            size *= 1.1;
-        } else if (isStem) {
-            char = dx === 0 ? '|' : (dx < 0 ? '(' : ')');
-            color = '#fdf5e6';
-        } else if (isMycelium) {
-            char = Math.random() > 0.5 ? '/' : '\\';
-            color = '#d3d3d3';
-        } else if (haloRing) {
-            char = '°';
-            color = cGold;
-        } else if (isHalo) {
-            const ray = Math.sin(angle * 20 + time * 0.5) > 0;
-            char = ray ? '✧' : '+';
-            color = ray ? '#44aa88' : '#114433';
+        let lensEffect = 0;
+        if (mouse.isPressed) {
+            lensEffect = 30 / (1 + distMouse * 0.02);
+            // Gravitational pull towards mouse
+            cx -= (dx * 0.001) * (50 / (distMouse + 1));
+            cy -= (dy * 0.001) * (50 / (distMouse + 1));
         } else {
-            const textIdx = Math.floor(Math.abs(dist * 0.5 + angle * 3 + time * 5)) % mckennaText.length;
-            char = mckennaText[textIdx];
+            lensEffect = 12 / (1 + distMouse * 0.05);
+        }
+
+        let char = ' ';
+        let color = '#000';
+        let size = 12 + lensEffect;
+
+        // --- ART NOUVEAU BORDER LOGIC ---
+        // Organic, flowing pillars and arches
+        const pillar1 = nx + 0.88 + 0.04 * Math.sin(ny * Math.PI * 2.5 + time * 0.8);
+        const pillar2 = nx - 0.88 - 0.04 * Math.sin(ny * Math.PI * 2.5 + time * 0.8);
+        const isPillar = Math.abs(pillar1) < 0.05 || Math.abs(pillar2) < 0.05;
+        
+        const arch1 = ny + 0.88 + 0.12 * Math.cos(nx * Math.PI * 1.5);
+        const arch2 = ny - 0.88 - 0.12 * Math.cos(nx * Math.PI * 1.5);
+        const isArch = Math.abs(arch1) < 0.06 || Math.abs(arch2) < 0.06;
+        
+        const flourish = Math.sin(nx * 12 + ny * 12) * Math.cos(nx * 12 - ny * 12 - time);
+        const isCorner = (Math.abs(nx) > 0.75 && Math.abs(ny) > 0.75 && flourish > 0.4);
+
+        // --- MUSHROOM LOGIC (Psilocybe) ---
+        // Cap with umbo (nipple)
+        const umbo = 0.15 * Math.exp(-Math.pow(cx * 15, 2));
+        const capTop = -0.35 + 1.4 * cx * cx - umbo;
+        const capBottom = -0.05 - 0.2 * cx * cx;
+        
+        const stalkWidth = 0.04 + 0.015 * Math.sin(cy * 15 + time * 1.5);
+        
+        const isCap = cy > capTop && cy < capBottom;
+        const isRing = cy >= capBottom && cy < capBottom + 0.03 && Math.abs(cx) < stalkWidth * 2.2;
+        const isStalk = cy >= capBottom && cy < 0.6 && Math.abs(cx) < stalkWidth;
+        const isBase = cy >= 0.6 && cy < 0.75 && Math.abs(cx) < stalkWidth + (cy - 0.6) * 0.6;
+
+        // --- RENDER ASSIGNMENT ---
+        if (isCap) {
+            const capPattern = Math.sin(cx * 40) * Math.cos(cy * 40 - time * 2);
+            char = capPattern > 0.4 ? '●' : '✿';
             
-            if (spiral > 0.5) {
-                const hue = Math.floor((dist * 2 - time * 40) % 360);
-                color = `hsl(${hue}, 80%, 50%)`;
-                size *= 1.1;
-                if (char === '✦') {
-                    color = cGold;
-                    size *= 1.3;
-                }
+            // Volumetric shading for the cap
+            const edgeDarken = Math.max(0, Math.min(1, (cy - capTop) / (capBottom - capTop)));
+            const hue = 35 - edgeDarken * 25; // Golden to deep rust
+            const light = 65 - edgeDarken * 40;
+            color = `hsl(${hue}, 85%, ${light}%)`;
+            size += 2;
+        } else if (isRing) {
+            char = '≈';
+            color = '#e3d5ca';
+        } else if (isStalk || isBase) {
+            // Mycelial bruising (Psilocybin oxidation)
+            const bruise = Math.sin(cy * 30 - time * 2) * Math.cos(cx * 20);
+            char = bruise > 0.4 ? '║' : '│';
+            color = bruise > 0.4 ? '#457b9d' : '#f1faee';
+        } else if (isPillar || isArch || isCorner) {
+            char = borderChars[(x * y) % borderChars.length];
+            const goldPulse = 50 + 25 * Math.sin(nx * 8 + ny * 8 + time * 3);
+            color = `hsl(45, 90%, ${goldPulse}%)`;
+            size += 3;
+        } else {
+            // --- OP ART / TIME WAVE ZERO BACKGROUND ---
+            const r = Math.sqrt(cx * cx + cy * cy);
+            const theta = Math.atan2(cy, cx);
+            
+            // Dual interfering spirals (Moiré fields)
+            const spiralText = r * 45 - theta * 5 - time * 4;
+            const spiralBg = Math.sin(r * 40 + theta * 4 + time * 2.5);
+            
+            let textIdx = Math.floor(spiralText) % text.length;
+            if (textIdx < 0) textIdx += text.length;
+            
+            const mainWave = Math.sin(spiralText);
+            
+            if (mainWave > 0) {
+                char = text[textIdx];
+                const bgHue = (r * 120 - time * 40) % 360;
+                color = `hsl(${bgHue}, 90%, 65%)`;
             } else {
-                color = '#120a1f';
-                size *= 0.8;
+                char = spiralBg > 0.2 ? '〰' : ' ';
+                const bgHue = (r * 120 - time * 40 + 180) % 360;
+                color = `hsl(${bgHue}, 50%, 15%)`;
             }
         }
-        
+
         row.push({ char, color, size });
     }
     output.push(row);
