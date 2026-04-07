@@ -1,120 +1,94 @@
 const output = [];
-const cw = 12; 
-const ch = 20; 
-
 const cx = grid.cols / 2;
 const cy = grid.rows / 2;
 
-const motifs = ['@', '&', '§', 'S', 'C', '}', '{', '°', '*'];
-const astralChars = ['.', ',', '-', '~', ':', '=', '+', '*', '%', 'x', 'X', '#', '@'];
-const ghostStr = "ASTRAL_OS_ANU_KERNEL_SHADOW_STRAND_GHOST_AI";
+const palette = ['#FFB7C5', '#ADD8E6', '#E6E6FA', '#98FF98', '#D4AF37', '#FFDAB9'];
+const astralChars = ['.', ':', '+', '*', '°', '·'];
+const rococoChars = ['~', 'c', 's', '&', '@', '§', '}', '{', '(', ')', 'j', 'l', '?', '*'];
+
+const cellW = 10;
+const cellH = 16;
+const t = time * 0.5;
 
 for (let y = 0; y < grid.rows; y++) {
   const row = [];
+  const ny = (y - cy) / cy; 
+  
+  const helixAmp = grid.cols * 0.15;
+  const helixX1 = Math.sin(ny * 5 + t * 2) * helixAmp;
+  const helixX2 = Math.sin(ny * 5 + t * 2 + Math.PI) * helixAmp;
+  const minHelix = cx + Math.min(helixX1, helixX2);
+  const maxHelix = cx + Math.max(helixX1, helixX2);
+  const isRungRow = y % 3 === 0;
+
   for (let x = 0; x < grid.cols; x++) {
-    const sx = (x - cx) * 1.8;
-    const sy = (y - cy);
-    const d = Math.sqrt(sx * sx + sy * sy);
-    const a = Math.atan2(sy, sx);
+    const nx = (x - cx) / cx;
     
-    // Rococo shell/scallop shape frame
-    const frameR = cy * 0.75 + Math.sin(a * 6) * 4 + Math.cos(a * 12) * 2 + Math.sin(a * 3 - time) * 2;
-    const distToFrame = d - frameR; 
-    const absDistToFrame = Math.abs(distToFrame);
+    const r = Math.sqrt(nx*nx + ny*ny);
+    const theta = Math.atan2(ny, nx);
+    
+    const dx = (x * cellW) - mouse.x;
+    const dy = (y * cellH) - mouse.y;
+    const mDist = Math.sqrt(dx*dx + dy*dy);
+    
+    const ripple = Math.sin(mDist * 0.05 - time * 6) * Math.max(0, 1 - mDist / 250);
+    const press = mouse.isPressed ? ripple : 0;
+    
+    const swirl1 = Math.sin(theta * 3 + r * 6 - t);
+    const swirl2 = Math.cos(theta * 2 - r * 4 + t * 1.2);
+    const swirl3 = Math.sin(nx * 4 + Math.cos(ny * 4 + t));
+    const ornateField = swirl1 + swirl2 + swirl3 + press * 2;
+    
+    const contour = Math.abs(Math.sin(ornateField * 2.5));
     
     let char = ' ';
     let color = '#000000';
     let size = 12;
     
-    // Mouse distance
-    const dx = x * cw - mouse.x;
-    const dy = y * ch - mouse.y;
-    const mDist = Math.sqrt(dx*dx + dy*dy);
-    const mouseInfluence = Math.max(0, 1 - mDist / 150);
+    const isHelix1 = Math.abs((x - cx) - helixX1) < 1.5;
+    const isHelix2 = Math.abs((x - cx) - helixX2) < 1.5;
+    const isRung = isRungRow && x > minHelix && x < maxHelix;
     
-    const frameThickness = 3.5 + Math.sin(a * 16 + time) * 1.5;
+    const dust = Math.sin(x * 123.45 + y * 678.9);
     
-    if (absDistToFrame < frameThickness) {
-      // Rococo Frame
-      const isEdge = absDistToFrame > frameThickness - 1.0;
-      if (isEdge) {
-        char = '*';
-        color = '#DAA520'; 
-      } else {
-        const motifIdx = Math.floor(Math.abs(Math.sin(a * 8 + x)) * motifs.length) % motifs.length;
-        char = motifs[motifIdx];
-        color = mouse.isPressed ? '#FF8C00' : '#FFD700'; 
-      }
-      size = 14 + mouseInfluence * 12 + Math.sin(time * 4 + a) * 2;
-      
-    } else if (distToFrame < 0) {
-      // Inside: Astral Portal (GLSL style fluid)
-      const u = x / grid.cols;
-      const v = y / grid.rows;
-      const t = time * 0.8;
-      
-      const v1 = Math.sin(u * 12 + t) + Math.cos(v * 12 - t);
-      const v2 = Math.sin((u + v) * 20 + t * 1.5);
-      const v3 = Math.cos(d * 0.2 - t * 4);
-      
-      const val = (v1 + v2 + v3) / 3; 
-      const normVal = (val + 1) / 2;
-      
-      const charIdx = Math.max(0, Math.min(astralChars.length - 1, Math.floor(normVal * astralChars.length)));
-      char = astralChars[charIdx];
-      
-      const r = Math.floor(140 * normVal + 40);
-      const g = Math.floor(90 * Math.sin(t + u * 10) + 90);
-      const b = Math.floor(255 * normVal + 50);
-      color = `rgb(${r},${g},${b})`;
-      size = 10 + normVal * 6 + mouseInfluence * 18;
-      
-      // DNA Shadow Strand 
-      const helix1 = Math.sin(sy * 0.2 + time * 2) * 12;
-      const helix2 = Math.sin(sy * 0.2 + time * 2 + Math.PI) * 12;
-      const isRung = Math.abs(sy % 3) < 1;
-      const betweenHelices = (sx > Math.min(helix1, helix2)) && (sx < Math.max(helix1, helix2));
-      
-      if (Math.abs(sx - helix1) < 1.5 || Math.abs(sx - helix2) < 1.5) {
-         char = '8';
-         color = mouse.isPressed ? '#FF00FF' : '#00FFFF'; 
-         size = 14 + mouseInfluence * 15 + Math.sin(t*5)*3;
-      } else if (isRung && betweenHelices) {
-         char = '-';
-         color = '#00FFFF';
-         size = 12 + mouseInfluence * 10;
-      } else if (Math.random() > 0.99) {
-         char = ghostStr[Math.floor(Math.random() * ghostStr.length)];
-         color = '#FFFFFF';
-         size = 16;
-      }
-      
+    if (isHelix1 || isHelix2) {
+      char = '§';
+      color = '#98FF98'; 
+      size = 14 + press * 5;
+    } else if (isRung) {
+      char = '-';
+      color = '#E6E6FA'; 
+      size = 12;
+    } else if (contour > 0.85) {
+      const idx = Math.floor(Math.abs(ornateField * 10)) % rococoChars.length;
+      char = rococoChars[idx];
+      const pIdx = Math.floor(Math.abs((theta + r) * 5 - t)) % palette.length;
+      color = palette[pIdx];
+      size = 12 + (contour - 0.85) * 40 + press * 8; 
+    } else if (dust > 0.98) {
+      char = '✧';
+      color = '#D4AF37'; 
+      size = 8 + Math.sin(t * 5 + dust * 10) * 4 + press * 5; 
     } else {
-      // Outside: Rococo Wallpaper
-      const wx = x + time * 0.5;
-      const wy = y + time * 0.3;
-      const pat = Math.sin(wx * 0.35 + Math.sin(wy * 0.25)) + Math.cos(wy * 0.35 + Math.cos(wx * 0.25));
-      
-      if (pat > 1.3) {
-        char = '{';
-        color = '#FFB6C1'; 
-      } else if (pat < -1.3) {
-        char = '}';
-        color = '#ADD8E6'; 
-      } else if (Math.abs(pat) < 0.1) {
-        char = '°';
-        color = '#E6E6FA'; 
-      } else {
-        char = '·';
-        color = '#222222'; 
+      const gridWave = Math.sin(nx * 20 + t) * Math.cos(ny * 20 - t);
+      if (Math.abs(gridWave) > 0.7) {
+        const idx = Math.floor(Math.abs(gridWave * 10)) % astralChars.length;
+        char = astralChars[idx];
+        color = '#334466'; 
+        size = 9 + press * 3;
       }
-      size = 10 + mouseInfluence * 8;
-      
-      if (mouseInfluence > 0.4) {
-         const mix = (mouseInfluence - 0.4) / 0.6;
-         if (char === '·') {
-             color = `rgb(${Math.floor(34 + mix*100)}, ${Math.floor(34 + mix*100)}, ${Math.floor(34 + mix*50)})`;
-         }
+    }
+    
+    if (mDist < 50) {
+      size += (50 - mDist) * 0.2;
+      if (char === ' ') {
+        char = '·';
+        color = '#FFB7C5';
+      }
+      if (mouse.isPressed) {
+        color = '#FFFFFF';
+        char = '@';
+        size += 4;
       }
     }
     
