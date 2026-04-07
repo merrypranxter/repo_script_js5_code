@@ -2,93 +2,63 @@ const output = [];
 const cx = grid.cols / 2;
 const cy = grid.rows / 2;
 
-const palette = ['#FFB7C5', '#ADD8E6', '#E6E6FA', '#98FF98', '#D4AF37', '#FFDAB9'];
-const astralChars = ['.', ':', '+', '*', '°', '·'];
-const rococoChars = ['~', 'c', 's', '&', '@', '§', '}', '{', '(', ')', 'j', 'l', '?', '*'];
+const popChars = ['@', 'O', 'o', '*', '~', '.', '+', '✧', '☁', '★', '✿', '☼'];
+const osChars = ['0', '1', 'x', 'F', '%', '&', 'A', 'Z', 'T', 'H', '§', '¶', '‡', '†', '░', '▒', '▓'];
 
-const cellW = 10;
-const cellH = 16;
-const t = time * 0.5;
+const popColors = ['#FF1493', '#00FFFF', '#FFD700', '#32CD32', '#FF4500', '#FF69B4'];
+const osColors = ['#00FF41', '#8A2BE2', '#4B0082', '#DC143C', '#008F11', '#556B2F'];
 
 for (let y = 0; y < grid.rows; y++) {
   const row = [];
-  const ny = (y - cy) / cy; 
-  
-  const helixAmp = grid.cols * 0.15;
-  const helixX1 = Math.sin(ny * 5 + t * 2) * helixAmp;
-  const helixX2 = Math.sin(ny * 5 + t * 2 + Math.PI) * helixAmp;
-  const minHelix = cx + Math.min(helixX1, helixX2);
-  const maxHelix = cx + Math.max(helixX1, helixX2);
-  const isRungRow = y % 3 === 0;
-
   for (let x = 0; x < grid.cols; x++) {
-    const nx = (x - cx) / cx;
+    const dx = x - cx;
+    const dy = (y - cy) * 2; 
+    const distToCenter = Math.sqrt(dx * dx + dy * dy);
     
-    const r = Math.sqrt(nx*nx + ny*ny);
-    const theta = Math.atan2(ny, nx);
+    const pixelX = x * 10;
+    const pixelY = y * 20;
+    const mdx = pixelX - mouse.x + Math.sin(y * 0.5 + time * 3) * 15;
+    const mdy = pixelY - mouse.y + Math.cos(x * 0.5 + time * 3) * 15;
+    const distToMouse = Math.sqrt(mdx * mdx + mdy * mdy);
     
-    const dx = (x * cellW) - mouse.x;
-    const dy = (y * cellH) - mouse.y;
-    const mDist = Math.sqrt(dx*dx + dy*dy);
+    const angle = Math.atan2(dy, dx);
     
-    const ripple = Math.sin(mDist * 0.05 - time * 6) * Math.max(0, 1 - mDist / 250);
-    const press = mouse.isPressed ? ripple : 0;
+    // Psychedelic Pop Waves
+    const psychWave = Math.sin(distToCenter * 0.15 - time * 2) + Math.cos(angle * 6 + time * 1.5);
     
-    const swirl1 = Math.sin(theta * 3 + r * 6 - t);
-    const swirl2 = Math.cos(theta * 2 - r * 4 + t * 1.2);
-    const swirl3 = Math.sin(nx * 4 + Math.cos(ny * 4 + t));
-    const ornateField = swirl1 + swirl2 + swirl3 + press * 2;
-    
-    const contour = Math.abs(Math.sin(ornateField * 2.5));
+    // Lovecraft OS Tentacles / Threads
+    const tentacleWaves = Math.sin(angle * 7 + distToCenter * 0.1 - time * 4);
+    const isTentacle = Math.abs(tentacleWaves) < 0.25 && distToCenter < 40;
     
     let char = ' ';
-    let color = '#000000';
+    let color = '#fff';
     let size = 12;
     
-    const isHelix1 = Math.abs((x - cx) - helixX1) < 1.5;
-    const isHelix2 = Math.abs((x - cx) - helixX2) < 1.5;
-    const isRung = isRungRow && x > minHelix && x < maxHelix;
-    
-    const dust = Math.sin(x * 123.45 + y * 678.9);
-    
-    if (isHelix1 || isHelix2) {
-      char = '§';
-      color = '#98FF98'; 
-      size = 14 + press * 5;
-    } else if (isRung) {
-      char = '-';
-      color = '#E6E6FA'; 
-      size = 12;
-    } else if (contour > 0.85) {
-      const idx = Math.floor(Math.abs(ornateField * 10)) % rococoChars.length;
-      char = rococoChars[idx];
-      const pIdx = Math.floor(Math.abs((theta + r) * 5 - t)) % palette.length;
-      color = palette[pIdx];
-      size = 12 + (contour - 0.85) * 40 + press * 8; 
-    } else if (dust > 0.98) {
-      char = '✧';
-      color = '#D4AF37'; 
-      size = 8 + Math.sin(t * 5 + dust * 10) * 4 + press * 5; 
+    // Azathoth CPU Core
+    const corePulse = Math.sin(time * 6) * 3;
+    if (distToCenter < 6 + corePulse) {
+      char = osChars[Math.floor(Math.random() * osChars.length)];
+      color = mouse.isPressed ? '#FF0000' : '#DC143C';
+      size = 18 + Math.random() * 8;
+    } else if (isTentacle) {
+      char = osChars[Math.floor((Math.abs(dx + dy) + time * 10) % osChars.length)];
+      color = osColors[Math.floor((distToCenter - time * 5) % osColors.length + osColors.length) % osColors.length];
+      size = 14 + Math.sin(distToCenter * 0.4 - time * 5) * 4;
     } else {
-      const gridWave = Math.sin(nx * 20 + t) * Math.cos(ny * 20 - t);
-      if (Math.abs(gridWave) > 0.7) {
-        const idx = Math.floor(Math.abs(gridWave * 10)) % astralChars.length;
-        char = astralChars[idx];
-        color = '#334466'; 
-        size = 9 + press * 3;
-      }
+      const idx = Math.floor(Math.abs(psychWave * 3)) % popChars.length;
+      char = popChars[idx];
+      color = popColors[Math.floor(Math.abs(distToCenter * 0.1 - time * 2)) % popColors.length];
+      size = 10 + psychWave * 3;
     }
     
-    if (mDist < 50) {
-      size += (50 - mDist) * 0.2;
-      if (char === ' ') {
-        char = '·';
-        color = '#FFB7C5';
-      }
-      if (mouse.isPressed) {
-        color = '#FFFFFF';
-        char = '@';
-        size += 4;
+    // Mouse Interaction: Chaos Engineering (tearing the veil)
+    const mouseRadius = mouse.isPressed ? 180 : 100;
+    if (distToMouse < mouseRadius) {
+      const influence = 1 - (distToMouse / mouseRadius);
+      if (Math.random() < influence * 0.9) {
+        char = osChars[Math.floor(Math.random() * osChars.length)];
+        color = mouse.isPressed ? '#FF0000' : '#00FF41';
+        size = 12 + influence * (mouse.isPressed ? 24 : 14);
       }
     }
     
