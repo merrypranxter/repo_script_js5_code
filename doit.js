@@ -1,76 +1,87 @@
-const output = [];
-const opChars = " .:-=+*#%@".split('');
-const glitchChars = "█▓▒░><\\/![]{}?-".split('');
-const colors = ["#ff00ff", "#00ffff", "#00ff00", "#ffff00", "#ffffff", "#ff0000"];
+const out = [];
+const cellW = 8;
+const cellH = 16; 
+const cx = (grid.cols * cellW) / 2;
+const cy = (grid.rows * cellH) / 2;
+
+const glitchChars = ['#', '@', '%', 'X', '!', '?', '█', '▓', '▒', '░', '¥', '§', '¶', '∆'];
+const y2kWords = ["Y2K_AESTHETIC", "DEAD_WEB", "MYSPACE_SCENE", "OP_ART", "RETINAL", "GLITCHCORE", "SYS_ERR", "404_NOT_FOUND", "<HTML>", "CURSED_SHITPOST"];
 
 for (let y = 0; y < grid.rows; y++) {
   const row = [];
   
-  const tear = Math.sin(y * 0.4 + time * 15) > 0.9 ? Math.floor(Math.sin(time * 25) * 10) : 0;
+  const rowGlitch = Math.sin(y * 0.3 + time * 8) > 0.98;
+  const rowOffset = rowGlitch ? Math.floor(Math.sin(time * 20) * 10) : 0;
   
   for (let x = 0; x < grid.cols; x++) {
-    let readX = x + tear;
-    let readY = y;
+    const effX = x + rowOffset;
+    let px = effX * cellW;
+    let py = y * cellH;
     
-    const px = readX * 10;
-    const py = readY * 20; 
-    const mx = mouse.x;
-    const my = mouse.y;
+    const distortion = Math.sin(py * 0.05 + time) * 15;
+    px += distortion;
     
-    const dx = px - mx;
-    const dy = py - my;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const angle = Math.atan2(dy, dx);
+    const dx = px - cx;
+    const dy = py - cy;
+    const dCenter = Math.sqrt(dx*dx + dy*dy);
+    const angleCenter = Math.atan2(dy, dx);
     
-    const rings = Math.sin(dist * 0.08 - time * 5);
-    const spiral = Math.cos(angle * 10 + dist * 0.04 + time * 4);
-    const moire = rings * spiral;
+    const mdx = px - mouse.x;
+    const mdy = py - mouse.y;
+    const dMouse = Math.sqrt(mdx*mdx + mdy*mdy);
     
-    const localGlitch = Math.random() < 0.005;
-    const clickGlitch = mouse.isPressed && dist < 150 && Math.random() < 0.4;
-    const isGlitch = tear !== 0 || localGlitch || clickGlitch;
+    const wave1 = Math.cos(dCenter * 0.08 - time * 3);
+    const wave2 = Math.cos(dMouse * 0.12 + time * 2);
+    const radial = Math.sin(angleCenter * 16 + time * 1.5);
     
-    let char = '';
-    let color = '';
+    let interference = wave1 * wave2 + radial * 0.4;
+    
     let size = 12;
+    if (dMouse < 180) {
+      const lens = (180 - dMouse) / 180;
+      interference += Math.sin(dMouse * 0.2 - time * 5) * lens;
+      size += lens * 14; 
+    }
     
+    let char = ' ';
+    let color = '#ffffff';
+    
+    if (interference > 0.7) { char = '█'; color = '#ffffff'; }
+    else if (interference > 0.3) { char = '▓'; color = '#dddddd'; }
+    else if (interference > -0.1) { char = '▒'; color = '#aaaaaa'; }
+    else if (interference > -0.5) { char = '░'; color = '#666666'; }
+    else { char = ' '; color = '#000000'; }
+
+    const isGlitch = Math.random() < 0.005 || (rowGlitch && Math.random() < 0.2);
     if (isGlitch) {
-        char = glitchChars[Math.floor(Math.random() * glitchChars.length)];
-        color = colors[Math.floor(Math.random() * colors.length)];
-        size = 12 + Math.random() * 10;
-    } else {
-        const normalized = (moire + 1) / 2; 
-        const charIdx = Math.floor(normalized * (opChars.length - 1));
-        char = opChars[charIdx];
-        
-        const r = Math.sin(dist * 0.02 + time) > 0;
-        const g = Math.cos(angle * 6 - time) > 0;
-        const b = Math.sin(dist * 0.06 - angle) > 0;
-        
-        color = `rgb(${r ? 255 : 0}, ${g ? 255 : 0}, ${b ? 255 : 0})`;
-        if (color === 'rgb(0, 0, 0)') color = '#111122'; 
-        
-        size = 10 + normalized * 8 + (mouse.isPressed ? 6 : 0);
+      char = glitchChars[Math.floor(Math.random() * glitchChars.length)];
+      const colors = ['#ff00ff', '#00ffff', '#ffff00', '#ff3333', '#00ff33'];
+      color = colors[Math.floor(Math.random() * colors.length)];
+      if (mouse.isPressed) size += Math.random() * 10;
+    }
+    
+    if (y % 10 === 0) {
+      const textIdx = Math.floor(y / 10) % y2kWords.length;
+      const text = y2kWords[textIdx];
+      const speed = (y % 20 === 0) ? 8 : -8;
+      let tIdx = Math.floor(effX + time * speed) % (text.length + 30);
+      if (tIdx < 0) tIdx += (text.length + 30);
+      
+      if (tIdx < text.length) {
+        char = text[tIdx];
+        color = mouse.isPressed ? '#ff00ff' : '#00ffcc'; 
+        size = 14;
+      }
     }
 
-    const banner1 = " x_x DEAD WEB OP-ART x_x ";
-    if (y === Math.floor(grid.rows * 0.15) && !isGlitch) {
-        const shiftX = Math.floor(x - time * 10) % banner1.length;
-        char = banner1[(shiftX + banner1.length) % banner1.length];
-        color = '#ff00ff';
-        size = 16;
-    }
-
-    const banner2 = " ~*~ MYSPACE GLITCHCORE ~*~ ";
-    if (y === Math.floor(grid.rows * 0.85) && !isGlitch) {
-        const shiftX = Math.floor(x + time * 14) % banner2.length;
-        char = banner2[(shiftX + banner2.length) % banner2.length];
-        color = '#00ffff';
-        size = 16;
+    if (mouse.isPressed && dMouse < 100) {
+      char = Math.random() > 0.5 ? '0' : '1';
+      color = '#ff0000';
+      size = 12 + Math.random() * 8;
     }
 
     row.push({ char, color, size });
   }
-  output.push(row);
+  out.push(row);
 }
-return output;
+return out;
