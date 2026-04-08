@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS5 Player</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', Courier, monospace;
+    user-select: none;
+  }
+
+  #canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+  }
+
+  /* ── PANEL ── */
+  #panel {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 270px;
+    background: rgba(0, 0, 0, 0.88);
+    border: 1px solid #0ff;
+    border-radius: 4px;
+    color: #0ff;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    box-shadow: 0 0 18px #0ff4, inset 0 0 10px #0001;
+    z-index: 100;
+    min-width: 200px;
+  }
+
+  #panel.collapsed #panel-body { display: none; }
+
+  /* header / drag handle */
+  #panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    cursor: grab;
+    border-bottom: 1px solid #0ff4;
+    background: #0ff1;
+  }
+  #panel-header:active { cursor: grabbing; }
+
+  #panel-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #0ff;
+    text-shadow: 0 0 8px #0ff;
+  }
+
+  #panel-title span { color: #f0f; }
+
+  #collapse-btn {
+    background: none;
+    border: 1px solid #0ff6;
+    color: #0ff;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 1px 6px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1.4;
+  }
+  #collapse-btn:hover { background: #0ff2; border-color: #0ff; }
+
+  #panel-body { padding: 0; }
+
+  /* now playing */
+  #now-playing {
+    padding: 7px 10px;
+    font-size: 11px;
+    color: #fff;
+    background: #0ff0;
+    border-bottom: 1px solid #0ff3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #now-playing .label { color: #0ff8; font-size: 10px; }
+  #now-playing .name { color: #fff; text-shadow: 0 0 6px #fff8; }
+
+  /* mode tabs */
+  #mode-tabs {
+    display: flex;
+    border-bottom: 1px solid #0ff3;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 6px 4px;
+    background: none;
+    border: none;
+    border-right: 1px solid #0ff3;
+    color: #0ff7;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tab-btn:last-child { border-right: none; }
+  .tab-btn.active { background: #0ff2; color: #0ff; text-shadow: 0 0 6px #0ff; }
+  .tab-btn:hover:not(.active) { background: #0ff1; color: #0ffc; }
+
+  /* random controls */
+  #random-section {
+    padding: 8px 10px;
+    border-bottom: 1px solid #0ff3;
+    display: none;
+  }
+  #random-section.visible { display: block; }
+
+  #countdown-bar-wrap {
+    height: 4px;
+    background: #0ff2;
+    border-radius: 2px;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+  #countdown-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #0ff, #f0f);
+    border-radius: 2px;
+    transition: width 0.25s linear;
+    box-shadow: 0 0 6px #0ff;
+    width: 100%;
+  }
+
+  #countdown-label {
+    font-size: 10px;
+    color: #0ff9;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+
+  .interval-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: #0ff7;
+  }
+  .interval-row span { margin-right: 2px; }
+  .interval-btn {
+    background: none;
+    border: 1px solid #0ff5;
+    color: #0ff8;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .interval-btn.active { background: #0ff3; color: #0ff; border-color: #0ff; }
+  .interval-btn:hover:not(.active) { background: #0ff1; }
+
+  /* nav buttons */
+  #nav-row {
+    display: flex;
+    border-bottom: 1px solid #0ff3;
+  }
+  .nav-btn {
+    flex: 1;
+    padding: 7px 4px;
+    background: none;
+    border: none;
+    border-right: 1px solid #0ff3;
+    color: #0ff;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 1px;
+  }
+  .nav-btn:last-child { border-right: none; }
+  .nav-btn:hover { background: #0ff1; }
+  .nav-btn:active { background: #0ff2; }
+
+  /* script list */
+  #script-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  #script-list::-webkit-scrollbar { width: 4px; }
+  #script-list::-webkit-scrollbar-track { background: #000; }
+  #script-list::-webkit-scrollbar-thumb { background: #0ff4; border-radius: 2px; }
+
+  .script-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 11px;
+    color: #0ff8;
+    gap: 6px;
+    transition: background 0.1s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .script-item:hover { background: #0ff1; color: #0ff; }
+  .script-item.active {
+    background: #0ff15;
+    color: #fff;
+    text-shadow: 0 0 6px #0ff;
+  }
+  .script-item .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    border: 1px solid #0ff6;
+    flex-shrink: 0;
+  }
+  .script-item.active .dot {
+    background: #0ff;
+    border-color: #0ff;
+    box-shadow: 0 0 4px #0ff;
+  }
+  .script-item .sname {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* error overlay */
+  #error-banner {
+    display: none;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #800;
+    color: #faa;
+    font-size: 10px;
+    padding: 4px 8px;
+    font-family: inherit;
+    border-top: 1px solid #f00;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="panel">
+  <div id="panel-header">
+    <div id="panel-title"><span>◉</span> JS5 PLAYER</div>
+    <button id="collapse-btn">−</button>
+  </div>
+
+  <div id="panel-body">
+
+    <div id="now-playing">
+      <span class="label">▶ </span><span class="name" id="now-name">loading…</span>
+    </div>
+
+    <div id="mode-tabs">
+      <button class="tab-btn" id="tab-random" data-mode="random">⇄ RANDOM</button>
+      <button class="tab-btn active" id="tab-browse" data-mode="browse">≡ BROWSE</button>
+    </div>
+
+    <div id="random-section">
+      <div id="countdown-bar-wrap"><div id="countdown-bar"></div></div>
+      <div id="countdown-label">next in <span id="countdown-val">–</span>s</div>
+      <div class="interval-row">
+        <span>every</span>
+        <button class="interval-btn" data-secs="5">5s</button>
+        <button class="interval-btn active" data-secs="15">15s</button>
+        <button class="interval-btn" data-secs="30">30s</button>
+      </div>
+    </div>
+
+    <div id="nav-row">
+      <button class="nav-btn" id="btn-prev">◀ PREV</button>
+      <button class="nav-btn" id="btn-next">NEXT ▶</button>
+    </div>
+
+    <div id="script-list"></div>
+
+    <div id="error-banner"></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+const CHAR_W = 12;
+const CHAR_H = 12;
+
+let scripts = [];
+let currentIdx = 0;
+let currentCode = '';
+let currentFn = null;
+let timeOffset = 0;
+let startTimestamp = null;
+
+const mouse = { x: 0, y: 0, isPressed: false };
+const codeCache = {};
+
+let mode = 'browse'; // 'random' | 'browse'
+let randomInterval = 15; // seconds
+let randomTimer = null;
+let randomRemaining = 0;
+let randomTickHandle = null;
+let countdownStart = 0;
+
+// ─────────────────────────────────────────────
+// CANVAS SETUP
+// ─────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ─────────────────────────────────────────────
+// MOUSE
+// ─────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+  mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+});
+canvas.addEventListener('mousedown', e => { if (e.target === canvas) mouse.isPressed = true; });
+window.addEventListener('mouseup', () => { mouse.isPressed = false; });
+
+// Touch support
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (t.clientX - r.left) * (canvas.width / r.width);
+  mouse.y = (t.clientY - r.top) * (canvas.height / r.height);
+}, { passive: false });
+canvas.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (t.clientX - r.left) * (canvas.width / r.width);
+  mouse.y = (t.clientY - r.top) * (canvas.height / r.height);
+  mouse.isPressed = true;
+});
+canvas.addEventListener('touchend', () => { mouse.isPressed = false; });
+
+// ─────────────────────────────────────────────
+// SCRIPT LOADING & EXECUTION
+// ─────────────────────────────────────────────
+async function fetchScript(name) {
+  if (!codeCache[name]) {
+    const res = await fetch(name);
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${name}`);
+    codeCache[name] = await res.text();
+  }
+  return codeCache[name];
+}
+
+async function switchTo(idx, resetTime = true) {
+  idx = ((idx % scripts.length) + scripts.length) % scripts.length;
+  currentIdx = idx;
+  const name = scripts[idx];
+
+  document.getElementById('now-name').textContent = name;
+  renderList();
+
+  try {
+    const code = await fetchScript(name);
+    currentFn = new Function('grid', 'time', 'mouse', code);
+    if (resetTime) {
+      startTimestamp = null; // will reset on next frame
+    }
+    hideError();
+  } catch (e) {
+    showError(`Failed to load ${name}: ${e.message}`);
+  }
+}
+
+function executeFrame(time) {
+  const cols = Math.floor(canvas.width / CHAR_W);
+  const rows = Math.floor(canvas.height / CHAR_H);
+  const grid = { cols, rows };
+  try {
+    const result = currentFn(grid, time, mouse);
+    hideError();
+    return result;
+  } catch (e) {
+    showError(`Runtime error: ${e.message}`);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────
+// RENDER LOOP
+// ─────────────────────────────────────────────
+function render(ts) {
+  requestAnimationFrame(render);
+
+  if (!currentFn) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0ff4';
+    ctx.font = '14px Courier New';
+    ctx.fillText('loading…', 20, 30);
+    return;
+  }
+
+  if (startTimestamp === null) startTimestamp = ts;
+  const time = (ts - startTimestamp) / 1000;
+
+  const cells = executeFrame(time);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!cells) return;
+
+  for (let r = 0; r < cells.length; r++) {
+    const row = cells[r];
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      const cell = row[c];
+      if (!cell || !cell.char || cell.char === ' ') continue;
+      const sz = cell.size || 12;
+      ctx.font = `${sz}px monospace`;
+      ctx.fillStyle = cell.color || '#fff';
+      ctx.fillText(cell.char, c * CHAR_W, r * CHAR_H + CHAR_H * 0.85);
+    }
+  }
+}
+requestAnimationFrame(render);
+
+// ─────────────────────────────────────────────
+// RANDOM MODE
+// ─────────────────────────────────────────────
+function startRandom() {
+  stopRandom();
+  scheduleNext();
+}
+
+function scheduleNext() {
+  countdownStart = performance.now();
+  randomRemaining = randomInterval;
+  updateCountdownBar();
+
+  randomTickHandle = setInterval(() => {
+    const elapsed = (performance.now() - countdownStart) / 1000;
+    randomRemaining = Math.max(0, randomInterval - elapsed);
+    updateCountdownBar();
+  }, 250);
+
+  randomTimer = setTimeout(() => {
+    clearInterval(randomTickHandle);
+    const next = randomNextIdx();
+    switchTo(next);
+    if (mode === 'random') scheduleNext();
+  }, randomInterval * 1000);
+}
+
+function stopRandom() {
+  if (randomTimer) clearTimeout(randomTimer);
+  if (randomTickHandle) clearInterval(randomTickHandle);
+  randomTimer = null;
+  randomTickHandle = null;
+}
+
+function randomNextIdx() {
+  if (scripts.length <= 1) return 0;
+  let idx;
+  do { idx = Math.floor(Math.random() * scripts.length); } while (idx === currentIdx);
+  return idx;
+}
+
+function updateCountdownBar() {
+  const pct = (randomRemaining / randomInterval) * 100;
+  document.getElementById('countdown-bar').style.width = pct + '%';
+  document.getElementById('countdown-val').textContent = Math.ceil(randomRemaining);
+}
+
+// ─────────────────────────────────────────────
+// UI — MODE TABS
+// ─────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  document.getElementById('random-section').classList.toggle('visible', m === 'random');
+
+  if (m === 'random') {
+    startRandom();
+  } else {
+    stopRandom();
+  }
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => setMode(btn.dataset.mode));
+});
+
+// ─────────────────────────────────────────────
+// UI — INTERVAL BUTTONS
+// ─────────────────────────────────────────────
+document.querySelectorAll('.interval-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    randomInterval = parseInt(btn.dataset.secs, 10);
+    if (mode === 'random') startRandom(); // restart with new interval
+  });
+});
+
+// ─────────────────────────────────────────────
+// UI — NAV BUTTONS
+// ─────────────────────────────────────────────
+document.getElementById('btn-prev').addEventListener('click', () => {
+  if (mode === 'random') startRandom(); // reset timer
+  switchTo(currentIdx - 1);
+});
+document.getElementById('btn-next').addEventListener('click', () => {
+  if (mode === 'random') startRandom();
+  switchTo(currentIdx + 1);
+});
+
+// ─────────────────────────────────────────────
+// UI — SCRIPT LIST
+// ─────────────────────────────────────────────
+function renderList() {
+  const list = document.getElementById('script-list');
+  list.innerHTML = '';
+  scripts.forEach((name, i) => {
+    const item = document.createElement('div');
+    item.className = 'script-item' + (i === currentIdx ? ' active' : '');
+    item.innerHTML = `<div class="dot"></div><div class="sname">${name}</div>`;
+    item.addEventListener('click', () => {
+      if (mode === 'random') startRandom();
+      switchTo(i);
+    });
+    list.appendChild(item);
+  });
+  // scroll active into view
+  const active = list.querySelector('.script-item.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+// ─────────────────────────────────────────────
+// UI — COLLAPSE / EXPAND
+// ─────────────────────────────────────────────
+const panel = document.getElementById('panel');
+const collapseBtn = document.getElementById('collapse-btn');
+
+collapseBtn.addEventListener('click', () => {
+  const collapsed = panel.classList.toggle('collapsed');
+  collapseBtn.textContent = collapsed ? '+' : '−';
+});
+
+// ─────────────────────────────────────────────
+// UI — DRAG
+// ─────────────────────────────────────────────
+(function setupDrag() {
+  const header = document.getElementById('panel-header');
+  let dragging = false, ox = 0, oy = 0;
+
+  header.addEventListener('mousedown', e => {
+    if (e.target === collapseBtn) return;
+    dragging = true;
+    const r = panel.getBoundingClientRect();
+    ox = e.clientX - r.left;
+    oy = e.clientY - r.top;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    let x = e.clientX - ox;
+    let y = e.clientY - oy;
+    // clamp to viewport
+    x = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, x));
+    y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, y));
+    panel.style.left = x + 'px';
+    panel.style.top = y + 'px';
+    panel.style.bottom = 'auto';
+  });
+
+  window.addEventListener('mouseup', () => { dragging = false; });
+})();
+
+// ─────────────────────────────────────────────
+// ERROR DISPLAY
+// ─────────────────────────────────────────────
+function showError(msg) {
+  const b = document.getElementById('error-banner');
+  b.textContent = msg;
+  b.style.display = 'block';
+}
+function hideError() {
+  document.getElementById('error-banner').style.display = 'none';
+}
+
+// ─────────────────────────────────────────────
+// KEYBOARD SHORTCUTS
+// ─────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (['INPUT', 'TEXTAREA', 'BUTTON'].includes(document.activeElement.tagName)) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    if (mode === 'random') startRandom();
+    switchTo(currentIdx + 1);
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    if (mode === 'random') startRandom();
+    switchTo(currentIdx - 1);
+  } else if (e.key === 'r' || e.key === 'R') {
+    setMode(mode === 'random' ? 'browse' : 'random');
+  } else if (e.key === ' ') {
+    e.preventDefault();
+    switchTo(randomNextIdx());
+  }
+});
+
+// ─────────────────────────────────────────────
+// BOOT — load manifest then first script
+// ─────────────────────────────────────────────
+(async function boot() {
+  try {
+    const res = await fetch('scripts.json');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    scripts = await res.json();
+  } catch (e) {
+    showError(`Could not load scripts.json: ${e.message}`);
+    return;
+  }
+
+  if (!scripts.length) {
+    showError('scripts.json is empty — no scripts to play');
+    return;
+  }
+
+  renderList();
+  // Start with a random script for fun
+  currentIdx = Math.floor(Math.random() * scripts.length);
+  await switchTo(currentIdx);
+})();
+</script>
+</body>
+</html>
