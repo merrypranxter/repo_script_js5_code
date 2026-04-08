@@ -1,205 +1,181 @@
-if (!canvas._ws) {
-    canvas._ws = {
-        terms: [
-            "CHROMA_LUMA_FAILURES", "AUTHENTICITY_VS_SIMULATION", 
-            "CAUSALITY_VS_DECORATION", "BROADCAST_SIGNAL_FAILURE", 
-            "ARTIFACT_STACK_LOGIC", "MEDIUM_SPECIFICITY", 
-            "CODEC_CORRUPTION", "SIGNAL_DENSITY", "DEAD_WEB_NOSTALGIA", 
-            "CURSED_SHITPOST", "ANONYMOUS_DIGITAL_FOLK", "SHOEGAZE", 
-            "ANTI_DRIFT", "TRACKING_ERROR", "HELICAL_SCAN", "MACROBLOCK_DECAY"
-        ],
-        lines: Array.from({length: 55}, () => ({
-            x: Math.random() * grid.width,
-            y: Math.random() * grid.height,
-            term: "",
-            speed: (Math.random() - 0.5) * 7,
-            size: 14 + Math.pow(Math.random(), 3) * 140,
-            font: Math.random() > 0.6 ? 'Georgia, serif' : '"Courier New", monospace',
-            chromaCol: `hsl(${Math.random()*360}, 100%, 55%)`,
-            chromaOffset: (Math.random() - 0.5) * 40,
-            vertical: Math.random() > 0.85
-        }))
-    };
-    canvas._ws.lines.forEach(l => l.term = canvas._ws.terms[Math.floor(Math.random() * canvas._ws.terms.length)]);
-    canvas._offscreen = document.createElement('canvas');
+const files = repos.flatMap(r => r.files || []).map(f => f.split('/').pop().replace('.md', '').toUpperCase());
+const dictionary = files.length > 0 ? files : ['SIGNAL_LOSS', 'TRACKING_ERR', 'CHROMA_BLEED', 'DATA_CORRUPTION', 'V_SYNC_DROP'];
+
+const w = canvas.width;
+const h = canvas.height;
+
+// Offscreen buffer for the "clean" signal before tape damage
+const buffer = document.createElement('canvas');
+buffer.width = w;
+buffer.height = h;
+const bctx = buffer.getContext('2d', { alpha: false });
+
+// Deterministic pseudo-random for noise
+const hash = (x, y, t) => {
+    let n = Math.sin(x * 12.9898 + y * 78.233 + t * 43.11) * 43758.5453;
+    return n - Math.floor(n);
+};
+
+// --- BUILD THE GHOST SIGNAL (The underlying data trying to survive) ---
+bctx.fillStyle = '#0a0b10';
+bctx.fillRect(0, 0, w, h);
+
+// Base grid / dead web structure
+bctx.strokeStyle = '#1a1f2c';
+bctx.lineWidth = 1;
+for (let i = 0; i < w; i += 40) {
+    bctx.beginPath(); bctx.moveTo(i, 0); bctx.lineTo(i, h); bctx.stroke();
+}
+for (let i = 0; i < h; i += 40) {
+    bctx.beginPath(); bctx.moveTo(0, i); bctx.lineTo(w, i); bctx.stroke();
 }
 
-const ws = canvas._ws;
-const w = grid.width;
-const h = grid.height;
-
-if (canvas._offscreen.width !== w || canvas._offscreen.height !== h) {
-    canvas._offscreen.width = w;
-    canvas._offscreen.height = h;
-}
-const octx = canvas._offscreen.getContext('2d');
-
-octx.fillStyle = '#040506';
-octx.fillRect(0, 0, w, h);
-
-octx.filter = 'blur(60px)';
-octx.globalCompositeOperation = 'screen';
-for (let i = 0; i < 4; i++) {
-    const bx = w/2 + Math.sin(time * 0.15 + i * 2.1) * w * 0.4;
-    const by = h/2 + Math.cos(time * 0.22 + i * 1.7) * h * 0.4;
-    octx.fillStyle = `hsla(${260 + i * 80}, 70%, 25%, 0.6)`;
-    octx.beginPath();
-    octx.arc(bx, by, 400, 0, Math.PI * 2);
-    octx.fill();
-}
-octx.globalCompositeOperation = 'source-over';
-
-octx.textBaseline = 'middle';
-octx.textAlign = 'center';
-const lumaGlobal = 0.6 + Math.random() * 0.4;
-
-ws.lines.forEach(l => {
-    if (l.vertical) {
-        l.x += l.speed;
-        if (l.x > w + 300) l.x = -300;
-        if (l.x < -300) l.x = w + 300;
-    } else {
-        l.y += l.speed;
-        if (l.y > h + 300) l.y = -300;
-        if (l.y < -300) l.y = h + 300;
-    }
-    if (Math.random() < 0.005) {
-        l.term = ws.terms[Math.floor(Math.random() * ws.terms.length)];
-        l.chromaOffset = (Math.random() - 0.5) * 50;
-    }
-});
-
-octx.filter = 'blur(8px)';
-ws.lines.forEach((l, i) => {
-    octx.save();
-    octx.translate(l.x, l.y);
-    if (l.vertical) octx.rotate(-Math.PI / 2);
-    octx.font = `bold ${l.size}px ${l.font}`;
-    octx.fillStyle = l.chromaCol;
-    octx.fillText(l.term, l.chromaOffset + Math.sin(time*12 + i)*6, 0);
-    octx.restore();
-});
-
-octx.filter = 'none';
-const lumaVal = Math.min(255, Math.floor(255 * lumaGlobal * (0.3 + Math.random()*0.7)));
-octx.fillStyle = `rgb(${lumaVal}, ${lumaVal}, ${lumaVal})`;
-ws.lines.forEach((l) => {
-    octx.save();
-    octx.translate(l.x, l.y);
-    if (l.vertical) octx.rotate(-Math.PI / 2);
-    octx.font = `bold ${l.size}px ${l.font}`;
-    octx.fillText(l.term, 0, 0);
-    octx.restore();
-});
-
-if (Math.random() < 0.35) {
-    const blocks = Math.floor(Math.random() * 15);
-    for (let i=0; i<blocks; i++) {
-        const bx = Math.floor(Math.random() * w);
-        const by = Math.floor(Math.random() * h);
-        const bw = 32 + Math.floor(Math.random() * 6) * 32;
-        const bh = 32 + Math.floor(Math.random() * 6) * 32;
-        const shiftX = Math.floor((Math.random() - 0.5) * 8) * 32;
-        
-        if (Math.random() < 0.15) {
-            octx.globalCompositeOperation = 'difference';
-            octx.fillStyle = '#ffffff';
-            octx.fillRect(bx + shiftX, by, bw, bh);
-            octx.globalCompositeOperation = 'source-over';
-        } else {
-            octx.drawImage(canvas._offscreen, bx, by, bw, bh, bx + shiftX, by, bw, bh);
-        }
+// Drifting data blocks
+const blockCount = 15;
+for (let i = 0; i < blockCount; i++) {
+    const py = (hash(i, 0, 0) * h + time * 50 * hash(i, 1, 0)) % h;
+    const px = hash(i, 2, 0) * w;
+    const bw = hash(i, 3, 0) * 300 + 100;
+    const bh = hash(i, 4, 0) * 60 + 20;
+    
+    bctx.fillStyle = hash(i, 5, 0) > 0.8 ? '#2a3b4c' : '#11151c';
+    bctx.fillRect(px, py, bw, bh);
+    
+    bctx.fillStyle = '#4a5b6c';
+    bctx.font = '10px monospace';
+    const word = dictionary[i % dictionary.length];
+    for (let ty = py + 12; ty < py + bh; ty += 12) {
+        bctx.fillText(word + " " + hash(i, ty, time).toString(16).substring(2, 8), px + 5, ty);
     }
 }
+
+// SMPTE Color bars (decaying)
+const colors = ['#c0c0c0', '#c0c000', '#00c0c0', '#00c000', '#c000c0', '#c00000', '#0000c0'];
+const barWidth = w / colors.length;
+bctx.globalAlpha = 0.15 + Math.sin(time * 2) * 0.05;
+colors.forEach((c, i) => {
+    bctx.fillStyle = c;
+    bctx.fillRect(i * barWidth, 0, barWidth, h);
+});
+bctx.globalAlpha = 1.0;
+
+// OSD (On Screen Display)
+bctx.fillStyle = '#00ff00';
+bctx.font = '24px monospace';
+bctx.fillText('PLAY', 40, 50);
+bctx.fillText('SP', w - 80, 50);
+const tc = new Date(time * 1000).toISOString().substr(11, 8);
+bctx.fillText(`TCR 00:${tc}`, 40, h - 40);
+
+// --- APPLY VHS TAPE DAMAGE AND RENDER TO MAIN CANVAS ---
 
 ctx.fillStyle = '#000';
 ctx.fillRect(0, 0, w, h);
 
-const trackingY = (time * 220) % h;
-const trackingIntensity = Math.sin(time * 4) * 70 + 50;
-
-let currentY = 0;
-while (currentY < h) {
-    let sliceH = Math.floor(2 + Math.random() * 7);
-    if (currentY + sliceH > h) sliceH = h - currentY;
-    
-    let shiftX = 0;
-    const distToRoll = Math.abs(currentY - trackingY);
-    const distToBottom = Math.abs(currentY - h);
-    
-    let intensity = 0;
-    if (distToRoll < 250) intensity = Math.max(intensity, 1 - (distToRoll / 250));
-    if (distToBottom < 150) intensity = Math.max(intensity, 1 - (distToBottom / 150));
-    
-    if (intensity > 0) {
-        shiftX = (Math.random() - 0.5) * trackingIntensity * intensity * 2.5;
-        if (Math.random() < intensity * 0.12) {
-            ctx.fillStyle = Math.random() > 0.5 ? '#d0d0d0' : (Math.random() > 0.5 ? '#ff00aa' : '#00ffaa');
-            ctx.fillRect(0, currentY, w, sliceH);
-            currentY += sliceH;
-            continue;
-        }
-    }
-    
-    if (mouse.isPressed) {
-        const mDist = Math.abs(currentY - mouse.y);
-        if (mDist < 180) {
-            shiftX += (Math.random() - 0.5) * (180 - mDist) * 1.5;
-            if (Math.random() < 0.08) {
-                ctx.globalCompositeOperation = 'difference';
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, currentY, w, sliceH);
-                ctx.globalCompositeOperation = 'source-over';
-            }
-        }
-    }
-
-    if (Math.random() < 0.1) shiftX += (Math.random() - 0.5) * 12;
-
-    ctx.drawImage(canvas._offscreen, 0, currentY, w, sliceH, shiftX, currentY, w, sliceH);
-    currentY += sliceH;
+// V-Sync Roll logic
+let vSyncOffset = 0;
+if (mouse.isPressed) {
+    // Complete sync failure
+    vSyncOffset = (time * 800) % h;
+} else {
+    // Occasional micro-slips
+    if (hash(0, 0, time) > 0.98) vSyncOffset = hash(1, 1, time) * 50;
 }
 
-ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+// Tracking noise band
+const trackingCenter = mouse.isPressed ? h/2 : mouse.y || h * 0.8;
+const trackingWidth = 150 + Math.sin(time * 10) * 50;
+
+// Chroma bleed intensity based on mouse X (or time if no mouse)
+const chromaOffset = mouse.x ? (mouse.x / w) * 10 : 3 + Math.sin(time) * 2;
+
+// Slice up the buffer and draw it with distortions
+const sliceHeight = 4; // Resolution of the tearing
+for (let y = 0; y < h; y += sliceHeight) {
+    
+    // Calculate source Y with V-sync roll
+    let srcY = (y - vSyncOffset + h) % h;
+    
+    // Calculate horizontal shift (jitter + tracking tear)
+    let shiftX = 0;
+    
+    // Base high-frequency jitter
+    if (hash(y, 0, time) > 0.9) shiftX += (hash(y, 1, time) - 0.5) * 10;
+    
+    // Tracking tear (proximity to tracking center)
+    const distToTracking = Math.abs(y - trackingCenter);
+    if (distToTracking < trackingWidth) {
+        const tearIntensity = 1 - (distToTracking / trackingWidth);
+        shiftX += Math.sin(y * 0.1 + time * 20) * (50 * tearIntensity * tearIntensity);
+        
+        // Sometimes drop the signal entirely in the tracking band (static)
+        if (hash(y, 2, time) < 0.3 * tearIntensity) {
+            ctx.fillStyle = hash(y, 3, time) > 0.5 ? '#fff' : '#000';
+            ctx.fillRect(0, y, w, sliceHeight);
+            continue; // Skip drawing the image slice here
+        }
+    }
+    
+    // Tape crease / wrinkle (slow moving vertical wave)
+    const crease = Math.sin(y * 0.005 + time) * Math.cos(y * 0.02 - time * 0.5) * 20;
+    shiftX += crease;
+
+    // Draw Chroma Separated Slices
+    ctx.globalCompositeOperation = 'screen';
+    
+    // Red channel
+    ctx.drawImage(buffer, 
+        0, srcY, w, sliceHeight, 
+        shiftX + chromaOffset, y, w, sliceHeight);
+        
+    // Blue/Green channel (cyan-ish)
+    ctx.drawImage(buffer, 
+        0, srcY, w, sliceHeight, 
+        shiftX - chromaOffset, y, w, sliceHeight);
+        
+    // Reset composite for next loop if needed, though screen builds up nicely
+    ctx.globalCompositeOperation = 'source-over';
+}
+
+// --- OVERLAYS: SCANLINES, NOISE, HEAD SWITCHING ---
+
+// CRT Scanlines
+ctx.fillStyle = 'rgba(0,0,0,0.3)';
 for (let y = 0; y < h; y += 3) {
     ctx.fillRect(0, y, w, 1);
 }
-for (let y = 0; y < h; y += 15) {
-    ctx.fillRect(0, y, w, 2);
-}
 
-ctx.globalCompositeOperation = 'screen';
-const noiseDensity = mouse.isPressed ? 1200 : 350;
-for(let i=0; i<noiseDensity; i++) {
-    const nx = Math.random() * w;
-    const ny = Math.random() * h;
-    const nw = Math.random() * 10 + 2;
-    const nh = Math.random() * 2 + 1;
-    ctx.fillStyle = Math.random() > 0.6 ? 'rgba(255,255,255,0.18)' : `rgba(${Math.random()*255}, ${Math.random()*255}, 255, 0.12)`;
-    ctx.fillRect(nx, ny, nw, nh);
-}
-ctx.globalCompositeOperation = 'source-over';
-
-const grad = ctx.createRadialGradient(w/2, h/2, h*0.45, w/2, h/2, h*0.85);
-grad.addColorStop(0, 'rgba(0,0,0,0)');
-grad.addColorStop(1, 'rgba(0,0,0,0.85)');
-ctx.fillStyle = grad;
-ctx.fillRect(0, 0, w, h);
-
-ctx.fillStyle = '#00ff00';
-ctx.font = 'bold 36px "Courier New", Courier, monospace';
-ctx.textAlign = 'left';
-ctx.textBaseline = 'top';
-
-if (Math.random() > 0.08) {
-    ctx.fillText("PLAY ►", 45, 45);
-    const timeStr = new Date(time * 1000).toISOString().substring(11, 19);
-    ctx.fillText(`SP  ${timeStr}`, w - 300, h - 70);
+// Analog Snow / Luma noise
+const imgData = ctx.getImageData(0, 0, w, h);
+const data = imgData.data;
+for (let i = 0; i < data.length; i += 4) {
+    // Add noise
+    const noise = (Math.random() - 0.5) * 40;
+    data[i] = Math.max(0, Math.min(255, data[i] + noise));
+    data[i+1] = Math.max(0, Math.min(255, data[i+1] + noise));
+    data[i+2] = Math.max(0, Math.min(255, data[i+2] + noise));
     
-    if (Math.random() < 0.1) {
-        ctx.fillStyle = '#ff0055';
-        ctx.fillText("ERR: " + ws.terms[Math.floor(Math.random() * ws.terms.length)], 45, h - 70);
-    } else {
-        ctx.fillText("TRACKING: AUTO", 45, h - 70);
-    }
+    // Desaturate slightly to mimic dying magnetic tape
+    const gray = data[i] * 0.3 + data[i+1] * 0.59 + data[i+2] * 0.11;
+    data[i] = data[i] * 0.8 + gray * 0.2;
+    data[i+1] = data[i+1] * 0.8 + gray * 0.2;
+    data[i+2] = data[i+2] * 0.8 + gray * 0.2;
 }
+ctx.putImageData(imgData, 0, 0);
+
+// Head switching noise at the bottom
+const headSwitchHeight = 20 + Math.random() * 10;
+const headSwitchY = h - headSwitchHeight;
+ctx.fillStyle = 'rgba(255,255,255,0.1)';
+ctx.fillRect(0, headSwitchY, w, headSwitchHeight);
+for(let i=0; i<w; i+= Math.random() * 10 + 5) {
+    ctx.fillStyle = Math.random() > 0.5 ? '#fff' : '#000';
+    ctx.fillRect(i + Math.sin(time*50)*10, headSwitchY + Math.random()*headSwitchHeight, Math.random()*20, 2);
+}
+
+// Vignette / Tube edge darkening
+const gradient = ctx.createRadialGradient(w/2, h/2, h/3, w/2, h/2, h);
+gradient.addColorStop(0, 'rgba(0,0,0,0)');
+gradient.addColorStop(1, 'rgba(0,0,0,0.8)');
+ctx.fillStyle = gradient;
+ctx.fillRect(0, 0, w, h);
