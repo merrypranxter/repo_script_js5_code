@@ -1,137 +1,109 @@
-const terms = [];
-try {
-    repos.forEach(r => {
-        if (r.fileTree) {
-            r.fileTree.forEach(f => {
-                const name = f.split('/').pop().replace(/\.[^/.]+$/, "").replace(/[-_]/g, ' ');
-                if (name.length > 3) terms.push(name.toUpperCase());
-            });
-        }
-    });
-} catch(e) {}
-if (terms.length === 0) {
-    terms.push("BROADCAST FAILURE", "CHROMA LUMA", "ARTIFACT DRIVER", "SIGNAL NOISE", "TAPE CRINKLE", "V-SYNC LOSS");
-}
+const vocab = repos.flatMap(r => {
+    const str = r.fileTree || '';
+    return str.match(/[a-zA-Z0-9]+[_\-][a-zA-Z0-9]+/g) || [];
+}).filter(w => w.length > 5 && !w.includes('github') && !w.includes('json') && !w.includes('README'));
 
-const chars = "█▓▒░<>+=-_~*&^%$#@!\\/|";
+const words = vocab.length > 5 ? vocab : [
+    "CHROMA_LUMA", "ANTI_DRIFT", "DEAD_WEB", "CURSED_SHITPOST", 
+    "ARTIFACT_STACK", "BROADCAST_FAILURE", "CODEC_CORRUPTION", "SIGNAL_DENSITY"
+];
 
-ctx.globalCompositeOperation = "source-over";
-ctx.fillStyle = `rgba(3, 8, 4, ${Math.random() > 0.92 ? 0.6 : 0.15})`;
+canvas.frame = (canvas.frame || 0) + 1;
+const f = canvas.frame;
+
+let trackingWave = Math.sin(time * 3.1) * Math.cos(time * 1.7) * 4;
+if (mouse.isPressed) trackingWave += (Math.random() - 0.5) * 20;
+
+let vSyncDrop = 0.5; // Slow downward tape drift
+if (Math.random() < 0.03) vSyncDrop = Math.random() * 15 + 5; // Stutter
+if (Math.random() < 0.005) vSyncDrop = canvas.height * 0.3; // Major V-Sync roll
+
+ctx.globalCompositeOperation = 'lighten';
+ctx.globalAlpha = 0.88; 
+ctx.drawImage(
+    canvas, 
+    0, 0, canvas.width, canvas.height, 
+    trackingWave, vSyncDrop, canvas.width + (Math.sin(time)*1.5), canvas.height
+);
+ctx.globalAlpha = 1.0;
+
+ctx.globalCompositeOperation = 'source-over';
+ctx.fillStyle = `rgba(4, 6, 10, ${mouse.isPressed ? 0.05 : 0.25})`; 
 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-ctx.globalCompositeOperation = "screen";
-
-let t = time;
-const stutter = Math.floor(time * 15) % 7 === 0 ? Math.sin(time * 100) * 0.2 : 0;
-t += stutter;
-
-let vSyncRoll = 0;
-if (Math.sin(t * 0.5) > 0.9) {
-    vSyncRoll = (t * 1200) % canvas.height;
+if (Math.random() > 0.8) {
+    ctx.fillStyle = `rgba(255, 0, 80, 0.03)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+} else if (Math.random() > 0.8) {
+    ctx.fillStyle = `rgba(0, 255, 100, 0.03)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-const fontSize = 18;
-ctx.font = `bold ${fontSize}px monospace`;
-ctx.textBaseline = "top";
+ctx.font = 'bold 22px monospace';
+ctx.textBaseline = 'middle';
+let numInjections = mouse.isPressed ? 12 : 3;
 
-const bandHeight = fontSize;
-const mouseMag = mouse.isPressed ? 300 : 100;
-
-for (let y = 0; y < canvas.height; y += bandHeight) {
-    let actualY = (y + vSyncRoll) % canvas.height;
+for(let i=0; i<numInjections; i++) {
+    let word = words[Math.floor(Math.random() * words.length)].toUpperCase();
     
-    let skew = Math.sin(y * 0.02 + t * 3) * 15;
-    
-    const isGlitchBand = Math.sin(y * 0.1 - t * 8) > 0.7;
-    let damageLevel = 0;
-    
-    if (isGlitchBand) {
-        skew += (Math.random() - 0.5) * 80;
-        damageLevel = Math.random();
+    let x, y;
+    if (mouse.isPressed) {
+        x = mouse.x + (Math.random() - 0.5) * 200;
+        y = mouse.y + (Math.random() - 0.5) * 200;
+    } else {
+        x = (Math.floor(Math.random() * grid.cols) * (canvas.width/grid.cols));
+        y = (Math.floor(Math.random() * grid.rows) * (canvas.height/grid.rows));
     }
 
-    const dy = mouse.y - actualY;
-    if (Math.abs(dy) < mouseMag) {
-        const pull = 1 - Math.abs(dy) / mouseMag;
-        skew += Math.sin(t * 20 + y) * 150 * pull;
-        damageLevel = Math.max(damageLevel, pull);
+    if (Math.random() > 0.7) word = word.replace(/[AEIOU]/g, '█');
+    if (Math.random() > 0.9) word = word.split('').sort(() => Math.random() - 0.5).join('');
+
+    let rShift = Math.sin(time * 12 + i) * 6;
+    let bShift = Math.cos(time * 18 + i) * -6;
+
+    if (mouse.isPressed) {
+        rShift *= 4;
+        bShift *= 4;
     }
 
-    const termIdx = Math.floor(y / bandHeight + Math.floor(t)) % terms.length;
-    let baseText = terms[termIdx] + " // ";
+    ctx.globalCompositeOperation = 'screen';
     
-    if (damageLevel > 0.3) {
-        let arr = baseText.split('');
-        for (let i = 0; i < arr.length; i++) {
-            if (Math.random() < damageLevel * 0.5) {
-                arr[i] = chars[Math.floor(Math.random() * chars.length)];
-            }
-        }
-        baseText = arr.join('');
-    }
-
-    const repeatCount = Math.ceil(canvas.width / (baseText.length * fontSize * 0.6)) + 2;
-    const text = baseText.repeat(repeatCount);
-
-    const scroll = (t * 40 * ((termIdx % 3) + 1)) % (baseText.length * fontSize * 0.6);
+    ctx.fillStyle = '#FF003C';
+    ctx.fillText(word, x + rShift, y);
     
-    const scaleX = damageLevel > 0.8 ? 2.5 : 1;
+    ctx.fillStyle = '#00FF44';
+    ctx.fillText(word, x, y);
     
-    ctx.save();
-    ctx.translate(skew, actualY);
-    ctx.scale(scaleX, 1);
-    
-    const rOffset = damageLevel > 0.2 ? -5 * damageLevel : -1;
-    const bOffset = damageLevel > 0.2 ? 5 * damageLevel : 1;
-
-    ctx.fillStyle = "rgba(255, 30, 50, 0.8)";
-    ctx.fillText(text, -scroll + rOffset, 0);
-
-    ctx.fillStyle = "rgba(30, 255, 80, 0.8)";
-    ctx.fillText(text, -scroll, 0);
-
-    ctx.fillStyle = "rgba(30, 50, 255, 0.8)";
-    ctx.fillText(text, -scroll + bOffset, 0);
-
-    ctx.restore();
-    
-    if (damageLevel > 0.9 && Math.random() > 0.5) {
-        ctx.fillStyle = "rgba(200, 255, 200, 0.9)";
-        ctx.fillRect(skew, actualY, canvas.width, bandHeight);
-    }
+    ctx.fillStyle = '#0044FF';
+    ctx.fillText(word, x + bShift, y);
 }
 
-const numTears = Math.floor(Math.random() * 8);
-for (let i = 0; i < numTears; i++) {
-    if (Math.random() > 0.4) continue;
-    const ty = Math.random() * canvas.height;
-    const th = Math.random() * 40 + 5;
-    const tx = (Math.random() - 0.5) * 120;
-    ctx.drawImage(canvas, 0, ty, canvas.width, th, tx, ty, canvas.width, th);
+ctx.globalCompositeOperation = 'source-over';
+let tears = Math.floor(Math.random() * 6) + (mouse.isPressed ? 10 : 0);
+for (let i=0; i<tears; i++) {
+    let ty = Math.random() * canvas.height;
+    let th = Math.random() * 30 + 2;
+    let tx = (Math.random() - 0.5) * 40;
+    
+    if (Math.random() > 0.85) tx *= 6; 
+    
+    ctx.drawImage(
+        canvas,
+        0, ty, canvas.width, th,
+        tx, ty, canvas.width, th
+    );
+    
+    ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.15})`;
+    ctx.fillRect(0, ty, canvas.width, th);
 }
 
-ctx.globalCompositeOperation = "source-over";
-ctx.font = "bold 24px monospace";
-ctx.fillStyle = Math.floor(time * 2) % 2 === 0 ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)";
-ctx.fillText("PLAY ▻", 40, 40);
-
-ctx.font = "16px monospace";
-ctx.fillStyle = "rgba(255,255,255,0.7)";
-ctx.fillText("SP", 40, 70);
-
-if (mouse.isPressed || Math.random() > 0.95) {
-    ctx.fillStyle = "rgba(255, 50, 50, 0.9)";
-    ctx.fillText("TRACKING ERROR", 40, canvas.height - 60);
+ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+for (let y = 0; y < canvas.height; y += 3) {
+    ctx.fillRect(0, y, canvas.width, 1);
 }
 
-const noiseData = ctx.createImageData(canvas.width, canvas.height);
-const buf = new Uint32Array(noiseData.data.buffer);
-for (let i = 0; i < buf.length; i++) {
-    if (Math.random() < 0.05) {
-        buf[i] = 0xff000000 | (Math.random() * 255 << 16) | (Math.random() * 255 << 8) | (Math.random() * 255);
-    }
-}
-ctx.globalCompositeOperation = "screen";
-ctx.globalAlpha = 0.15;
-ctx.putImageData(noiseData, 0, 0);
-ctx.globalAlpha = 1.0;
+ctx.fillStyle = '#FFFFFF';
+ctx.font = '14px monospace';
+ctx.globalCompositeOperation = 'difference';
+const timecode = `PLAY EP ${Math.floor(time/60).toString().padStart(2,'0')}:${(Math.floor(time)%60).toString().padStart(2,'0')}:${Math.floor((time%1)*30).toString().padStart(2,'0')} // ${input.toUpperCase()}`;
+ctx.fillText(timecode, 20, canvas.height - 20);
