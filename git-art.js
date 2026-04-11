@@ -1,205 +1,246 @@
-const FERAL_LISA_FRANK_CA = (() => {
-    let initialized = false;
-    let cols, rows;
-    let cellSize = 8;
-    let cells = [];
-    let nextCells = [];
-    let ages = [];
-    
-    // Rule 30 1D array
-    let rule30 = [];
-    let nextRule30 = [];
-    let scanlineY = 0;
+// [FERAL DESIGN-BRAIN: ENGAGED]
+// OBVIOUS ANSWER: A simple 2D grid showing Conway's Game of Life in neon colors.
+// REJECTION: Too clean, too static, too expected.
+// STRANGE MECHANISM: "Overclocked Dither-Voxel Display Matrix." 
+// We combine 1D Elementary Cellular Automata (Wolfram rules) cascading down a 2D isometric grid.
+// The cells don't move; they act as a physical height-map matrix. 
+// We inject the "pixel_voxel" repo's Bayer 4x4 ordered dithering directly into the voxel faces 
+// using procedurally generated canvas patterns, forced through a hyper-saturated "Lisa Frank" acid palette.
+// The system suffers from domain warping (spatial distortion) and emits neon spores when cells overheat.
 
-    const numStates = 14;
-    const palette = [];
-    const spotColor = '#0a0510'; // Deep dark violet/black for leopard spots
-
-    // Generate a hyper-vibrant, slightly toxic Lisa Frank palette
-    for (let i = 0; i < numStates; i++) {
-        let h = (i / numStates) * 360;
-        // Warp hues to favor hot pinks, cyans, and electric yellows, skip muddy greens
-        if (h > 80 && h < 160) h += 90; 
-        palette.push(`hsl(${h}, 100%, 60%)`);
-    }
-
-    function init(width, height) {
-        cols = Math.floor(width / cellSize);
-        rows = Math.floor(height / cellSize);
+(function(ctx, grid, time, repos, input, mouse, canvas) {
+    // 1. INITIALIZE FERAL STATE
+    if (!canvas.__weirdState) {
+        const W = 40;
+        const H = 40;
         
-        cells = new Int32Array(cols * rows);
-        nextCells = new Int32Array(cols * rows);
-        ages = new Int32Array(cols * rows);
-        
-        rule30 = new Int32Array(cols);
-        nextRule30 = new Int32Array(cols);
+        // Lisa Frank Acid Palette
+        const colors = [
+            "#FF0099", // Neon Magenta
+            "#00FFFF", // Cyan
+            "#FAFF00", // Electric Yellow
+            "#00FF66", // Toxic Green
+            "#8A2BE2"  // Deep Violet
+        ];
 
-        // Seed Cyclic CA with noise
-        for (let i = 0; i < cells.length; i++) {
-            cells[i] = Math.floor(Math.random() * numStates);
-            ages[i] = 0;
-        }
+        // Bayer 4x4 matrix for Ditherpunk aesthetic
+        const bayer = [
+            0, 8, 2, 10,
+            12, 4, 14, 6,
+            3, 11, 1, 9,
+            15, 7, 13, 5
+        ];
 
-        // Seed Rule 30 with a single point
-        rule30[Math.floor(cols / 2)] = 1;
-        
-        initialized = true;
-    }
-
-    function getIndex(x, y) {
-        // Toroidal wrap
-        const cx = (x + cols) % cols;
-        const cy = (y + rows) % rows;
-        return cx + cy * cols;
-    }
-
-    function update(mouse, time) {
-        // --- 1. CYCLIC CA UPDATE (The Neon Swarm) ---
-        // Threshold fluctuates to create "breathing" spirals
-        const baseThreshold = 1;
-        const dynamicThreshold = baseThreshold + Math.floor(Math.sin(time * 2) * 1.5); 
-
-        for (let y = 0; y < rows; y++) {
-            for (let x = 0; x < cols; x++) {
-                const idx = getIndex(x, y);
-                const currentState = cells[idx];
-                const targetState = (currentState + 1) % numStates;
-                let targetCount = 0;
-
-                // Moore neighborhood
-                for (let dy = -1; dy <= 1; dy++) {
-                    for (let dx = -1; dx <= 1; dx++) {
-                        if (dx === 0 && dy === 0) continue;
-                        if (cells[getIndex(x + dx, y + dy)] === targetState) {
-                            targetCount++;
-                        }
-                    }
-                }
-
-                // Mouse interaction: localized chaos injection
-                let distToMouse = 9999;
-                if (mouse.x && mouse.y) {
-                    const mx = mouse.x / cellSize;
-                    const my = mouse.y / cellSize;
-                    distToMouse = Math.hypot(mx - x, my - y);
-                }
-
-                if (distToMouse < 5 && mouse.isPressed) {
-                    nextCells[idx] = Math.floor(Math.random() * numStates);
-                    ages[idx] = 0;
-                } else if (targetCount >= Math.max(1, dynamicThreshold)) {
-                    nextCells[idx] = targetState;
-                    ages[idx] = 0; // Reset age on change
-                } else {
-                    nextCells[idx] = currentState;
-                    ages[idx]++; // Age increases if stagnant
-                }
-            }
-        }
-
-        // Swap buffers
-        for (let i = 0; i < cells.length; i++) {
-            cells[i] = nextCells[i];
-        }
-
-        // --- 2. RULE 30 INJECTION (The Bureaucratic Glitch) ---
-        // A 1D CA that sweeps down the screen, corrupting the 2D spirals
-        for (let x = 0; x < cols; x++) {
-            const left = rule30[(x - 1 + cols) % cols];
-            const center = rule30[x];
-            const right = rule30[(x + 1) % cols];
+        // Generate Dither Patterns
+        const patterns = [];
+        for (let i = 0; i < colors.length; i++) {
+            let c1 = colors[i];
+            let c2 = colors[(i + 1) % colors.length];
             
-            // Rule 30 binary: 00011110
-            const pattern = (left << 2) | (center << 1) | right;
-            nextRule30[x] = (30 >> pattern) & 1;
-        }
-
-        for (let x = 0; x < cols; x++) {
-            rule30[x] = nextRule30[x];
-            // Inject the 1D glitch into the 2D grid at the scanline
-            if (rule30[x] === 1) {
-                const idx = getIndex(x, scanlineY);
-                cells[idx] = (cells[idx] + 7) % numStates; // Spike the color
-                ages[idx] = 0;
-            }
-        }
-
-        scanlineY = (scanlineY + 1) % rows;
-    }
-
-    function draw(ctx, width, height, time) {
-        // Feral smearing: don't clear completely, leave a dark trail
-        ctx.fillStyle = 'rgba(5, 2, 10, 0.15)';
-        ctx.fillRect(0, 0, width, height);
-
-        // Domain warping parameters
-        const warpFreq = 0.05;
-        const warpAmp = 5;
-
-        for (let y = 0; y < rows; y++) {
-            for (let x = 0; x < cols; x++) {
-                const idx = getIndex(x, y);
-                const state = cells[idx];
-                const age = ages[idx];
-
-                // Warp the grid slightly so it feels organic/melted
-                const drawX = x * cellSize + Math.sin(y * warpFreq + time) * warpAmp;
-                const drawY = y * cellSize + Math.cos(x * warpFreq + time) * warpAmp;
-
-                if (age > 40) {
-                    // LEOPARD SPOTS: Cells that resist change crystallize into dark voids
-                    // This mimics Lisa Frank animal print overlays
-                    const spotSize = Math.min(cellSize * 1.5, (age - 40) * 0.2);
-                    ctx.fillStyle = spotColor;
-                    ctx.beginPath();
-                    ctx.arc(drawX + cellSize/2, drawY + cellSize/2, spotSize, 0, Math.PI * 2);
-                    ctx.fill();
-                } else {
-                    // NEON BLOOM: Active cells
-                    ctx.fillStyle = palette[state];
-                    
-                    // Pulse size based on state and time
-                    const sizePulse = cellSize * 0.4 + (Math.sin(time * 5 + state) * cellSize * 0.3);
-                    
-                    if (state % 3 === 0) {
-                        // Draw some as stars/diamonds
-                        ctx.beginPath();
-                        ctx.moveTo(drawX + cellSize/2, drawY - sizePulse);
-                        ctx.lineTo(drawX + cellSize/2 + sizePulse, drawY + cellSize/2);
-                        ctx.lineTo(drawX + cellSize/2, drawY + cellSize + sizePulse);
-                        ctx.lineTo(drawX + cellSize/2 - sizePulse, drawY + cellSize/2);
-                        ctx.fill();
-                    } else {
-                        // Draw others as fluid circles
-                        ctx.beginPath();
-                        ctx.arc(drawX + cellSize/2, drawY + cellSize/2, sizePulse, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
+            let makePat = (col1, col2, mode) => {
+                let oc = document.createElement('canvas');
+                oc.width = 4; oc.height = 4;
+                let ox = oc.getContext('2d');
+                for (let j = 0; j < 16; j++) {
+                    let fill = col1;
+                    if (mode === 'dither') fill = (bayer[j] / 16 < 0.5) ? col1 : col2;
+                    if (mode === 'solid2') fill = col2;
+                    ox.fillStyle = fill;
+                    ox.fillRect(j % 4, Math.floor(j / 4), 1, 1);
                 }
-            }
+                return ctx.createPattern(oc, 'repeat');
+            };
+
+            patterns.push({
+                top: makePat(c1, c2, 'solid1'),   // Brightest
+                left: makePat(c1, c2, 'dither'),  // Midtone (Dithered)
+                right: makePat(c1, c2, 'solid2'), // Shadow
+                raw: c1
+            });
         }
 
-        // Draw the Glitch Scanline as a searing white/cyan tear
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        for (let x = 0; x < cols; x++) {
-            if (rule30[x] === 1) {
-                const drawX = x * cellSize + Math.sin(scanlineY * warpFreq + time) * warpAmp;
-                const drawY = scanlineY * cellSize + Math.cos(x * warpFreq + time) * warpAmp;
-                ctx.fillRect(drawX, drawY, cellSize, cellSize * 2);
+        // Initialize CA and Height arrays
+        let currCA = new Array(W).fill(0);
+        currCA[Math.floor(W / 2)] = 1; // Seed
+        
+        let history = [];
+        let heights = [];
+        for (let y = 0; y < H; y++) {
+            history.push(new Array(W).fill(0));
+            heights.push(new Array(W).fill(0));
+        }
+
+        canvas.__weirdState = {
+            W: W,
+            H: H,
+            currCA: currCA,
+            history: history,
+            heights: heights,
+            patterns: patterns,
+            lastTick: 0,
+            spores: []
+        };
+    }
+
+    const state = canvas.__weirdState;
+    const { W, H, currCA, history, heights, patterns, spores } = state;
+
+    // 2. CLEAR TO DEEP VOID
+    ctx.fillStyle = '#0a0014';
+    ctx.fillRect(0, 0, grid.width, grid.height);
+
+    // 3. CELLULAR AUTOMATA EVOLUTION (The Engine)
+    // Rule mutates based on time and mouse, creating "glitchy circuitry"
+    let baseRule = Math.floor(time * 3) % 256;
+    let mouseInject = mouse.isPressed ? Math.floor((mouse.x / grid.width) * 255) : 0;
+    let rule = (baseRule ^ mouseInject) % 256;
+
+    if (time - state.lastTick > 0.08) {
+        let nextCA = new Array(W).fill(0);
+        let sum = 0;
+        
+        for (let i = 0; i < W; i++) {
+            let left = currCA[(i - 1 + W) % W];
+            let center = currCA[i];
+            let right = currCA[(i + 1) % W];
+            
+            // Wolfram Elementary CA logic
+            let idx = (left << 2) | (center << 1) | right;
+            nextCA[i] = (rule >> idx) & 1;
+            sum += nextCA[i];
+        }
+
+        // Feral Injection: if it dies out, or mouse is pressed, reseed randomly
+        if (sum === 0 || mouse.isPressed) {
+            nextCA[Math.floor(Math.random() * W)] = 1;
+            nextCA[Math.floor(Math.random() * W)] = 1;
+        }
+
+        // Shift history (waterfall effect)
+        history.pop();
+        history.unshift(currCA);
+        state.currCA = nextCA;
+        state.lastTick = time;
+    }
+
+    // 4. PHYSICS & RELAXATION (The Meat)
+    let maxH = grid.height * 0.15;
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            let target = history[y][x] * maxH;
+            // Smoothly interpolate heights for organic "breathing" matrix
+            heights[y][x] += (target - heights[y][x]) * 0.25;
+        }
+    }
+
+    // 5. ISOMETRIC PROJECTION & RENDER (The Visualization)
+    let halfW = (grid.width * 0.6) / W;
+    let halfH = halfW * 0.5;
+    
+    let cx = grid.width / 2;
+    let cy = grid.height * 0.2; // Start near top
+
+    // Domain Warping parameters
+    let warpFreq = 0.15 + Math.sin(time) * 0.05;
+    let warpAmp = 15;
+
+    // Draw back-to-front for correct isometric overlap
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            let px = cx + (x - y) * halfW;
+            let py = cy + (x + y) * halfH;
+
+            // Spatial distortion (The "Infection")
+            let warp = Math.sin(time * 4 + x * warpFreq + y * warpFreq) * warpAmp;
+            // Mouse repeller
+            let dx = mouse.x - px;
+            let dy = mouse.y - py;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 100) {
+                warp -= (100 - dist) * 0.2;
+            }
+            py += warp;
+
+            let h = heights[y][x];
+
+            // Color cycling based on position and time (Lisa Frank overdrive)
+            let colorIdx = Math.floor((x + y + time * 10) % patterns.length);
+            let pats = patterns[colorIdx];
+
+            // Draw Left Face (Dithered)
+            ctx.fillStyle = pats.left;
+            ctx.beginPath();
+            ctx.moveTo(px - halfW, py - h);
+            ctx.lineTo(px, py + halfH - h);
+            ctx.lineTo(px, py + halfH);
+            ctx.lineTo(px - halfW, py);
+            ctx.fill();
+
+            // Draw Right Face (Solid Shadow)
+            ctx.fillStyle = pats.right;
+            ctx.beginPath();
+            ctx.moveTo(px, py + halfH - h);
+            ctx.lineTo(px + halfW, py - h);
+            ctx.lineTo(px + halfW, py);
+            ctx.lineTo(px, py + halfH);
+            ctx.fill();
+
+            // Draw Top Face (Solid Highlight)
+            ctx.fillStyle = pats.top;
+            ctx.beginPath();
+            ctx.moveTo(px, py - halfH - h);
+            ctx.lineTo(px + halfW, py - h);
+            ctx.lineTo(px, py + halfH - h);
+            ctx.lineTo(px - halfW, py - h);
+            ctx.fill();
+
+            // Crisp 1px Outline (pixel_voxel outline_sobel influence)
+            if (h > 1) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+            // Emit Spores if cell is "hot"
+            if (h > maxH * 0.8 && Math.random() < 0.02) {
+                spores.push({
+                    x: px,
+                    y: py - h,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: -Math.random() * 3 - 1,
+                    life: 1.0,
+                    color: pats.raw
+                });
             }
         }
     }
 
-    return {
-        run: (ctx, grid, time, mouse) => {
-            if (!initialized || cols !== Math.floor(grid.width / cellSize) || rows !== Math.floor(grid.height / cellSize)) {
-                init(grid.width, grid.height);
-            }
-            update(mouse, time);
-            draw(ctx, grid.width, grid.height, time);
-        }
-    };
-})();
+    // 6. SPORE PARTICLE SYSTEM (Emergent Behavior)
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = spores.length - 1; i >= 0; i--) {
+        let s = spores[i];
+        s.x += s.vx;
+        s.y += s.vy;
+        s.vy += 0.05; // slight gravity
+        s.life -= 0.02;
 
-// Main export execution
-FERAL_LISA_FRANK_CA.run(ctx, grid, time, mouse);
+        if (s.life <= 0) {
+            spores.splice(i, 1);
+            continue;
+        }
+
+        let radius = Math.max(0.1, s.life * 4);
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+
+    // 7. HUD / RULE DISPLAY (Diagnostic Feral Output)
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px monospace';
+    ctx.fillText(`CA_RULE: ${rule} | OVERCLOCK: ${warpAmp.toFixed(1)} | SPORES: ${spores.length}`, 10, 20);
+    ctx.fillText(`AESTHETIC: LISA_FRANK_ACID // DITHER: BAYER_4X4`, 10, 35);
+    
+})(ctx, grid, time, repos, input, mouse, canvas);
