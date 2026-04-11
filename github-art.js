@@ -1,225 +1,248 @@
-const PHI = 1.618033988749895; // Golden Ratio (5-fold)
-const DELTA_S = 2.414213562373095; // Silver Ratio (8-fold)
-const PI2 = Math.PI * 2;
+const { width, height } = grid;
+const cx = width / 2;
+const cy = height / 2;
 
-// Feral Initialization
-if (!window.__FERAL_QC) {
-    window.__FERAL_QC = {
-        offCanvas: document.createElement('canvas'),
-        boids: [],
-        res: 4, // Downscale factor for the fluid simulation
-        initialized: false
+// --- PALETTES & VOCABULARY (Glitchcore / MySpace / Laser Cat) ---
+const PALETTE = {
+    magenta: '#FF0080',
+    cyan: '#00FFFF',
+    acid: '#39FF14',
+    violet: '#8A2BE2',
+    white: '#FFFFFF',
+    void: '#05020B'
+};
+const COLORS = [PALETTE.magenta, PALETTE.cyan, PALETTE.acid, PALETTE.violet, PALETTE.white];
+const DEBRIS_TEXTS = [
+    "ERROR_0xDEAD", "xX_laser_Xx", "<blink>pain</blink>", 
+    "404_SHRINE", "datamosh.exe", "typing...", 
+    "A/S/L?", "connection_lost", "burn_the_feed"
+];
+
+// --- STATE INITIALIZATION ---
+// We attach state to the canvas to persist across frames
+if (!canvas.__feralState) {
+    canvas.__feralState = {
+        glitter: Array.from({ length: 150 }, () => ({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            size: Math.random() * 3 + 1,
+            phase: Math.random() * Math.PI * 2,
+            speed: Math.random() * 0.1 + 0.05
+        })),
+        debris: Array.from({ length: 8 }, () => ({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            w: Math.random() * 150 + 50,
+            h: Math.random() * 40 + 20,
+            txt: DEBRIS_TEXTS[Math.floor(Math.random() * DEBRIS_TEXTS.length)],
+            color: COLORS[Math.floor(Math.random() * COLORS.length)],
+            vy: -Math.random() * 2 - 0.5,
+            life: Math.random() * 100
+        })),
+        lastMouse: { x: cx, y: cy },
+        glitchClock: 0
     };
-    window.__FERAL_QC.offCtx = window.__FERAL_QC.offCanvas.getContext('2d', { alpha: false });
-
-    // 5-fold (Penrose) direction vectors
-    window.__FERAL_QC.dirs5 = Array.from({length: 5}, (_, i) => ({
-        x: Math.cos(i * PI2 / 5),
-        y: Math.sin(i * PI2 / 5)
-    }));
-
-    // 8-fold (Ammann-Beenker) direction vectors
-    window.__FERAL_QC.dirs8 = Array.from({length: 4}, (_, i) => ({
-        x: Math.cos(i * Math.PI / 4),
-        y: Math.sin(i * Math.PI / 4)
-    }));
-
-    // Initialize flock of Penrose Kites
-    for (let i = 0; i < 40; i++) {
-        window.__FERAL_QC.boids.push({
-            x: Math.random() * 2000,
-            y: Math.random() * 2000,
-            vx: (Math.random() - 0.5) * 4,
-            vy: (Math.random() - 0.5) * 4,
-            hue: Math.random() * 360,
-            type: Math.random() > 0.5 ? 'kite' : 'dart'
-        });
-    }
+    
+    // Initial black fill
+    ctx.fillStyle = PALETTE.void;
+    ctx.fillRect(0, 0, width, height);
 }
 
-const state = window.__FERAL_QC;
-const w = Math.ceil(grid.width / state.res);
-const h = Math.ceil(grid.height / state.res);
+const state = canvas.__feralState;
+state.glitchClock++;
 
-if (state.offCanvas.width !== w || state.offCanvas.height !== h) {
-    state.offCanvas.width = w;
-    state.offCanvas.height = h;
-    state.imgData = state.offCtx.createImageData(w, h);
-}
+// Smooth mouse tracking for temporal anchor
+state.lastMouse.x += ((mouse.x || cx) - state.lastMouse.x) * 0.1;
+state.lastMouse.y += ((mouse.y || cy) - state.lastMouse.y) * 0.1;
+const mx = state.lastMouse.x;
+const my = state.lastMouse.y;
 
-const data = state.imgData.data;
-const t = time * 0.5;
+// --- 1. TEMPORAL ECHO & DATAMOSH SMEAR (Glitchcore / Damage) ---
+// Instead of clearing the screen, we draw the canvas onto itself, 
+// slightly scaled and shifted towards the temporal anchor (mouse),
+// creating a feedback loop that simulates motion-vector prediction errors.
+ctx.globalCompositeOperation = 'source-over';
 
-// Mouse interaction (Phason Strain Injector)
-let mx = mouse.x / state.res;
-let my = mouse.y / state.res;
-let isPressed = mouse.isPressed;
+// The "Smear" displacement
+const smearScale = mouse.isPressed ? 1.05 : 1.01;
+const dx = (cx - mx) * 0.02;
+const dy = (cy - my) * 0.02;
 
-// --- 1. THE STRANGE MECHANISM: Icosahedral Leopard Sludge ---
-// We generate a continuous 2D scalar field using quasicrystal cut-and-project math.
-// Left side = 5-fold (Penrose), Right side = 8-fold (Ammann-Beenker).
-// We threshold this field to create Lisa Frank leopard spots.
+ctx.translate(mx, my);
+ctx.scale(smearScale, smearScale);
+ctx.translate(-mx + dx, -my + dy);
+ctx.drawImage(canvas, 0, 0);
+ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
 
-let i = 0;
-let scale = 0.15; // Grid frequency
+// Fade out slightly to prevent complete whiteout, leaving "Phosphor Trails"
+ctx.fillStyle = `rgba(5, 2, 11, ${mouse.isPressed ? 0.02 : 0.08})`;
+ctx.fillRect(0, 0, width, height);
 
-for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-        
-        // Domain Warping (The sludge factor)
-        let warpX = Math.sin(y * 0.05 + t) * 2.0;
-        let warpY = Math.cos(x * 0.05 - t) * 2.0;
-        
-        // Phason Strain from mouse (breaks the mathematical perfection)
-        let dx = x - mx;
-        let dy = y - my;
-        let dist = Math.sqrt(dx*dx + dy*dy);
-        let phasonStrain = 0;
-        if (dist < 100) {
-            phasonStrain = Math.exp(-dist * 0.05) * (isPressed ? 10.0 : 2.0) * Math.sin(t * 10);
-        }
-
-        let xx = (x + warpX) * scale;
-        let yy = (y + warpY) * scale;
-
-        // Calculate 5-fold interference (Penrose)
-        let v5 = 0;
-        for (let k = 0; k < 5; k++) {
-            let phase = t * (k % 2 === 0 ? PHI : 1/PHI) + phasonStrain;
-            v5 += Math.cos(xx * state.dirs5[k].x + yy * state.dirs5[k].y + phase);
-        }
-
-        // Calculate 8-fold interference (Ammann-Beenker)
-        let v8 = 0;
-        for (let k = 0; k < 4; k++) {
-            let phase = -t * (k % 2 === 0 ? DELTA_S : 1) - phasonStrain;
-            v8 += Math.cos(xx * state.dirs8[k].x + yy * state.dirs8[k].y + phase);
-        }
-
-        // Spatial blending between 5-fold and 8-fold across the screen
-        let blend = x / w; 
-        let v = v5 * (1 - blend) + v8 * blend;
-
-        // Normalize v roughly to 0..1
-        let vn = (v + 5) / 10; 
-
-        // --- LISA FRANK LEOPARD PRINT LOGIC ---
-        // We use a high-frequency sine on the structural field to create rings (spots)
-        let spotSignal = Math.sin(vn * 30.0 + t * 2.0);
-        
-        let r, g, b;
-
-        // Dead pixels behaving like Lisa Frank glitter
-        if (Math.random() < 0.001) {
-            r = 255; g = 255; b = 255; // Diamond glitter
-        } else if (spotSignal > 0.6 && spotSignal < 0.85) {
-            // The black outline of the leopard spot
-            r = 10; g = 0; b = 20; 
-        } else if (spotSignal >= 0.85) {
-            // The hyper-color inside the spot
-            let spotHue = (vn * 500 + t * 100) % 360;
-            // Fast inline HSL (neon saturated) to RGB approximation for core colors
-            if (spotHue < 120) { r=255; g=0; b=255; } // Magenta
-            else if (spotHue < 240) { r=0; g=255; b=255; } // Cyan
-            else { r=255; g=255; b=0; } // Yellow
-        } else {
-            // The iridescent rainbow sludge background
-            r = Math.sin(vn * 10.0 + t) * 127 + 128;
-            g = Math.sin(vn * 10.0 + t + 2.09) * 127 + 128; // +120 deg
-            b = Math.sin(vn * 10.0 + t + 4.18) * 127 + 128; // +240 deg
-            
-            // Overclock the contrast to make it 'neon'
-            r = r > 180 ? 255 : r * 0.6;
-            g = g > 180 ? 255 : g * 0.6;
-            b = b > 180 ? 255 : b * 0.6;
-        }
-
-        data[i++] = r;
-        data[i++] = g;
-        data[i++] = b;
-        data[i++] = 255;
-    }
-}
-
-state.offCtx.putImageData(state.imgData, 0, 0);
-
-// Draw the feral sludge to the main canvas
-ctx.save();
-// Disable smoothing to let the mathematical grit show through the neon
-ctx.imageSmoothingEnabled = false; 
-ctx.drawImage(state.offCanvas, 0, 0, grid.width, grid.height);
-ctx.restore();
-
-// --- 2. BOIDS: The Penrose Escapees ---
-// Kites and Darts trying to escape the boiling mathematical sludge.
-
-ctx.lineJoin = 'round';
-
-state.boids.forEach(boid => {
-    // Flocking logic (simplified for speed, driven by the background gradient)
-    // Boids seek the mouse, but are repelled by the boundaries
-    let dx = mouse.x - boid.x;
-    let dy = mouse.y - boid.y;
-    let dist = Math.sqrt(dx*dx + dy*dy);
+// --- 2. VHS TRACKING TEAR & COMPRESSION BREAKAGE (Damage Aesthetics) ---
+if (Math.random() < 0.15) {
+    const tearY = Math.random() * height;
+    const tearH = Math.random() * 40 + 5;
+    const tearShift = (Math.random() - 0.5) * (mouse.isPressed ? 200 : 50);
     
-    if (dist > 0) {
-        boid.vx += (dx / dist) * 0.1;
-        boid.vy += (dy / dist) * 0.1;
-    }
-
-    // Add some irrational wandering based on Phi
-    boid.vx += Math.cos(t * PHI + boid.hue) * 0.5;
-    boid.vy += Math.sin(t * DELTA_S + boid.hue) * 0.5;
-
-    // Friction and speed limit
-    let speed = Math.sqrt(boid.vx*boid.vx + boid.vy*boid.vy);
-    if (speed > 8) {
-        boid.vx = (boid.vx / speed) * 8;
-        boid.vy = (boid.vy / speed) * 8;
-    }
+    // Horizontal slice displacement
+    ctx.drawImage(canvas, 0, tearY, width, tearH, tearShift, tearY, width, tearH);
     
-    boid.x += boid.vx;
-    boid.y += boid.vy;
-
-    // Wrap around
-    if (boid.x < 0) boid.x = grid.width;
-    if (boid.x > grid.width) boid.x = 0;
-    if (boid.y < 0) boid.y = grid.height;
-    if (boid.y > grid.height) boid.y = 0;
-
-    // Draw the Penrose Kite or Dart
-    ctx.save();
-    ctx.translate(boid.x, boid.y);
-    let angle = Math.atan2(boid.vy, boid.vx);
-    ctx.rotate(angle + Math.PI / 2); // Point forward
-    
-    let sz = 15;
-    ctx.beginPath();
-    
-    if (boid.type === 'kite') {
-        // Penrose Kite geometry (approximate for visual flair)
-        ctx.moveTo(0, -sz * PHI); // Apex (72 deg)
-        ctx.lineTo(sz, 0);        // Right wing (72 deg)
-        ctx.lineTo(0, sz * 0.618); // Base (144 deg)
-        ctx.lineTo(-sz, 0);       // Left wing (72 deg)
-    } else {
-        // Penrose Dart geometry
-        ctx.moveTo(0, -sz);       // Apex (36 deg)
-        ctx.lineTo(sz * PHI, sz); // Right wing (72 deg)
-        ctx.lineTo(0, sz * 0.382); // Inner reflex (216 deg)
-        ctx.lineTo(-sz * PHI, sz); // Left wing (72 deg)
-    }
-    ctx.closePath();
-
-    // Lisa Frank Neon Styling
+    // Chroma bleed on the tear
     ctx.globalCompositeOperation = 'screen';
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = `hsl(${boid.hue + t * 50}, 100%, 50%)`;
-    ctx.fillStyle = `hsl(${boid.hue + t * 50 + 180}, 100%, 60%)`;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.stroke();
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,0,128,0.3)' : 'rgba(0,255,255,0.3)';
+    ctx.fillRect(tearShift, tearY, width, tearH);
+    ctx.globalCompositeOperation = 'source-over';
+}
+
+// Macroblocking (Candy-Crash Compression)
+if (state.glitchClock % 30 === 0) {
+    for(let i=0; i<5; i++) {
+        ctx.fillStyle = COLORS[Math.floor(Math.random() * COLORS.length)];
+        ctx.globalAlpha = 0.15;
+        const bw = Math.random() * 100 + 20;
+        const bh = Math.random() * 100 + 20;
+        ctx.fillRect(Math.random() * width, Math.random() * height, bw, bh);
+    }
+    ctx.globalAlpha = 1.0;
+}
+
+// --- 3. SHRINE UI DEBRIS (MySpace / Early Web) ---
+ctx.globalCompositeOperation = 'source-over';
+ctx.font = '12px "Courier New", monospace';
+ctx.textBaseline = 'top';
+
+state.debris.forEach(d => {
+    d.y += d.vy;
+    d.life--;
     
-    ctx.restore();
+    // Jitter
+    const jx = (Math.random() - 0.5) * 2;
+    
+    // Draw Window Chrome
+    ctx.strokeStyle = d.color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(d.x + jx, d.y, d.w, d.h);
+    
+    // Title bar
+    ctx.fillStyle = d.color;
+    ctx.fillRect(d.x + jx, d.y, d.w, 14);
+    
+    // Text Debris
+    ctx.fillStyle = PALETTE.void;
+    ctx.fillText(d.txt, d.x + jx + 2, d.y + 1);
+    
+    // Reset if dead
+    if (d.life <= 0 || d.y < -d.h) {
+        d.y = height + d.h;
+        d.x = Math.random() * width;
+        d.life = Math.random() * 100 + 50;
+        d.txt = DEBRIS_TEXTS[Math.floor(Math.random() * DEBRIS_TEXTS.length)];
+        d.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
 });
+
+// --- 4. THE DEITY: LASER CAT / RGB PHANTOM ---
+// Abstract geometric representation of the "God Cat" emitting lasers
+const eyeDist = 80;
+const leftEye = { x: mx - eyeDist, y: my - 50 };
+const rightEye = { x: mx + eyeDist, y: my - 50 };
+
+// Draw Lasers (Rainbow Puke / Beam Judgment)
+ctx.globalCompositeOperation = 'lighter';
+ctx.lineWidth = mouse.isPressed ? 8 : 3;
+
+const drawLaser = (originX, originY, phaseOffset) => {
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    
+    // Laser targets the bottom of the screen, oscillating wildly
+    for (let y = originY; y <= height + 50; y += 20) {
+        const progress = (y - originY) / (height - originY);
+        // Amplitude increases as it goes down (cone blast mode)
+        const amp = progress * (mouse.isPressed ? 300 : 100);
+        const freq = 0.05;
+        const x = originX + Math.sin(y * freq + time * 10 + phaseOffset) * amp;
+        
+        // Glitchy sharp turns
+        if (Math.random() < 0.1) ctx.lineTo(x + (Math.random()-0.5)*50, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+};
+
+// RGB Channel Split for Lasers
+ctx.strokeStyle = PALETTE.magenta;
+drawLaser(leftEye.x - 5, leftEye.y, 0);
+drawLaser(rightEye.x - 5, rightEye.y, 1);
+
+ctx.strokeStyle = PALETTE.acid;
+drawLaser(leftEye.x, leftEye.y, 2);
+drawLaser(rightEye.x, rightEye.y, 3);
+
+ctx.strokeStyle = PALETTE.cyan;
+drawLaser(leftEye.x + 5, leftEye.y, 4);
+drawLaser(rightEye.x + 5, rightEye.y, 5);
+
+// Draw the "Eyes" (Blank Idiot Stare + Bloom Contamination)
+const drawEye = (x, y) => {
+    // Outer bloom
+    const radius = Math.max(0.1, mouse.isPressed ? 40 : 20 + Math.sin(time*5)*5);
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    grad.addColorStop(0, PALETTE.white);
+    grad.addColorStop(0.2, PALETTE.magenta);
+    grad.addColorStop(1, 'rgba(255,0,128,0)');
+    
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Inner slit (cat eye)
+    ctx.fillStyle = PALETTE.void;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * 0.1, radius * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+};
+
+// Phase-lag duplication (RGB Phantom logic on the eyes)
+ctx.globalCompositeOperation = 'screen';
+drawEye(leftEye.x - 10, leftEye.y); // Red shift
+drawEye(rightEye.x - 10, rightEye.y);
+
+ctx.globalCompositeOperation = 'source-over';
+drawEye(leftEye.x, leftEye.y);
+drawEye(rightEye.x, rightEye.y);
+
+// --- 5. MYSPACE GLITTER & SPARKLE STATIC ---
+ctx.globalCompositeOperation = 'lighter';
+state.glitter.forEach(g => {
+    g.phase += g.speed;
+    const brightness = (Math.sin(g.phase) + 1) / 2;
+    
+    if (brightness > 0.8) {
+        ctx.fillStyle = Math.random() > 0.5 ? PALETTE.white : PALETTE.cyan;
+        
+        // Draw starburst
+        ctx.beginPath();
+        ctx.moveTo(g.x, g.y - g.size * 2);
+        ctx.lineTo(g.x + g.size * 0.5, g.y - g.size * 0.5);
+        ctx.lineTo(g.x + g.size * 2, g.y);
+        ctx.lineTo(g.x + g.size * 0.5, g.y + g.size * 0.5);
+        ctx.lineTo(g.x, g.y + g.size * 2);
+        ctx.lineTo(g.x - g.size * 0.5, g.y + g.size * 0.5);
+        ctx.lineTo(g.x - g.size * 2, g.y);
+        ctx.lineTo(g.x - g.size * 0.5, g.y - g.size * 0.5);
+        ctx.fill();
+    }
+    
+    // Drift
+    g.y -= 0.5;
+    if (g.y < 0) g.y = height;
+});
+
+// Final CRT Scanline Overlay (Subtle)
+ctx.globalCompositeOperation = 'multiply';
+ctx.fillStyle = 'rgba(0, 20, 20, 0.1)';
+for(let y = 0; y < height; y += 4) {
+    ctx.fillRect(0, y, width, 1);
+}
