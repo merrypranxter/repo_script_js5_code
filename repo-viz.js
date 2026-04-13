@@ -1,165 +1,230 @@
 if (!canvas.__three) {
-  try {
-    const gl = canvas.getContext('webgl2', { alpha: true, antialias: false });
-    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-
-    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: false });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      // Bayer 4x4 Dither Matrix from pixel_voxel repo
-      const float bayer[16] = float[16](
-        0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-       12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-        3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-       15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
-      );
-
-      // Lisa Frank Aesthetic Palette
-      vec3 getLisaFrankPalette(float t) {
-        t = fract(t);
-        if(t < 0.2) return vec3(1.0, 0.0, 0.8);   // Hot Pink
-        if(t < 0.4) return vec3(0.0, 1.0, 1.0);   // Cyan
-        if(t < 0.6) return vec3(1.0, 1.0, 0.0);   // Neon Yellow
-        if(t < 0.8) return vec3(0.0, 1.0, 0.0);   // Toxic Green
-        return vec3(0.4, 0.0, 0.8);               // Deep Velvet Purple
-      }
-
-      // Quasicrystal Diffraction Field (5-fold Penrose basis)
-      // Simulates the interference of 5 plane waves
-      float qcField(vec2 p, float t, float phasonDrift) {
-        float field = 0.0;
-        for(int i = 0; i < 5; i++) {
-            // 5-fold symmetry angles
-            float angle = float(i) * 3.14159265359 / 5.0;
-            
-            // Phason strain: distorting the perfect geometry over time and space
-            float strain = sin(p.x * 0.1 + t) * 0.05 + cos(p.y * 0.1 - t) * 0.05;
-            vec2 dir = vec2(cos(angle + strain), sin(angle + strain));
-            
-            // Phase shift (translates the pattern aperiodically)
-            float phase = t * phasonDrift * (1.0 + 0.1 * float(i));
-            
-            field += cos(dot(p, dir) + phase);
-        }
-        // Normalize roughly to 0.0 -> 1.0
-        return (field + 5.0) / 10.0; 
-      }
-
-      // Hash for noise
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-      }
-
-      void main() {
-        // 1. Voxel/Pixel Grid Lock (from pixel_voxel repo)
-        // Dynamically changing pixel size to simulate a failing retro display
-        float pixelScale = 3.0 + floor(sin(u_time * 2.0) * 1.5 + 1.5); 
-        vec2 virtualRes = u_resolution / pixelScale;
-        vec2 gridUV = floor(vUv * virtualRes) / virtualRes;
+    try {
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
         
-        // Aspect ratio correction for the math field
-        vec2 p = (gridUV - 0.5) * vec2(u_resolution.x/u_resolution.y, 1.0);
+        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
-        // Zooming in and out of the aperiodic structure
-        float zoom = 30.0 + sin(u_time * 0.3) * 15.0;
-        p *= zoom;
-
-        // 2. Sample the Quasicrystal field with Chromatic Aberration
-        // We sample it 3 times with slight phase offsets to simulate color-channel separation
-        float phasonSpeed = 2.0;
-        float r = qcField(p, u_time, phasonSpeed);
-        float g = qcField(p, u_time + 0.1, phasonSpeed);
-        float b = qcField(p, u_time + 0.2, phasonSpeed);
-
-        // Combine for a luminance map to drive the dithering
-        float lum = (r + g + b) / 3.0;
-
-        // 3. Ordered Dithering (from pixel_voxel repo)
-        int bx = int(mod(floor(vUv.x * u_resolution.x / pixelScale), 4.0));
-        int by = int(mod(floor(vUv.y * u_resolution.y / pixelScale), 4.0));
-        float ditherThreshold = bayer[by * 4 + bx];
-
-        // Apply dither spread
-        float spread = 0.5;
-        float ditheredIndex = lum + (ditherThreshold - 0.5) * spread;
-
-        // 4. Void Extraction (creates the "peeling sticker" look)
-        // If the field is too low, we render the "trapper keeper void"
-        float voidThreshold = 0.35 + sin(u_time * 0.8) * 0.1;
-        if (lum < voidThreshold) {
-            // Animal print / starry noise background
-            float noise = hash(gridUV * 10.0 + u_time * 0.1);
-            vec3 voidColor = vec3(0.05);
-            if (noise > 0.95) voidColor = vec3(0.0, 1.0, 1.0); // Cyan stars
-            if (noise < 0.05) voidColor = vec3(1.0, 0.0, 1.0); // Pink stars
-            fragColor = vec4(voidColor, 1.0);
-            return;
-        }
-
-        // 5. Palette Mapping (Lisa Frank Aesthetic)
-        // Map the dithered index to the neon palette, animated over time
-        vec3 color = getLisaFrankPalette(ditheredIndex * 2.5 - u_time * 0.5);
-
-        // 6. Hard Pixel Outline (Sobel-ish edge detection on the field)
-        vec2 px = 1.0 / virtualRes;
-        float rR = qcField(p + vec2(px.x, 0.0) * zoom, u_time, phasonSpeed);
-        float rU = qcField(p + vec2(0.0, px.y) * zoom, u_time, phasonSpeed);
-        float edge = abs(r - rR) + abs(r - rU);
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+                u_mouse_pressed: { value: 0.0 }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    // Full screen quad
+                    gl_Position = vec4(position.xy, 0.0, 1.0);
+                }
+            `,
+            fragmentShader: `
+                in vec2 vUv;
+                out vec4 fragColor;
+                
+                uniform float u_time;
+                uniform vec2 u_resolution;
+                uniform vec2 u_mouse;
+                uniform float u_mouse_pressed;
+                
+                const float PI = 3.14159265359;
+                const float PHI = 1.61803398875; // Golden Ratio for Quasicrystal scaling
+                
+                // Hash functions
+                vec2 hash2(vec2 p) {
+                    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+                    return fract(sin(p) * 43758.5453);
+                }
+                
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                }
+                
+                // 2D Noise
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    float a = hash(i);
+                    float b = hash(i + vec2(1.0, 0.0));
+                    float c = hash(i + vec2(0.0, 1.0));
+                    float d = hash(i + vec2(1.0, 1.0));
+                    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+                }
+                
+                // Fractional Brownian Motion
+                float fbm(vec2 p) {
+                    float f = 0.0;
+                    float amp = 0.5;
+                    for(int i = 0; i < 5; i++) {
+                        f += amp * noise(p);
+                        p *= 2.0;
+                        amp *= 0.5;
+                    }
+                    return f;
+                }
+                
+                // Voronoi for Leopard Spots
+                float voronoi(vec2 x, float t) {
+                    vec2 n = floor(x);
+                    vec2 f = fract(x);
+                    float md = 8.0;
+                    for(int j = -1; j <= 1; j++)
+                    for(int i = -1; i <= 1; i++) {
+                        vec2 g = vec2(float(i), float(j));
+                        vec2 o = hash2(n + g);
+                        o = 0.5 + 0.5 * sin(t + 6.2831 * o);
+                        vec2 r = g + o - f;
+                        float d = dot(r, r);
+                        if(d < md) md = d;
+                    }
+                    return md;
+                }
+                
+                // 5-fold Quasicrystal projection
+                float quasicrystal(vec2 uv, float time) {
+                    float v = 0.0;
+                    for (int i = 0; i < 5; i++) {
+                        float angle = 2.0 * PI * float(i) / 5.0;
+                        vec2 dir = vec2(cos(angle), sin(angle));
+                        float phase = dot(uv, dir) * 2.0 * PHI;
+                        v += cos(phase + time);
+                    }
+                    return v / 5.0;
+                }
+                
+                // Michel-Lévy Lisa Frank Acid Palette
+                vec3 michelLevyColor(float retardation) {
+                    float r = retardation * 2.5;
+                    vec3 color;
+                    
+                    // Hyper-saturated cosine palette
+                    color.r = sin(r * PI) * 0.5 + 0.5;
+                    color.g = sin((r + 0.33) * PI) * 0.5 + 0.5;
+                    color.b = sin((r + 0.67) * PI) * 0.5 + 0.5;
+                    
+                    color = smoothstep(0.1, 0.9, color);
+                    
+                    // Force maximum saturation (Lisa Frank aesthetic)
+                    float maxC = max(color.r, max(color.g, color.b));
+                    float minC = min(color.r, min(color.g, color.b));
+                    if (maxC > minC) {
+                        color = (color - minC) / (maxC - minC);
+                    }
+                    
+                    return pow(color, vec3(0.5)); // Neon punch
+                }
+                
+                void main() {
+                    vec2 uv = (vUv - 0.5) * u_resolution / min(u_resolution.x, u_resolution.y);
+                    uv *= 6.0;
+                    
+                    // Mouse interaction
+                    vec2 mouseOffset = (u_mouse - 0.5) * u_resolution / min(u_resolution.x, u_resolution.y);
+                    mouseOffset *= 6.0;
+                    vec2 mpos = uv - mouseOffset;
+                    float mouseDist = length(mpos);
+                    float mouseForce = exp(-mouseDist * 1.5) * (1.0 + u_mouse_pressed * 2.0);
+                    
+                    // Domain Warping
+                    vec2 warp = vec2(fbm(uv + u_time * 0.15), fbm(uv + vec2(5.2, 1.3) - u_time * 0.15)) * 2.0 - 1.0;
+                    vec2 wuv = uv + warp * 1.2 + normalize(mpos + 0.001) * mouseForce * 2.0;
+                    
+                    // Hierarchical 5-fold Quasicrystal (self-similar at phi scales)
+                    float qc = 0.0;
+                    float amp = 1.0;
+                    float scale = 1.0;
+                    for(int j = 0; j < 3; j++) {
+                        qc += quasicrystal(wuv * scale, u_time * 0.4) * amp;
+                        scale *= PHI;
+                        amp *= 0.5;
+                    }
+                    
+                    // Calculate normal from quasicrystal gradient for structural color
+                    float eps = 0.02;
+                    float qcx = quasicrystal(wuv + vec2(eps, 0.0), u_time * 0.4);
+                    float qcy = quasicrystal(wuv + vec2(0.0, eps), u_time * 0.4);
+                    vec2 grad = vec2(qcx - qc, qcy - qc) / eps;
+                    vec3 normal = normalize(vec3(grad, 4.0));
+                    
+                    // Leopard Spots (Voronoi rings)
+                    float v1 = voronoi(wuv * 2.5, u_time * 0.3);
+                    float spots = smoothstep(0.1, 0.25, v1) - smoothstep(0.4, 0.6, v1);
+                    
+                    // Tiger Stripes (Domain warped sine waves)
+                    float stripeWarp = fbm(wuv * 1.5 + u_time * 0.2);
+                    float stripes = sin(wuv.x * 6.0 + wuv.y * 3.0 + stripeWarp * 12.0);
+                    float tiger = smoothstep(0.6, 0.85, stripes);
+                    
+                    // Mix animal prints dynamically
+                    float patternMask = fbm(uv * 0.4 - u_time * 0.1);
+                    float finalPrint = mix(spots, tiger, smoothstep(0.35, 0.65, patternMask));
+                    
+                    // Photoelastic Stress / Birefringence Retardation
+                    float viewAngle = max(0.0, dot(normal, vec3(0.0, 0.0, 1.0)));
+                    float stress = qc * 1.5 + viewAngle * 3.0 + fbm(uv * 2.0) * 1.5 + mouseForce * 4.0;
+                    float retardation = abs(stress) * 1.5 + u_time * 0.4;
+                    
+                    vec3 baseColor = michelLevyColor(retardation);
+                    
+                    // Quasicrystal boundaries (stress lines)
+                    float contour = fract(qc * 5.0);
+                    float line = smoothstep(0.0, 0.04, contour) * smoothstep(0.08, 0.04, contour);
+                    baseColor = mix(baseColor, vec3(1.0, 0.2, 0.8), line * 0.7); // Hot pink stress lines
+                    
+                    // Apply Animal Print with inverted neon halos
+                    float printMask = smoothstep(0.1, 0.9, finalPrint);
+                    float printCore = smoothstep(0.6, 0.9, finalPrint);
+                    vec3 spotColor = vec3(0.05, 0.0, 0.15); // Glossy deep purple
+                    
+                    vec3 color = mix(baseColor, 1.0 - baseColor, printMask); // Neon halo
+                    color = mix(color, spotColor, printCore); // Dark core
+                    
+                    // Sparkles (High frequency pixel noise)
+                    float sparkleNoise = hash(gl_FragCoord.xy + u_time);
+                    float sparkleMask = smoothstep(0.992, 1.0, sparkleNoise);
+                    float sparkleIntensity = (0.5 + 0.5 * sin(u_time * 8.0 + qc * 15.0)) * sparkleMask;
+                    color += vec3(sparkleIntensity * 2.5);
+                    
+                    // Vignette
+                    float vignette = 1.0 - length(vUv - 0.5) * 1.0;
+                    color *= smoothstep(0.0, 0.5, vignette);
+                    
+                    fragColor = vec4(color, 1.0);
+                }
+            `,
+            depthWrite: false,
+            depthTest: false
+        });
         
-        // If we hit a sharp phase transition, draw a thick black outline
-        if (edge > 0.08) {
-            color = vec3(0.02, 0.0, 0.05); // near black with a purple tint
-        }
-
-        fragColor = vec4(color, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
-    return;
-  }
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        
+        canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("WebGL setup failed:", e);
+        return;
+    }
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
 
-if (material?.uniforms?.u_time) {
-  material.uniforms.u_time.value = time;
-}
-if (material?.uniforms?.u_resolution) {
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+if (material && material.uniforms) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    
+    // Smooth mouse interpolation
+    if (mouse.x !== 0 || mouse.y !== 0) {
+        const currentMouse = material.uniforms.u_mouse.value;
+        currentMouse.x += ((mouse.x / grid.width) - currentMouse.x) * 0.1;
+        currentMouse.y += (1.0 - (mouse.y / grid.height) - currentMouse.y) * 0.1;
+    }
+    material.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
 }
 
 renderer.setSize(grid.width, grid.height, false);
