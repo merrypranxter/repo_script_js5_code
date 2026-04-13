@@ -1,161 +1,186 @@
-// The Weird Code Guy - Lisa Frank Quasicrystal Ditherpunk
-// Synthesizing: 'pixel_voxel' (ordered dithering, pixel grid lock, outline shaders, palettes),
-// 'quasicrystals' (5-fold Penrose / 8-fold Ammann-Beenker wave interference, golden/silver ratios),
-// 'lisa_frank_aesthetic' (hyper-vibrant neon gradients, leopard print spots, glossy sparkles).
+if (!canvas.__three) {
+  try {
+    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
+    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+    
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_mouse: { value: new THREE.Vector2() },
+        u_resolution: { value: new THREE.Vector2() },
+        u_isPressed: { value: 0 }
+      },
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        in vec2 vUv;
+        out vec4 fragColor;
+        
+        uniform float u_time;
+        uniform vec2 u_mouse;
+        uniform vec2 u_resolution;
+        uniform float u_isPressed;
 
-const pixelSize = 3; 
-const vw = Math.ceil(grid.width / pixelSize);
-const vh = Math.ceil(grid.height / pixelSize);
+        // Glitchcore / Pixel Voxel Noise Hash
+        float hash(vec2 p) {
+            p = fract(p * vec2(123.34, 456.21));
+            p += dot(p, p + 45.32);
+            return fract(p.x * p.y);
+        }
 
-// Initialize offscreen buffer for pixel-perfect upscaling
-if (!canvas.__offCanvas || canvas.__vw !== vw || canvas.__vh !== vh) {
-    canvas.__offCanvas = document.createElement('canvas');
-    canvas.__offCanvas.width = vw;
-    canvas.__offCanvas.height = vh;
-    canvas.__offCtx = canvas.__offCanvas.getContext('2d');
-    canvas.__imgData = canvas.__offCtx.createImageData(vw, vh);
-    canvas.__buffer = new Uint8Array(vw * vh);
-    canvas.__bufferDithered = new Uint8Array(vw * vh);
-    canvas.__vw = vw;
-    canvas.__vh = vh;
-}
+        // Quasicrystal Math: 5-fold symmetry
+        float quasicrystal(vec2 p) {
+            float v = 0.0;
+            float theta = 3.14159265359 / 5.0; 
+            for(int i = 0; i < 5; i++) {
+                float angle = float(i) * theta;
+                vec2 dir = vec2(cos(angle), sin(angle));
+                // Domain warping for fluid hallucination
+                float warp = sin(dot(p, vec2(sin(angle), cos(angle))) * 1.5 + u_time) * 0.8;
+                v += cos(dot(p, dir) * 5.0 + warp);
+            }
+            return v;
+        }
 
-const offCanvas = canvas.__offCanvas;
-const offCtx = canvas.__offCtx;
-const imgData = canvas.__imgData;
-const data = imgData.data;
-const buffer = canvas.__buffer;
-const bufferDithered = canvas.__bufferDithered;
+        // Lisa Frank / Hyperpop Rupture Palette
+        vec3 getPalette(float v) {
+            vec3 c1 = vec3(1.0, 0.0, 0.5); // Hot Pink
+            vec3 c2 = vec3(0.0, 1.0, 1.0); // Electric Cyan
+            vec3 c3 = vec3(1.0, 0.9, 0.0); // Bright Yellow
+            vec3 c4 = vec3(0.6, 0.0, 1.0); // Deep Violet
+            
+            v = fract(v);
+            if(v < 0.25) return mix(c1, c2, smoothstep(0.0, 0.25, v));
+            if(v < 0.5) return mix(c2, c3, smoothstep(0.25, 0.5, v));
+            if(v < 0.75) return mix(c3, c4, smoothstep(0.5, 0.75, v));
+            return mix(c4, c1, smoothstep(0.75, 1.0, v));
+        }
 
-// Interaction & Symmetries
-let mx = mouse.x || grid.width / 2;
-let my = mouse.y || grid.height / 2;
+        void main() {
+            // 1. Pixel Grid Lock (pixel_voxel)
+            float pixelSize = 4.0;
+            vec2 pUv = floor(vUv * u_resolution / pixelSize) * pixelSize / u_resolution;
+            
+            vec2 p = (pUv - 0.5) * (u_resolution / min(u_resolution.x, u_resolution.y));
+            p *= 15.0; 
+            
+            // 2. Glitchcore Compression Chew & Macroblock Breakup
+            vec2 blockUv = floor(pUv * 20.0) / 20.0;
+            float blockNoise = hash(blockUv + floor(u_time * 12.0));
+            
+            vec2 glitchOffset = vec2(0.0);
+            if(blockNoise > 0.85) {
+                glitchOffset = vec2(hash(blockUv + 1.0) - 0.5, hash(blockUv + 2.0) - 0.5) * 3.0;
+            }
+            
+            // 3. Mouse Interaction (Temporal Echo / Spatial Tear)
+            vec2 mouseNorm = u_mouse / u_resolution;
+            float distToMouse = distance(pUv, mouseNorm);
+            float mouseGlitch = smoothstep(0.2, 0.0, distToMouse);
+            if(u_isPressed > 0.5) mouseGlitch *= 2.0;
+            
+            if(mouseGlitch > 0.0 && hash(pUv + u_time) > 0.3) {
+                glitchOffset += (mouseNorm - pUv) * 10.0 * mouseGlitch;
+            }
 
-// 8-fold Ammann-Beenker (Silver Ratio) if pressed, 5-fold Penrose (Golden Ratio) if not
-const N = mouse.isPressed ? 8 : 5;
-const ratio = mouse.isPressed ? 2.4142135623 : 1.6180339887; 
+            p += glitchOffset;
+            
+            // 4. Channel Split (RGB Displacement)
+            float splitStrength = 0.15 + mouseGlitch * 0.8;
+            if(blockNoise > 0.95) splitStrength += 0.6; // Rupture pop
+            
+            vec2 rOffset = vec2(splitStrength, 0.0);
+            vec2 gOffset = vec2(0.0, 0.0);
+            vec2 bOffset = vec2(-splitStrength, splitStrength * 0.5);
+            
+            float t = u_time * 0.8;
+            
+            float qR = quasicrystal(p + rOffset - t);
+            float qG = quasicrystal(p + gOffset - t);
+            float qB = quasicrystal(p + bOffset - t);
+            
+            // 5. Map to Palette and Combine Channels
+            vec3 colR = getPalette(qR * 0.15 + u_time * 0.3);
+            vec3 colG = getPalette(qG * 0.15 + u_time * 0.3);
+            vec3 colB = getPalette(qB * 0.15 + u_time * 0.3);
+            
+            vec3 finalColor = vec3(colR.r, colG.g, colB.b);
+            
+            // 6. Bloom / Glow Contamination
+            float qBloom = quasicrystal(p * 0.5 + t * 0.5);
+            if(qBloom > 1.5) {
+                vec3 bloomColor = getPalette(qBloom * 0.1 - t);
+                finalColor += bloomColor * 0.6;
+            }
+            
+            // 7. Ordered Dithering (Bayer 4x4)
+            int bx = int(gl_FragCoord.x / pixelSize) % 4;
+            int by = int(gl_FragCoord.y / pixelSize) % 4;
+            float bayer[16] = float[16](
+                0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+               12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+                3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+               15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+            );
+            float dither = bayer[by * 4 + bx] - 0.5;
+            finalColor += dither * 0.3; 
+            
+            // Quantize colors for pixel art aesthetic
+            finalColor = floor(finalColor * 4.0 + 0.5) / 4.0;
+            
+            // 8. Outline Sobel (fake edge detect for "white accent puncture")
+            float qCenter = quasicrystal(p);
+            float qRight = quasicrystal(p + vec2(0.2, 0.0));
+            float qUp = quasicrystal(p + vec2(0.0, 0.2));
+            float edge = abs(qRight - qCenter) + abs(qUp - qCenter);
+            if(edge > 2.5) {
+                finalColor = vec3(1.0); // Sharp white
+            }
+            
+            // 9. Scanline Contour Banding
+            if(mod(gl_FragCoord.y, pixelSize * 2.0) < pixelSize) {
+                finalColor *= 0.85; 
+            }
 
-// Lisa Frank Hyper-Vibrant Palette
-const PALETTE = [
-    [255, 0, 255],   // 0: Hot Magenta
-    [138, 43, 226],  // 1: Blue Violet
-    [0, 255, 255],   // 2: Cyan
-    [57, 255, 20],   // 3: Neon Lime
-    [255, 255, 0],   // 4: Yellow
-    [255, 140, 0],   // 5: Orange
-    [255, 20, 147],  // 6: Deep Pink
-    [255, 0, 255]    // 7: Loop back to Magenta for smooth modulo wrap
-];
-const PAL_LEN = PALETTE.length - 1;
+            // 10. Lisa Frank Leopard Spots Overlay
+            float spots = smoothstep(3.5, 4.0, qCenter) - smoothstep(4.2, 4.5, qCenter);
+            if (spots > 0.5) {
+                finalColor = mix(finalColor, vec3(0.0), 0.8); // Deep black spots
+            }
 
-// Standard 4x4 Bayer Matrix for Ditherpunk shading
-const bayer4x4 = [
-    0, 8, 2, 10,
-    12, 4, 14, 6,
-    3, 11, 1, 9,
-    15, 7, 13, 5
-];
-
-// Time & Kinematics
-const t = time * 0.5;
-const rot = t * 0.1;
-const baseK = 0.02 + (mx / grid.width) * 0.08; // Base frequency
-const k1 = baseK;
-const k2 = baseK * ratio; // Self-similar hierarchical frequency
-const bands = 1.0 + (my / grid.height) * 4.0; // Number of gradient repetitions
-
-const phase1 = t * 1.5;
-const phase2 = t * -0.618;
-
-// Precompute projection angles for N-fold symmetry
-const angles = [];
-for (let j = 0; j < N; j++) {
-    let a = (j * Math.PI / N) - rot;
-    angles.push({
-        c: Math.cos(a),
-        s: Math.sin(a)
+            fragColor = vec4(finalColor, 1.0);
+        }
+      `
     });
+    
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
-const spread = 1.2 / PAL_LEN; // Dither noise spread
-
-// PASS 1: Quasicrystal Field Generation & Dithering
-for (let y = 0; y < vh; y++) {
-    // Feral design: Paper misregistration / scanline glitches
-    let glitchShift = 0;
-    if (Math.sin(t * 6.0 + y * 0.1) > 0.98) glitchShift = 8;
-    if (Math.cos(t * 5.0 + y * 0.02) > 0.99) glitchShift = -12;
-
-    for (let x = 0; x < vw; x++) {
-        let cx = x - vw / 2 + glitchShift;
-        let cy = y - vh / 2;
-        
-        let v = 0;
-        // Sum of plane waves to generate aperiodic quasi-crystalline order
-        for (let j = 0; j < N; j++) {
-            let dot = cx * angles[j].c + cy * angles[j].s;
-            v += Math.cos(k1 * dot + phase1);
-            v += 0.5 * Math.cos(k2 * dot + phase2); // Inflation/Deflation echo
-        }
-        
-        // Normalize v from [-1.5N, 1.5N] to [0, 1]
-        let nv = (v / (N * 1.5)) * 0.5 + 0.5;
-        
-        // Wrap phase for repeating concentric color bands
-        let wrapped_nv = (nv * bands - t * 0.5) % 1.0;
-        if (wrapped_nv < 0) wrapped_nv += 1.0;
-        
-        // Base macro index for outline detection
-        let macroIdx = Math.floor(wrapped_nv * PAL_LEN);
-        macroIdx = Math.max(0, Math.min(PAL_LEN, macroIdx));
-        
-        // Apply Bayer ordered dither
-        let bayer = bayer4x4[(y % 4) * 4 + (x % 4)] / 15.0;
-        let dithered = wrapped_nv + (bayer - 0.5) * spread;
-        
-        let pIdx = Math.floor(dithered * PAL_LEN);
-        pIdx = Math.max(0, Math.min(PAL_LEN, pIdx));
-        
-        let idx = y * vw + x;
-        buffer[idx] = macroIdx;
-        bufferDithered[idx] = pIdx;
-    }
+const { renderer, scene, camera, material } = canvas.__three;
+if (material?.uniforms) {
+  material.uniforms.u_time.value = time;
+  // Invert Y for standard WebGL coordinate space
+  material.uniforms.u_mouse.value.set(mouse.x, grid.height - mouse.y);
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
 }
 
-// PASS 2: Sobel-style Edge Detection & Palette Mapping
-for (let y = 0; y < vh; y++) {
-    for (let x = 0; x < vw; x++) {
-        let idx = y * vw + x;
-        let macroIdx = buffer[idx];
-        let pIdx = bufferDithered[idx];
-        
-        // Detect edges based on the macro (undithered) bands
-        let isEdge = false;
-        if (x < vw - 1 && buffer[idx + 1] !== macroIdx) isEdge = true;
-        if (y < vh - 1 && buffer[idx + vw] !== macroIdx) isEdge = true;
-        
-        // Lisa Frank glossy sparkles on edges
-        let sparkleNoise = (Math.sin(x * 12.9898 + y * 78.233 + time) * 43758.5453) % 1;
-        let isSparkle = isEdge && (sparkleNoise > 0.98);
-        
-        let col;
-        if (isEdge) {
-            col = isSparkle ? [255, 255, 255] : [20, 0, 40]; // Deep space purple outlines
-        } else {
-            // Invert palette if mouse is pressed (Ammann-Beenker mode)
-            col = mouse.isPressed ? PALETTE[PAL_LEN - pIdx] : PALETTE[pIdx];
-        }
-        
-        let imgIdx = idx * 4;
-        data[imgIdx] = col[0];
-        data[imgIdx + 1] = col[1];
-        data[imgIdx + 2] = col[2];
-        data[imgIdx + 3] = 255;
-    }
-}
-
-// Render to offscreen canvas, then upscale to main canvas with nearest-neighbor for crisp pixels
-offCtx.putImageData(imgData, 0, 0);
-
-ctx.imageSmoothingEnabled = false;
-ctx.drawImage(offCanvas, 0, 0, vw * pixelSize, vh * pixelSize);
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
