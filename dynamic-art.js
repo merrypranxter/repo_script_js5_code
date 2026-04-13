@@ -1,186 +1,221 @@
-if (!canvas.__three) {
-  try {
-    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-    
-    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 1;
-    
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_mouse: { value: new THREE.Vector2() },
-        u_resolution: { value: new THREE.Vector2() },
-        u_isPressed: { value: 0 }
-      },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        in vec2 vUv;
-        out vec4 fragColor;
+// Initialization & State Persistence
+if (!canvas.__lf_state) {
+    canvas.__lf_state = {
+        glitchIntensity: 0.1,
+        sparkles: Array.from({length: 60}, () => ({
+            x: Math.random() * grid.width,
+            y: Math.random() * grid.height,
+            size: Math.random() * 8 + 2,
+            phase: Math.random() * Math.PI * 2,
+            speed: Math.random() * 3 + 1,
+            color: ['#FF0080', '#00FFFF', '#FFFF00', '#8A2BE2', '#FF1493'][Math.floor(Math.random() * 5)]
+        })),
+        leopardSpots: Array.from({length: 35}, () => ({
+            x: Math.random() * grid.width,
+            y: Math.random() * grid.height,
+            r: Math.random() * 30 + 15,
+            phase: Math.random() * Math.PI * 2
+        }))
+    };
+}
+const state = canvas.__lf_state;
+
+// 1. Audio/Transient Emulation (Glitch Intensity Smoothing)
+const isRupture = mouse.isPressed || (Math.sin(time * 2.7) > 0.95);
+const targetGlitch = isRupture ? 1.5 : (Math.sin(time * 1.3) > 0.8 ? 0.5 : 0.1);
+state.glitchIntensity += (targetGlitch - state.glitchIntensity) * 0.15;
+const glitch = state.glitchIntensity;
+
+// 2. Feedback Loop & Temporal Echo (Ghost-Frame Body)
+if (glitch > 0.3) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.translate(grid.width / 2, grid.height / 2);
+    ctx.scale(1.0 + glitch * 0.015, 1.0 + glitch * 0.015);
+    ctx.rotate(glitch * 0.002);
+    ctx.translate(-grid.width / 2, -grid.height / 2);
+    try {
+        ctx.drawImage(canvas, 0, 0);
+    } catch(e) {}
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// 3. Macroblock Breakup (Candy Crash Compression)
+if (glitch > 0.2 && Math.random() < glitch) {
+    for (let i = 0; i < Math.floor(glitch * 6); i++) {
+        const bw = Math.random() * 200 + 50;
+        const bh = Math.random() * 60 + 10;
+        const bx = Math.random() * grid.width;
+        const by = Math.random() * grid.height;
         
-        uniform float u_time;
-        uniform vec2 u_mouse;
-        uniform vec2 u_resolution;
-        uniform float u_isPressed;
-
-        // Glitchcore / Pixel Voxel Noise Hash
-        float hash(vec2 p) {
-            p = fract(p * vec2(123.34, 456.21));
-            p += dot(p, p + 45.32);
-            return fract(p.x * p.y);
-        }
-
-        // Quasicrystal Math: 5-fold symmetry
-        float quasicrystal(vec2 p) {
-            float v = 0.0;
-            float theta = 3.14159265359 / 5.0; 
-            for(int i = 0; i < 5; i++) {
-                float angle = float(i) * theta;
-                vec2 dir = vec2(cos(angle), sin(angle));
-                // Domain warping for fluid hallucination
-                float warp = sin(dot(p, vec2(sin(angle), cos(angle))) * 1.5 + u_time) * 0.8;
-                v += cos(dot(p, dir) * 5.0 + warp);
+        const sx = bx + (Math.random() - 0.5) * 150 * glitch;
+        const sy = by + (Math.random() - 0.5) * 50 * glitch;
+        
+        try {
+            if (bw > 0 && bh > 0) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.drawImage(canvas, bx, by, bw, bh, sx, sy, bw, bh);
             }
-            return v;
-        }
+        } catch(e) {}
+    }
+}
 
-        // Lisa Frank / Hyperpop Rupture Palette
-        vec3 getPalette(float v) {
-            vec3 c1 = vec3(1.0, 0.0, 0.5); // Hot Pink
-            vec3 c2 = vec3(0.0, 1.0, 1.0); // Electric Cyan
-            vec3 c3 = vec3(1.0, 0.9, 0.0); // Bright Yellow
-            vec3 c4 = vec3(0.6, 0.0, 1.0); // Deep Violet
-            
-            v = fract(v);
-            if(v < 0.25) return mix(c1, c2, smoothstep(0.0, 0.25, v));
-            if(v < 0.5) return mix(c2, c3, smoothstep(0.25, 0.5, v));
-            if(v < 0.75) return mix(c3, c4, smoothstep(0.5, 0.75, v));
-            return mix(c4, c1, smoothstep(0.75, 1.0, v));
-        }
+// 4. Temporal Echo Fade (Dark Void Overlay)
+ctx.globalCompositeOperation = 'source-over';
+ctx.fillStyle = `rgba(10, 0, 20, ${Math.max(0.05, 0.2 - glitch * 0.1)})`; 
+ctx.fillRect(0, 0, grid.width, grid.height);
 
-        void main() {
-            // 1. Pixel Grid Lock (pixel_voxel)
-            float pixelSize = 4.0;
-            vec2 pUv = floor(vUv * u_resolution / pixelSize) * pixelSize / u_resolution;
-            
-            vec2 p = (pUv - 0.5) * (u_resolution / min(u_resolution.x, u_resolution.y));
-            p *= 15.0; 
-            
-            // 2. Glitchcore Compression Chew & Macroblock Breakup
-            vec2 blockUv = floor(pUv * 20.0) / 20.0;
-            float blockNoise = hash(blockUv + floor(u_time * 12.0));
-            
-            vec2 glitchOffset = vec2(0.0);
-            if(blockNoise > 0.85) {
-                glitchOffset = vec2(hash(blockUv + 1.0) - 0.5, hash(blockUv + 2.0) - 0.5) * 3.0;
-            }
-            
-            // 3. Mouse Interaction (Temporal Echo / Spatial Tear)
-            vec2 mouseNorm = u_mouse / u_resolution;
-            float distToMouse = distance(pUv, mouseNorm);
-            float mouseGlitch = smoothstep(0.2, 0.0, distToMouse);
-            if(u_isPressed > 0.5) mouseGlitch *= 2.0;
-            
-            if(mouseGlitch > 0.0 && hash(pUv + u_time) > 0.3) {
-                glitchOffset += (mouseNorm - pUv) * 10.0 * mouseGlitch;
-            }
-
-            p += glitchOffset;
-            
-            // 4. Channel Split (RGB Displacement)
-            float splitStrength = 0.15 + mouseGlitch * 0.8;
-            if(blockNoise > 0.95) splitStrength += 0.6; // Rupture pop
-            
-            vec2 rOffset = vec2(splitStrength, 0.0);
-            vec2 gOffset = vec2(0.0, 0.0);
-            vec2 bOffset = vec2(-splitStrength, splitStrength * 0.5);
-            
-            float t = u_time * 0.8;
-            
-            float qR = quasicrystal(p + rOffset - t);
-            float qG = quasicrystal(p + gOffset - t);
-            float qB = quasicrystal(p + bOffset - t);
-            
-            // 5. Map to Palette and Combine Channels
-            vec3 colR = getPalette(qR * 0.15 + u_time * 0.3);
-            vec3 colG = getPalette(qG * 0.15 + u_time * 0.3);
-            vec3 colB = getPalette(qB * 0.15 + u_time * 0.3);
-            
-            vec3 finalColor = vec3(colR.r, colG.g, colB.b);
-            
-            // 6. Bloom / Glow Contamination
-            float qBloom = quasicrystal(p * 0.5 + t * 0.5);
-            if(qBloom > 1.5) {
-                vec3 bloomColor = getPalette(qBloom * 0.1 - t);
-                finalColor += bloomColor * 0.6;
-            }
-            
-            // 7. Ordered Dithering (Bayer 4x4)
-            int bx = int(gl_FragCoord.x / pixelSize) % 4;
-            int by = int(gl_FragCoord.y / pixelSize) % 4;
-            float bayer[16] = float[16](
-                0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-               12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-                3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-               15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
-            );
-            float dither = bayer[by * 4 + bx] - 0.5;
-            finalColor += dither * 0.3; 
-            
-            // Quantize colors for pixel art aesthetic
-            finalColor = floor(finalColor * 4.0 + 0.5) / 4.0;
-            
-            // 8. Outline Sobel (fake edge detect for "white accent puncture")
-            float qCenter = quasicrystal(p);
-            float qRight = quasicrystal(p + vec2(0.2, 0.0));
-            float qUp = quasicrystal(p + vec2(0.0, 0.2));
-            float edge = abs(qRight - qCenter) + abs(qUp - qCenter);
-            if(edge > 2.5) {
-                finalColor = vec3(1.0); // Sharp white
-            }
-            
-            // 9. Scanline Contour Banding
-            if(mod(gl_FragCoord.y, pixelSize * 2.0) < pixelSize) {
-                finalColor *= 0.85; 
-            }
-
-            // 10. Lisa Frank Leopard Spots Overlay
-            float spots = smoothstep(3.5, 4.0, qCenter) - smoothstep(4.2, 4.5, qCenter);
-            if (spots > 0.5) {
-                finalColor = mix(finalColor, vec3(0.0), 0.8); // Deep black spots
-            }
-
-            fragColor = vec4(finalColor, 1.0);
-        }
-      `
-    });
+// 5. Lisa Frank Leopard Spots
+ctx.globalCompositeOperation = 'screen';
+state.leopardSpots.forEach((spot, i) => {
+    spot.y += Math.sin(time * 0.5 + spot.phase) * 0.5;
+    spot.x += Math.cos(time * 0.3 + spot.phase) * 0.5;
+    if (spot.y > grid.height + spot.r) spot.y = -spot.r;
+    if (spot.x > grid.width + spot.r) spot.x = -spot.r;
     
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
-    return;
-  }
+    ctx.beginPath();
+    ctx.arc(spot.x, spot.y, spot.r, 0, Math.PI * 1.5);
+    ctx.strokeStyle = i % 2 === 0 ? 'rgba(255, 0, 128, 0.4)' : 'rgba(138, 43, 226, 0.4)'; // Hot Pink / Violet
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.arc(spot.x + spot.r * 0.2, spot.y + spot.r * 0.2, spot.r * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(0, 255, 255, 0.3)' : 'rgba(255, 255, 0, 0.3)'; // Cyan / Yellow
+    ctx.fill();
+});
+
+// 6. Quasicrystal Pentagrid (Candy Broadcast Hallucination + RGB Phantom)
+ctx.globalCompositeOperation = 'lighter';
+const N = 5; // 5-fold Penrose symmetry
+const center = { x: grid.width / 2, y: grid.height / 2 };
+const baseAngle = time * 0.05;
+const maxD = Math.max(grid.width, grid.height) * 1.2;
+const spacing = 50 + Math.sin(time * 0.5) * 15;
+
+ctx.globalAlpha = 0.7;
+for (let i = 0; i < N; i++) {
+    const angle = baseAngle + i * Math.PI / N;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const phase = time * 30 + i * 20;
+    
+    for (let d = -maxD; d <= maxD; d += spacing) {
+        const actualD = d + (phase % spacing);
+        
+        // RGB Displacement Logic
+        const channels = [
+            { color: '#FF0080', offset: glitch * 25 * Math.sin(time * 6 + i) },   // Magenta
+            { color: '#00FFFF', offset: glitch * -25 * Math.cos(time * 5 - i) },  // Cyan
+            { color: '#FFFF00', offset: glitch * 12 * Math.sin(time * 7 + d) }    // Yellow
+        ];
+        
+        channels.forEach(ch => {
+            const shiftD = actualD + ch.offset;
+            const bx = center.x + shiftD * dx;
+            const by = center.y + shiftD * dy;
+            
+            const lx1 = bx - maxD * dy;
+            const ly1 = by + maxD * dx;
+            const lx2 = bx + maxD * dy;
+            const ly2 = by - maxD * dx;
+            
+            ctx.beginPath();
+            ctx.moveTo(lx1, ly1);
+            ctx.lineTo(lx2, ly2);
+            ctx.strokeStyle = ch.color;
+            ctx.lineWidth = 1.5 + glitch * 1.5;
+            ctx.stroke();
+        });
+    }
+}
+ctx.globalAlpha = 1.0;
+
+// 7. Sparkle Static (Lisa Frank Stars)
+ctx.globalCompositeOperation = 'source-over';
+state.sparkles.forEach(s => {
+    s.y -= s.speed + glitch * 8;
+    s.x += Math.sin(s.phase + time) * 3;
+    if (s.y < -s.size) s.y = grid.height + s.size;
+    if (s.x < -s.size) s.x = grid.width + s.size;
+    if (s.x > grid.width + s.size) s.x = -s.size;
+    
+    s.phase += 0.1 + glitch * 0.3;
+    
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = (Math.sin(s.phase) + 1) / 2;
+    
+    // Draw 4-pointed star
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y - s.size);
+    ctx.quadraticCurveTo(s.x, s.y, s.x + s.size, s.y);
+    ctx.quadraticCurveTo(s.x, s.y, s.x, s.y + s.size);
+    ctx.quadraticCurveTo(s.x, s.y, s.x - s.size, s.y);
+    ctx.quadraticCurveTo(s.x, s.y, s.x, s.y - s.size);
+    ctx.fill();
+});
+ctx.globalAlpha = 1.0;
+
+// 8. Text-Screen Heartbreak (Terminal Residue)
+ctx.font = 'bold 18px monospace';
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+const phrases = [
+    "seductive signal damage",
+    "synthetic euphoria",
+    "candy broadcast hallucination",
+    "typing...",
+    "user not found",
+    "rainbow channel crash",
+    "fatal error: cute",
+    "pastel identity smear",
+    "bratty file damage"
+];
+
+for (let i = 0; i < 4; i++) {
+    const pIdx = Math.floor(time * 0.5 + i * 2.3) % phrases.length;
+    const textStr = phrases[pIdx];
+    
+    // Jittery floating position
+    const tx = (Math.sin(time * 0.4 + i) * 0.4 + 0.5) * grid.width + (Math.random() - 0.5) * glitch * 30;
+    const ty = (Math.cos(time * 0.3 - i) * 0.4 + 0.5) * grid.height + (Math.random() - 0.5) * glitch * 30;
+    
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = '#FF0080';
+    ctx.fillText(textStr, tx - glitch * 10, ty);
+    ctx.fillStyle = '#00FFFF';
+    ctx.fillText(textStr, tx + glitch * 10, ty);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(textStr, tx, ty);
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
-if (material?.uniforms) {
-  material.uniforms.u_time.value = time;
-  // Invert Y for standard WebGL coordinate space
-  material.uniforms.u_mouse.value.set(mouse.x, grid.height - mouse.y);
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
+// 9. Surveillance Apparition (Mouse Tracker)
+ctx.globalCompositeOperation = 'source-over';
+ctx.strokeStyle = '#00FFFF';
+ctx.lineWidth = 1.5;
+ctx.setLineDash([4, 4]);
+ctx.strokeRect(mouse.x - 25, mouse.y - 25, 50, 50);
+ctx.setLineDash([]);
+ctx.fillStyle = '#FF0080';
+ctx.font = '12px monospace';
+ctx.textAlign = 'left';
+ctx.fillText(`TRK_X:${Math.floor(mouse.x)}_Y:${Math.floor(mouse.y)}`, mouse.x + 30, mouse.y - 20);
+if (isRupture) {
+    ctx.fillStyle = '#FFFF00';
+    ctx.fillText(`*RUPTURE_POP*`, mouse.x + 30, mouse.y - 5);
 }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// 10. CRT Contour Banding (Scanlines)
+ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+for (let y = 0; y < grid.height; y += 4) {
+    ctx.fillRect(0, y, grid.width, 2);
+}
+
+// 11. Color Field Collision (Extreme Glitch Flash)
+if (glitch > 1.2 && Math.random() < 0.15) {
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = ['#FF0080', '#00FFFF', '#FFFF00'][Math.floor(Math.random() * 3)];
+    ctx.globalAlpha = 0.25;
+    ctx.fillRect(0, 0, grid.width, grid.height);
+    ctx.globalAlpha = 1.0;
+}
