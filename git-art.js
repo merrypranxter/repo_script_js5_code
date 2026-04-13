@@ -1,249 +1,202 @@
-if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+// Aperiodic Reaction-Diffusion: The Lisa Frank Ditherpunk Quasicrystal
+//
+// MECHANISM:
+// 1. Calculates a 5-fold (icosahedral) quasiperiodic interference field that breathes and glitches over time.
+// 2. Uses this aperiodic field to spatially modulate the feed/kill rates of a Gray-Scott reaction-diffusion system.
+// 3. The organic Turing patterns (worms, spots, labyrinths) are forced to grow along the forbidden 5-fold geometry.
+// 4. The chemical concentration is quantized via 4x4 Bayer ordered dithering (pixel_voxel style).
+// 5. The dithered values are mapped to a hyper-saturated, 12-step neon palette (lisa_frank_aesthetic).
+// 6. Rendered to a low-res pixel grid and nearest-neighbor upscaled.
+
+const scale = Math.max(1, Math.floor(Math.max(grid.width, grid.height) / 150));
+const W = Math.floor(grid.width / scale);
+const H = Math.floor(grid.height / scale);
+
+if (!canvas.__gsState || canvas.__gsState.W !== W || canvas.__gsState.H !== H) {
+    const A = new Float32Array(W * H).fill(1.0);
+    const B = new Float32Array(W * H).fill(0.0);
+    const nextA = new Float32Array(W * H);
+    const nextB = new Float32Array(W * H);
+    const phases = new Float32Array(5 * W * H);
+    const Q = new Float32Array(W * H);
     
-    const vertexShader = `
-        varying vec2 vUv;
-        void main() {
-            vUv = uv;
-            gl_Position = vec4(position, 1.0);
+    // Generate 5-fold quasicrystal basis vectors
+    const freq = 0.25; 
+    for (let j = 0; j < 5; j++) {
+        const angle = j * Math.PI / 5;
+        const kx = Math.cos(angle) * freq;
+        const ky = Math.sin(angle) * freq;
+        for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+                phases[j * W * H + y * W + x] = x * kx + y * ky;
+            }
         }
-    `;
+    }
     
-    const fragmentShader = `
-        uniform float u_time;
-        uniform vec2 u_resolution;
-        uniform vec2 u_mouse;
-        
-        #define MAX_STEPS 100
-        #define MAX_DIST 25.0
-        #define SURF_DIST 0.002
-        #define PI 3.14159265359
-        
-        varying vec2 vUv;
-        
-        // Hash & Noise from raymarching/structural_color repos
-        float hash(vec3 p) {
-            p = fract(p * 0.3183099 + 0.1);
-            p *= 17.0;
-            return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+    // Seed the initial feral growth along the quasicrystal nodes
+    for(let i = 0; i < W * H; i++) {
+        let sum = 0;
+        for(let j = 0; j < 5; j++) sum += Math.cos(phases[j * W * H + i]);
+        let q = (sum / 5) * 0.5 + 0.5;
+        if (q > 0.8 || Math.random() < 0.02) {
+            B[i] = 1.0;
+            A[i] = 0.0;
         }
-        
-        float noise(vec3 p) {
-            vec3 i = floor(p);
-            vec3 f = fract(p);
-            vec3 u = f * f * (3.0 - 2.0 * f);
-            return mix(mix(mix(hash(i + vec3(0.0,0.0,0.0)), hash(i + vec3(1.0,0.0,0.0)), u.x),
-                           mix(hash(i + vec3(0.0,1.0,0.0)), hash(i + vec3(1.0,1.0,0.0)), u.x), u.y),
-                       mix(mix(hash(i + vec3(0.0,0.0,1.0)), hash(i + vec3(1.0,0.0,1.0)), u.x),
-                           mix(hash(i + vec3(0.0,1.0,1.0)), hash(i + vec3(1.0,1.0,1.0)), u.x), u.y), u.z);
-        }
-        
-        // Chladni pattern from vibration repo
-        float chladni(vec2 p, float m, float n) {
-            return sin(m * PI * p.x) * sin(n * PI * p.y) + sin(n * PI * p.x) * sin(m * PI * p.y);
-        }
-        
-        // Gyroid from structural_color repo
-        float sdGyroid(vec3 p, float scale) {
-            p *= scale;
-            return (sin(p.x)*cos(p.y) + sin(p.y)*cos(p.z) + sin(p.z)*cos(p.x)) / scale;
-        }
-        
-        // Manifolds from raymarching repo
-        vec3 twistY(vec3 p, float k) {
-            float s = sin(k * p.y);
-            float c = cos(k * p.y);
-            mat2 m = mat2(c, -s, s, c);
-            return vec3(m * p.xz, p.y).xzy;
-        }
-        
-        mat2 rot(float a) {
-            float s = sin(a), c = cos(a);
-            return mat2(c, -s, s, c);
-        }
-        
-        // Scene Map: Hyperbolic Cymatic Gyroid
-        vec2 sceneMap(vec3 p) {
-            vec3 q = p;
-            
-            // Hyperbolic/Mobius twist
-            q.xy *= rot(u_time * 0.05);
-            q = twistY(q, sin(u_time * 0.1) * 0.5 + u_mouse.x * 0.5);
-            
-            // Cymatic vibration based on mouse and time (Gamma frequency simulation 40Hz -> scaled to 20.0 for visual)
-            float m = 1.0 + floor(u_mouse.x * 5.0);
-            float n = 2.0 + floor(u_mouse.y * 5.0);
-            float vib = chladni(q.xz * 1.2, m, n) * 0.15 * sin(u_time * 20.0);
-            
-            // Structural color geometry: Gyroid sponge
-            float box = length(q) - 2.2; // Sphere bound
-            float gyroid = sdGyroid(q, 3.5 + sin(u_time * 0.2)) * 0.5;
-            
-            float d = max(box, abs(gyroid) - 0.08) + vib;
-            
-            // Biological noise displacement
-            d += noise(q * 6.0 + u_time) * 0.04;
-            
-            return vec2(d, 1.0);
-        }
-        
-        // Normal calculation
-        vec3 calcNormal(vec3 p) {
-            vec2 e = vec2(0.002, 0.0);
-            return normalize(vec3(
-                sceneMap(p + e.xyy).x - sceneMap(p - e.xyy).x,
-                sceneMap(p + e.yxy).x - sceneMap(p - e.yxy).x,
-                sceneMap(p + e.yyx).x - sceneMap(p - e.yyx).x
-            ));
-        }
-        
-        // Thin-film interference color from structural_color repo
-        vec3 thinFilm(float cosTheta, float thickness, float n_ior) {
-            float pathDiff = 2.0 * n_ior * thickness * cosTheta;
-            vec3 phase = vec3(0.0, 0.33, 0.67);
-            return 0.5 + 0.5 * cos(6.28318 * (pathDiff * 3.0 + phase));
-        }
-        
-        // Rayleigh scattering / Fog from raymarching repo
-        vec3 applyFog(vec3 color, float dist) {
-            float fogAmount = 1.0 - exp(-dist * 0.12);
-            vec3 fogColor = vec3(0.02, 0.01, 0.05); // Deep space / biolume
-            // Add cymatic energy to the fog itself
-            fogColor += vec3(0.1, 0.0, 0.2) * max(0.0, sin(u_time * 40.0)) * u_mouse.y; 
-            return mix(color, fogColor, fogAmount);
-        }
-        
-        // ACES Tone Mapping
-        vec3 toneMapACES(vec3 x) {
-            float a = 2.51;
-            float b = 0.03;
-            float c = 2.43;
-            float d = 0.59;
-            float e = 0.14;
-            return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-        }
-        
-        void main() {
-            vec2 uv = vUv * 2.0 - 1.0;
-            uv.x *= u_resolution.x / u_resolution.y;
-            
-            // Poincare disk domain warp from noneuclidean repo
-            vec2 warpedUv = uv;
-            float n_warp = noise(vec3(uv * 2.0, u_time * 0.2)) * 0.2;
-            warpedUv += n_warp * u_mouse.x;
-            
-            // Camera setup
-            vec3 ro = vec3(0.0, 0.0, 4.5);
-            vec3 rd = normalize(vec3(warpedUv, -1.0));
-            
-            // Camera orbit
-            float camAngle = u_time * 0.1 + u_mouse.x * 1.5;
-            ro.xz *= rot(camAngle);
-            rd.xz *= rot(camAngle);
-            ro.yz *= rot(u_mouse.y - 0.5);
-            rd.yz *= rot(u_mouse.y - 0.5);
-            
-            // Raymarching
-            float dO = 0.0;
-            vec2 res = vec2(0.0);
-            for(int i = 0; i < MAX_STEPS; i++) {
-                vec3 p = ro + rd * dO;
-                res = sceneMap(p);
-                if(res.x < SURF_DIST || dO > MAX_DIST) break;
-                dO += res.x * 0.65; // Step size reduction for safety with heavy distortion
-            }
-            
-            vec3 col = vec3(0.0);
-            
-            if(dO < MAX_DIST) {
-                vec3 p = ro + rd * dO;
-                vec3 n = calcNormal(p);
-                vec3 v = -rd;
-                
-                float cosTheta = max(0.0, dot(n, v));
-                
-                // Structural color thickness varies with position and cymatic noise
-                float thickness = 0.4 + 0.6 * noise(p * 3.0 - u_time);
-                float ior = 1.56; // Chitin/Beetle shell
-                
-                vec3 iridescent = thinFilm(cosTheta, thickness, ior);
-                
-                // Lighting
-                vec3 lightPos = vec3(3.0 * sin(u_time), 4.0, 3.0 * cos(u_time));
-                vec3 l = normalize(lightPos - p);
-                float diff = max(0.0, dot(n, l));
-                float spec = pow(max(0.0, dot(normalize(l + v), n)), 32.0);
-                
-                // Subsurface scatter approx
-                float sss = pow(clamp(1.0 - dot(n, v), 0.0, 1.0), 3.0) * 0.4;
-                
-                col = iridescent * (diff + sss) + spec * vec3(0.8, 0.9, 1.0);
-                
-                // Ambient occlusion approximation
-                float ao = clamp(sceneMap(p + n * 0.15).x / 0.15, 0.0, 1.0);
-                col *= ao * 0.8 + 0.2;
-                
-                // Emission from vibration (cymatic energy)
-                float m_chladni = 1.0 + floor(u_mouse.x * 5.0);
-                float n_chladni = 2.0 + floor(u_mouse.y * 5.0);
-                float vib_energy = abs(chladni(p.xz * 1.2, m_chladni, n_chladni));
-                vec3 emission = vec3(0.9, 0.3, 0.1) * vib_energy * smoothstep(0.7, 1.0, sin(u_time * 20.0));
-                col += emission * 0.6;
-            }
-            
-            // Fog
-            col = applyFog(col, dO);
-            
-            // Dithering
-            float dither = fract(sin(dot(gl_FragCoord.xy * 100.0, vec2(12.9898, 78.233))) * 43758.5453);
-            col += (dither - 0.5) * (1.0 / 255.0);
-            
-            // ACES Tone Mapping
-            col = toneMapACES(col);
-            
-            // Gamma correction
-            col = pow(col, vec3(1.0 / 2.2));
-            
-            // Chromatic aberration at edges
-            float distToCenter = length(vUv * 2.0 - 1.0);
-            col.r += distToCenter * 0.03 * sin(u_time * 5.0);
-            col.b -= distToCenter * 0.03 * cos(u_time * 5.0);
-            
-            gl_FragColor = vec4(col, 1.0);
-        }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-        vertexShader,
-        fragmentShader,
-        uniforms: {
-            u_time: { value: 0 },
-            u_resolution: { value: new THREE.Vector2() },
-            u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
-        }
-    });
-
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(plane);
-
-    canvas.__three = { renderer, scene, camera, material };
+    }
+    
+    const offscreen = document.createElement('canvas');
+    offscreen.width = W;
+    offscreen.height = H;
+    const offCtx = offscreen.getContext('2d');
+    const imgData = offCtx.createImageData(W, H);
+    
+    canvas.__gsState = { A, B, nextA, nextB, phases, Q, W, H, offscreen, offCtx, imgData, glitchOffset: 0 };
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+let { A, B, nextA, nextB, phases, Q, offscreen, offCtx, imgData } = canvas.__gsState;
 
-if (material?.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    
-    // Smooth mouse coordinates for organic interaction
-    const targetX = mouse.x / grid.width;
-    const targetY = 1.0 - (mouse.y / grid.height);
-    
-    material.uniforms.u_mouse.value.x += (targetX - material.uniforms.u_mouse.value.x) * 0.1;
-    material.uniforms.u_mouse.value.y += (targetY - material.uniforms.u_mouse.value.y) * 0.1;
+// 1. Machine Hesitation / Glitch
+let glitch = canvas.__gsState.glitchOffset;
+if (Math.random() < 0.015) canvas.__gsState.glitchOffset = glitch + Math.random() * 2.0;
+canvas.__gsState.glitchOffset *= 0.9;
+
+// 2. Update Quasicrystal Field
+const phi = 1.6180339887; // Golden Ratio
+const timeScaled = time * 0.8;
+for(let i = 0; i < W * H; i++) {
+    let sum = 0;
+    for(let j = 0; j < 5; j++) {
+        // Waves drift at different golden-ratio-scaled speeds, causing the structure to morph
+        sum += Math.cos(phases[j * W * H + i] - timeScaled * Math.pow(phi, j - 2) + (j % 2 === 0 ? glitch : -glitch)); 
+    }
+    Q[i] = (sum / 5.0) * 0.5 + 0.5; 
 }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// 3. Parasite-Host Interaction (Mouse input)
+if (mouse.isPressed) {
+    let mx = Math.floor(mouse.x / scale);
+    let my = Math.floor(mouse.y / scale);
+    let radius = Math.floor(10 / scale) + 1;
+    for(let dy = -radius; dy <= radius; dy++) {
+        for(let dx = -radius; dx <= radius; dx++) {
+            if (dx * dx + dy * dy <= radius * radius) {
+                let px = (mx + dx + W) % W;
+                let py = (my + dy + H) % H;
+                B[py * W + px] = 1.0;
+                A[py * W + px] = 0.0;
+            }
+        }
+    }
+}
+
+// 4. Aperiodic Reaction-Diffusion (Gray-Scott)
+for (let step = 0; step < 4; step++) {
+    for(let y = 0; y < H; y++) {
+        let ym1w = ((y - 1 + H) % H) * W;
+        let yp1w = ((y + 1) % H) * W;
+        let yw = y * W;
+        
+        for(let x = 0; x < W; x++) {
+            let xm1 = (x - 1 + W) % W;
+            let xp1 = (x + 1) % W;
+            let i = yw + x;
+            
+            let a = A[i];
+            let b = B[i];
+            
+            // 3x3 Laplacian
+            let lapA = 
+                (A[ym1w + x] + A[yp1w + x] + A[yw + xm1] + A[yw + xp1]) * 0.2 +
+                (A[ym1w + xm1] + A[ym1w + xp1] + A[yp1w + xm1] + A[yp1w + xp1]) * 0.05 - a;
+                
+            let lapB = 
+                (B[ym1w + x] + B[yp1w + x] + B[yw + xm1] + B[yw + xp1]) * 0.2 +
+                (B[ym1w + xm1] + B[ym1w + xp1] + B[yp1w + xm1] + B[yp1w + xp1]) * 0.05 - b;
+                
+            let abb = a * b * b;
+            let q = Q[i]; 
+            
+            // Quasicrystal field modulates the reaction, forcing Turing patterns into 5-fold symmetry
+            let f = 0.024 + 0.014 * q;
+            let k = 0.049 + 0.012 * q;
+            
+            nextA[i] = a + (1.0 * lapA - abb + f * (1.0 - a));
+            nextB[i] = b + (0.5 * lapB + abb - (k + f) * b);
+            
+            // Continuous injection at quasicrystal peaks to prevent total die-off (Thermal Bloom)
+            if (q > 0.85) nextB[i] += 0.003;
+            
+            if (nextA[i] > 1.0) nextA[i] = 1.0; else if (nextA[i] < 0.0) nextA[i] = 0.0;
+            if (nextB[i] > 1.0) nextB[i] = 1.0; else if (nextB[i] < 0.0) nextB[i] = 0.0;
+        }
+    }
+    let tempA = A; A = nextA; nextA = tempA;
+    let tempB = B; B = nextB; nextB = tempB;
+}
+canvas.__gsState.A = A;
+canvas.__gsState.B = B;
+canvas.__gsState.nextA = nextA;
+canvas.__gsState.nextB = nextB;
+
+// 5. Bayer Dithering & Lisa Frank Palette Mapping
+const data = imgData.data;
+const bayer4x4 = [
+    0, 8, 2, 10,
+    12, 4, 14, 6,
+    3, 11, 1, 9,
+    15, 7, 13, 5
+];
+
+// Hyper-saturated 12-step neon ramp
+const palette = [
+  [10, 0, 20],      // Deep Void
+  [30, 0, 60],      // Dark Purple
+  [100, 0, 150],    // Royal Purple
+  [180, 0, 200],    // Magenta
+  [255, 0, 128],    // Hot Pink
+  [255, 100, 0],    // Neon Orange
+  [255, 200, 0],    // Bright Yellow
+  [255, 255, 0],    // Laser Yellow
+  [0, 255, 200],    // Mint
+  [0, 255, 255],    // Cyan
+  [200, 255, 255],  // Pale Cyan
+  [255, 255, 255]   // White
+];
+const pLen = palette.length;
+
+for(let y = 0; y < H; y++) {
+    for(let x = 0; x < W; x++) {
+        let i = y * W + x;
+        // Invert so active infection (high B, low A) is bright
+        let v = 1.0 - (A[i] - B[i]); 
+        v = Math.max(0, Math.min(1, v));
+        
+        let bayer = (bayer4x4[(y % 4) * 4 + (x % 4)] / 16.0) - 0.5;
+        let v_dither = v + bayer * 0.2; 
+        
+        let pIdx = Math.floor(v_dither * pLen);
+        if (pIdx < 0) pIdx = 0;
+        if (pIdx >= pLen) pIdx = pLen - 1;
+        
+        let color = palette[pIdx];
+        let idx = i * 4;
+        data[idx] = color[0];
+        data[idx+1] = color[1];
+        data[idx+2] = color[2];
+        data[idx+3] = 255;
+    }
+}
+
+// 6. Pixel-Grid Locked Render
+offCtx.putImageData(imgData, 0, 0);
+
+ctx.fillStyle = '#050505';
+ctx.fillRect(0, 0, grid.width, grid.height);
+
+ctx.imageSmoothingEnabled = false;
+const drawW = W * scale;
+const drawH = H * scale;
+const offsetX = Math.floor((grid.width - drawW) / 2);
+const offsetY = Math.floor((grid.height - drawH) / 2);
+
+ctx.drawImage(offscreen, offsetX, offsetY, drawW, drawH);
