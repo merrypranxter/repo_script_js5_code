@@ -1,175 +1,190 @@
-try {
-  if (!canvas.__three) {
-    // Attempt to initialize WebGL2 context (Required for GLSL3)
+if (!canvas.__three) {
+  try {
     const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
     if (!gl) throw new Error("WebGL 2 not supported or context occupied");
     
     const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
     
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
+    
     const fragmentShader = `
+      precision highp float;
+
       in vec2 vUv;
       out vec4 fragColor;
-      
+
       uniform float u_time;
       uniform vec2 u_resolution;
       uniform vec2 u_mouse;
-      
-      const float PI = 3.14159265359;
-      
-      // Hash & Simplex Noise for FBM
-      vec2 hash22(vec2 p) {
+      uniform float u_mouse_pressed;
+
+      #define TAU 6.28318530718
+
+      // ---- VHS & Noise Utilities (from fluid_dynamics) ----
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      vec2 hash2(vec2 p) {
           p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-          return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+          return fract(sin(p) * 43758.5453);
       }
-      
+
       float noise(vec2 p) {
-          const float K1 = 0.366025404; // (sqrt(3)-1)/2
-          const float K2 = 0.211324865; // (3-sqrt(3))/6
-          vec2 i = floor(p + (p.x + p.y) * K1);
-          vec2 a = p - i + (i.x + i.y) * K2;
-          vec2 o = (a.x > a.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-          vec2 b = a - o + K2;
-          vec2 c = a - vec2(1.0, 1.0) + 2.0 * K2;
-          vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
-          vec3 n = h * h * h * h * vec3(dot(a, hash22(i)), dot(b, hash22(i + o)), dot(c, hash22(i + vec2(1.0, 1.0))));
-          return dot(n, vec3(70.0));
+          vec2 i = floor(p), f = fract(p);
+          vec2 u = f*f*(3.0-2.0*f);
+          return mix(mix(hash(i), hash(i+vec2(1.0,0.0)), u.x),
+                     mix(hash(i+vec2(0.0,1.0)), hash(i+vec2(1.0,1.0)), u.x), u.y);
       }
-      
+
       float fbm(vec2 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          for (int i = 0; i < 5; i++) {
-              f += amp * noise(p);
-              p *= 2.0;
-              amp *= 0.5;
+          float v = 0.0, a = 0.5;
+          for(int i=0; i<5; i++) {
+              v += a * noise(p);
+              p *= 2.1;
+              a *= 0.5;
           }
-          return f;
+          return v;
       }
-      
-      // Ammann-Beenker 8-fold Quasicrystal Field
-      float quasicrystal(vec2 uv, float t) {
-          float value = 0.0;
-          for (int i = 0; i < 8; i++) {
-              float fi = float(i);
-              float angle = 2.0 * PI * fi / 8.0;
-              float phase = cos(angle) * uv.x + sin(angle) * uv.y;
-              
-              // Fluid warping (birefringence stress injection)
-              phase += fbm(uv * 1.5 + t * 0.2) * 1.5;
-              
-              value += cos(phase * 10.0 - t * 2.0);
+
+      // ---- Navier-Stokes Approx (Curl Noise) ----
+      vec2 curl(vec2 p) {
+          float e = 0.01;
+          float n1 = fbm(p + vec2(0.0, e));
+          float n2 = fbm(p - vec2(0.0, e));
+          float n3 = fbm(p + vec2(e, 0.0));
+          float n4 = fbm(p - vec2(e, 0.0));
+          return vec2(n1 - n2, n4 - n3) / (2.0 * e);
+      }
+
+      // ---- Hexagonal Tessellation (from tesselations repo) ----
+      float hexDistance(vec2 uv, float scale) {
+          vec2 hex = vec2(uv.x * 1.1547005, uv.y + uv.x * 0.5773502) * scale;
+          vec2 hexLocal = fract(hex) - 0.5;
+          return max(abs(hexLocal.x), abs(hexLocal.y * 1.7320508 + hexLocal.x) / 2.0);
+      }
+
+      // ---- Birefringence Interference Colors ----
+      vec3 birefringence_color(float retardation) {
+          float delta = retardation * 6.0;
+          float fR = sin(delta * 3.14159 / 1.20);
+          float fG = sin(delta * 3.14159 / 1.00);
+          float fB = sin(delta * 3.14159 / 0.80);
+          vec3 col = vec3(fR*fR, fG*fG, fB*fB);
+          float luma = dot(col, vec3(0.299, 0.587, 0.114));
+          return mix(vec3(luma), col, 2.5); // Boost for neon look
+      }
+
+      // ---- Lisa Frank Maximalist Palette ----
+      vec3 lisa_frank_palette(float t) {
+          vec3 a = vec3(0.5, 0.5, 0.5);
+          vec3 b = vec3(0.5, 0.5, 0.5);
+          vec3 c = vec3(2.0, 1.0, 0.0);
+          vec3 d = vec3(0.50, 0.20, 0.25);
+          return a + b * cos(TAU * (c * t + d));
+      }
+
+      // ---- Lisa Frank Leopard Spots (Cellular/Voronoi) ----
+      float leopard_spots(vec2 uv) {
+          vec2 i = floor(uv);
+          vec2 f = fract(uv);
+          float minDist = 1.0;
+          for(int y=-1; y<=1; y++) {
+              for(int x=-1; x<=1; x++) {
+                  vec2 b = vec2(float(x), float(y));
+                  vec2 pt = hash2(i + b);
+                  pt = 0.5 + 0.4 * sin(u_time * 2.0 + TAU * pt);
+                  vec2 r = b + pt - f;
+                  float d = dot(r, r);
+                  minDist = min(minDist, d);
+              }
           }
-          return value / 8.0;
+          float ring = smoothstep(0.01, 0.08, minDist) - smoothstep(0.15, 0.35, minDist);
+          ring *= smoothstep(0.2, 0.6, fbm(uv * 4.0 + u_time));
+          return clamp(ring, 0.0, 1.0);
       }
-      
-      // Lisa Frank Acid Neon Palette
-      vec3 lisaFrankPalette(float t) {
-          vec3 a = vec3(0.5);
-          vec3 b = vec3(0.5);
-          vec3 c = vec3(1.0);
-          vec3 d = vec3(0.0, 0.33, 0.67);
-          vec3 col = a + b * cos(6.28318 * (c * t + d));
-          // Overclock saturation for 90s Lisa Frank neon (Cyan, Magenta, Yellow)
-          col = smoothstep(0.0, 1.0, col);
-          col = pow(col, vec3(0.6));
-          return col;
-      }
-      
+
       void main() {
-          // Center UVs and correct aspect ratio
-          vec2 uv = (vUv - 0.5) * u_resolution.xy / min(u_resolution.x, u_resolution.y);
-          uv *= 2.5; 
-          
-          // Mouse interaction (repulsion warp)
-          vec2 mouse_uv = (u_mouse - 0.5) * u_resolution.xy / min(u_resolution.x, u_resolution.y);
-          mouse_uv *= 2.5;
-          vec2 dir = uv - mouse_uv;
-          float dir_len = length(dir);
-          if (dir_len > 0.0001) {
-              uv += (dir / dir_len) * exp(-dir_len * 4.0) * 0.3 * sin(u_time * 3.0);
+          vec2 uv = vUv * 2.0 - 1.0;
+          uv.x *= u_resolution.x / u_resolution.y;
+
+          // VHS Tracking Error Glitch
+          float frameT = floor(u_time * 29.97);
+          float scanline = floor(vUv.y * 240.0);
+          float jitterAmt = (hash(vec2(scanline, frameT)) - 0.5) * 0.025;
+          float jitterMask = step(0.96, hash(vec2(scanline * 0.1, frameT)));
+          uv.x += jitterAmt * jitterMask;
+
+          // Mouse Injection (Marangoni Effect Proxy)
+          vec2 m = u_mouse * 2.0 - 1.0;
+          m.x *= u_resolution.x / u_resolution.y;
+          float mouseDist = length(uv - m);
+          float mouseForce = 0.0;
+          if (u_mouse_pressed > 0.5) {
+              mouseForce = exp(-mouseDist * 12.0);
           }
-          
-          float t = u_time * 0.3;
-          
-          // Base quasicrystal heightmap
-          float qc = quasicrystal(uv, t);
-          
-          // Calculate normal map via gradient
-          float eps = 0.02;
-          float dx = quasicrystal(uv + vec2(eps, 0.0), t) - qc;
-          float dy = quasicrystal(uv + vec2(0.0, eps), t) - qc;
-          vec3 N = normalize(vec3(dx * 6.0, dy * 6.0, 1.0));
-          vec3 V = vec3(0.0, 0.0, 1.0);
-          
-          // View angle
-          float viewAngle = max(0.0, dot(N, V));
-          
-          // Thin film interference (Michel-Lévy style)
-          float thickness = fbm(uv * 3.0 - t) * 0.5 + 0.5;
-          float opd = 2.0 * 1.5 * thickness * viewAngle;
-          
-          float interference = opd * 4.0 + qc * 1.5;
-          
-          // Base color
-          vec3 color = lisaFrankPalette(interference - t * 2.0);
-          
-          // Birefringence contour lines
-          float contour = fract(interference * 2.5);
-          float line = smoothstep(0.0, 0.05, contour) * smoothstep(0.1, 0.05, contour);
-          color = mix(color, vec3(1.0, 0.9, 0.5), line * 0.7); // Glowing gold lines
-          
-          // Lisa Frank Leopard Print Pattern Overlay
-          vec2 spotUV = uv * 3.0;
-          spotUV += vec2(fbm(spotUV + t), fbm(spotUV + vec2(10.0) - t)) * 1.5;
-          float spotNoise = abs(noise(spotUV * 2.0));
-          // Extract rings for leopard spots
-          float leopard = smoothstep(0.1, 0.2, spotNoise) - smoothstep(0.3, 0.4, spotNoise);
-          
-          // Velvet purple/black spots with iridescent cyan halos
-          vec3 spotColor = vec3(0.1, 0.0, 0.2) + 0.1 * sin(uv.xyx * 5.0 + t);
-          float spotEdge = smoothstep(0.0, 0.1, spotNoise) - smoothstep(0.4, 0.5, spotNoise);
-          color = mix(color, vec3(0.0, 1.0, 1.0), spotEdge * 0.4); 
-          color = mix(color, spotColor, leopard * 0.85);
-          
-          // Specular highlights
-          vec3 L = normalize(vec3(sin(t * 2.0), cos(t * 2.0), 1.5));
-          vec3 H = normalize(L + V);
-          float spec = pow(max(0.0, dot(N, H)), 30.0);
-          color += spec * vec3(1.0, 0.5, 0.9); // Hot pink specular
-          
-          // Chromatic aberration (VHS tracking style)
-          float wave = sin(vUv.y * 25.0 + u_time * 4.0) * 0.003;
-          float split = 0.015 + abs(wave);
-          
-          float qc_r = quasicrystal(uv + vec2(split, 0.0), t);
-          float qc_b = quasicrystal(uv - vec2(split, 0.0), t);
-          vec3 color_r = lisaFrankPalette(opd * 4.0 + qc_r * 1.5 - t * 2.0);
-          vec3 color_b = lisaFrankPalette(opd * 4.0 + qc_b * 1.5 - t * 2.0);
-          
-          color.r = mix(color.r, color_r.r, 0.5);
-          color.b = mix(color.b, color_b.b, 0.5);
-          
-          // Twinkling Sparkles
-          vec2 sparkleUV = fract(uv * 5.0 + t) - 0.5;
-          float d_sparkle = length(sparkleUV);
-          float star = (0.005 / d_sparkle) * smoothstep(0.2, 0.05, d_sparkle);
-          float rnd = fract(sin(dot(floor(uv * 5.0 + t), vec2(12.9898, 78.233))) * 43758.5453);
-          star *= step(0.95, rnd);
-          star *= sin(u_time * 5.0 + uv.x * 50.0) * 0.5 + 0.5;
-          color += star * vec3(1.0, 0.8, 1.0);
-          
-          // Scanlines
-          float scanline = sin(vUv.y * 600.0) * 0.05;
-          color -= scanline;
-          
-          // Vignette
-          float vignette = 1.0 - length(vUv - 0.5) * 1.3;
-          color *= smoothstep(0.0, 0.4, vignette);
-          
-          fragColor = vec4(color, 1.0);
+
+          vec3 finalColor = vec3(0.0);
+          float spread = 0.01 + 0.005 * sin(u_time);
+
+          // Chromatic Aberration Loop
+          for(int c=0; c<3; c++) {
+              vec2 offset = vec2(float(c - 1) * spread, 0.0);
+              vec2 cuv = uv + offset;
+
+              // Viscous Fingering Advection
+              vec2 adv = cuv;
+              for(int i=0; i<4; i++) {
+                  vec2 vel = curl(adv * 1.8 + u_time * 0.25);
+                  adv -= vel * 0.09;
+                  if (u_mouse_pressed > 0.5) {
+                      adv += normalize(adv - m) * mouseForce * 0.06;
+                  }
+              }
+
+              // Underlying Tessellation
+              float hexScale = 6.0 + 2.0 * sin(u_time * 0.2);
+              float hd = hexDistance(adv, hexScale);
+              float edge = smoothstep(0.42, 0.5, hd);
+
+              // Fluid Stress (Birefringence)
+              float stress = length(curl(adv * 4.0)) * 0.6;
+              vec3 fluidColor = birefringence_color(stress + u_time * 0.15);
+
+              // Blend with Lisa Frank Palette
+              vec3 lfColor = lisa_frank_palette(fbm(adv * 1.2 - u_time * 0.5));
+              fluidColor = mix(fluidColor, lfColor, 0.65);
+
+              // Crystallization Fractures (Hot Magenta / Cyan edges)
+              vec3 hexEdgeColor = vec3(1.0, 0.0, 0.8);
+              if (c == 2) hexEdgeColor = vec3(0.0, 1.0, 0.9);
+              fluidColor = mix(fluidColor, hexEdgeColor, edge * 0.85);
+
+              // Floating Leopard Spots
+              float spots = leopard_spots(adv * 7.0);
+              vec3 spotColor = vec3(0.02, 0.0, 0.08); // Jet black
+              fluidColor = mix(fluidColor, spotColor, spots * 0.95);
+              fluidColor += vec3(0.0, 1.0, 0.8) * smoothstep(0.05, 0.25, spots) * 0.6; // Neon fringe
+
+              if(c == 0) finalColor.r = fluidColor.r;
+              if(c == 1) finalColor.g = fluidColor.g;
+              if(c == 2) finalColor.b = fluidColor.b;
+          }
+
+          // Analog Snow (Luma Noise)
+          float snow = hash(vUv * vec2(320.0, 240.0) + frameT);
+          finalColor += snow * 0.18 * step(0.93, snow);
+
+          fragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
       }
     `;
     
@@ -178,50 +193,46 @@ try {
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
+        u_mouse: { value: new THREE.Vector2(0, 0) },
+        u_mouse_pressed: { value: 0.0 }
       },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: fragmentShader
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
     });
     
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
     
     canvas.__three = { renderer, scene, camera, material };
-  }
-  
-  const { renderer, scene, camera, material } = canvas.__three;
-  
-  if (material?.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    if (material.uniforms.u_mouse) {
-      let mx = mouse.x / grid.width;
-      let my = 1.0 - (mouse.y / grid.height);
-      if (mouse.x === 0 && mouse.y === 0) { mx = 0.5; my = 0.5; }
-      material.uniforms.u_mouse.value.set(mx, my);
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    if (ctx) {
+      ctx.fillStyle = '#050508';
+      ctx.fillRect(0, 0, grid.width, grid.height);
+      ctx.fillStyle = '#FF00CC';
+      ctx.font = '14px monospace';
+      ctx.fillText('WebGL2 Required for Lisa Frank Fluid Mechanics', 20, 40);
     }
-  }
-  
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  // Fallback if WebGL2 is not supported or context is lost
-  if (ctx) {
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(0, 0, grid.width, grid.height);
-    ctx.fillStyle = '#FF00FF';
-    ctx.font = '20px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('WebGL2 Required for Lisa Frank Quasicrystal', grid.width / 2, grid.height / 2);
-    ctx.fillStyle = '#00FFFF';
-    ctx.fillText('Check console for errors.', grid.width / 2, grid.height / 2 + 30);
+    return;
   }
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  
+  // Normalize mouse coordinates (0 to 1, with Y flipped to match WebGL UVs)
+  const mx = mouse.x / grid.width;
+  const my = 1.0 - (mouse.y / grid.height);
+  
+  // Smoothly interpolate mouse position if not pressed, snap if pressed
+  material.uniforms.u_mouse.value.set(mx, my);
+  material.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
