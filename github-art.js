@@ -1,209 +1,277 @@
-// THE WEIRD CODE GUY
-// DIRECTIVE: SPECTRAL CELL DIVISION IN NON-EUCLIDEAN SPACE
-// REPOS INGESTED: noneuclidean (Möbius math, Poincaré disk), structural_color (thin-film, iridescence, fBM), tesselations (symmetry folding)
-// MECHANISM: A quasi-periodic hyperbolic tessellation undergoing structural stress. 
-// As the domain is warped by Möbius translations (mouse), the "cells" secrete 
-// iridescent structural color determined by simulated thin-film interference.
+try {
+  // Safe initialization pattern for WebGL2 / Three.js
+  if (!canvas.__three) {
+    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, depth: false });
+    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
 
-if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     
-    const vertexShader = `
-        varying vec2 vUv;
+    // Feral Shader: Birefringent Lisa-Frank Quasicrystal Raymarcher
+    // Merges 5-fold quasicrystal math, structural color thin-film interference, 
+    // Raymarched SDFs, and hyper-saturated 90s Lisa Frank neon palettes.
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0, 0) }
+      },
+      vertexShader: `
+        out vec2 vUv;
         void main() {
-            vUv = uv;
-            gl_Position = vec4(position, 1.0);
+          vUv = uv;
+          gl_Position = vec4(position, 1.0);
         }
-    `;
+      `,
+      fragmentShader: `
+        in vec2 vUv;
+        out vec4 fragColor;
 
-    const fragmentShader = `
         uniform float u_time;
         uniform vec2 u_resolution;
         uniform vec2 u_mouse;
-        uniform float u_isPressed;
 
-        varying vec2 vUv;
+        #define MAX_STEPS 120
+        #define MAX_DIST 40.0
+        #define SURF_DIST 0.001
+        #define PHI 1.61803398875
 
-        #define PI 3.14159265359
-        #define TWO_PI 6.28318530718
-
-        // --- COMPLEX MATH & MÖBIUS TRANSFORMS (Repo: noneuclidean) ---
-        vec2 cmul(vec2 a, vec2 b) { return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
-        vec2 cdiv(vec2 a, vec2 b) {
-            float d = dot(b, b);
-            return vec2(dot(a,b), a.y*b.x - a.x*b.y) / d;
-        }
-        vec2 conj(vec2 z) { return vec2(z.x, -z.y); }
-        
-        // Translate point p to origin in Poincaré disk
-        vec2 mobius_translate(vec2 z, vec2 p) {
-            return cdiv(z - p, vec2(1.0, 0.0) - cmul(conj(p), z));
+        // Rotation Matrix
+        mat2 rot(float a) {
+            float s = sin(a), c = cos(a);
+            return mat2(c, -s, s, c);
         }
 
-        // --- STRUCTURAL COLOR & NOISE (Repo: structural_color) ---
-        // Hash and fBM for organic "stress" fields
-        vec2 hash22(vec2 p) {
-            p = vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)));
-            return -1.0 + 2.0 * fract(sin(p)*43758.5453123);
+        // Noise & FBM (from raymarching repo)
+        float hash(float n) { return fract(sin(n) * 43758.5453123); }
+        float noise(vec3 x) {
+            vec3 p = floor(x);
+            vec3 f = fract(x);
+            f = f*f*(3.0-2.0*f);
+            float n = p.x + p.y*57.0 + p.z*113.0;
+            return mix(mix(mix( hash(n+  0.0), hash(n+  1.0),f.x),
+                           mix( hash(n+ 57.0), hash(n+ 58.0),f.x),f.y),
+                       mix(mix( hash(n+113.0), hash(n+114.0),f.x),
+                           mix( hash(n+170.0), hash(n+171.0),f.x),f.y),f.z);
         }
 
-        float noise(vec2 p) {
-            const float K1 = 0.366025404; // (sqrt(3)-1)/2;
-            const float K2 = 0.211324865; // (3-sqrt(3))/6;
-            vec2 i = floor(p + (p.x+p.y)*K1);
-            vec2 a = p - i + (i.x+i.y)*K2;
-            float m = step(a.y, a.x); 
-            vec2 o = vec2(m, 1.0 - m);
-            vec2 b = a - o + K2;
-            vec2 c = a - 1.0 + 2.0*K2;
-            vec3 h = max(0.5 - vec3(dot(a,a), dot(b,b), dot(c,c)), 0.0);
-            vec3 n = h*h*h*h*vec3(dot(a,hash22(i+0.0)), dot(b,hash22(i+o)), dot(c,hash22(i+1.0)));
-            return dot(n, vec3(70.0));
-        }
-
-        float fbm(vec2 p) {
+        float fbm(vec3 p) {
             float f = 0.0;
             float amp = 0.5;
-            vec2 shift = vec2(100.0);
-            mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.50));
-            for (int i = 0; i < 5; i++) {
+            for(int i = 0; i < 5; i++) {
                 f += amp * noise(p);
-                p = rot * p * 2.0 + shift;
+                p *= 2.0;
                 amp *= 0.5;
             }
             return f;
         }
 
-        // Oil Slick / Birefringence Palette (Repo: structural_color)
-        vec3 palette(float t) {
-            vec3 a = vec3(0.5);
-            vec3 b = vec3(0.5);
-            vec3 c = vec3(2.0, 1.0, 0.0); // Frequencies
-            vec3 d = vec3(0.5, 0.20, 0.25); // Phases
-            return a + b * cos(TWO_PI * (c * t + d));
+        // 3D Quasicrystal Density Field (Icosahedral symmetry planes)
+        float qc3D(vec3 p) {
+            vec3 n1 = normalize(vec3(PHI, 1.0, 0.0));
+            vec3 n2 = normalize(vec3(-PHI, 1.0, 0.0));
+            vec3 n3 = normalize(vec3(0.0, PHI, 1.0));
+            vec3 n4 = normalize(vec3(0.0, -PHI, 1.0));
+            vec3 n5 = normalize(vec3(1.0, 0.0, PHI));
+            vec3 n6 = normalize(vec3(1.0, 0.0, -PHI));
+            
+            float d = 0.0;
+            d += cos(dot(p, n1));
+            d += cos(dot(p, n2));
+            d += cos(dot(p, n3));
+            d += cos(dot(p, n4));
+            d += cos(dot(p, n5));
+            d += cos(dot(p, n6));
+            return d;
         }
 
-        // --- TESSELLATION SYMMETRY (Repo: tesselations) ---
-        // Fold space to mimic rosette/wallpaper symmetry locally
-        vec2 fold_symmetry(vec2 z, float order) {
-            float theta = atan(z.y, z.x);
-            float r = length(z);
-            float segment = TWO_PI / order;
-            theta = mod(theta, segment);
-            // Mirror fold
-            if (theta > segment/2.0) theta = segment - theta;
-            return r * vec2(cos(theta), sin(theta));
+        // Smooth Union (from operations.glsl)
+        float smin(float a, float b, float k) {
+            float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+            return mix(b, a, h) - k * h * (1.0 - h);
+        }
+
+        // SDF Scene Map
+        float map(vec3 p) {
+            // Space warping (Manifolds)
+            vec3 q = p;
+            q.xz *= rot(u_time * 0.15 + q.y * 0.2); // Twist
+            q.xy *= rot(u_time * 0.1);
+            
+            // Base primitives
+            float sphere = length(q) - 1.5;
+            vec2 t = vec2(1.8, 0.4);
+            float torus = length(vec2(length(q.xz) - t.x, q.y)) - t.y;
+            
+            // Organic blend
+            float base = smin(sphere, torus, 0.8);
+            
+            // Quasicrystal displacement (Aperiodic high-freq detail)
+            float qc = qc3D(q * 4.0 - u_time * 0.5) * 0.15;
+            
+            // Biological noise displacement
+            float n = fbm(q * 3.0 + u_time) * 0.2;
+            
+            return base + qc - n;
+        }
+
+        // Normal Calculation
+        vec3 getNormal(vec3 p) {
+            vec2 e = vec2(0.002, 0.0);
+            return normalize(vec3(
+                map(p + e.xyy) - map(p - e.xyy),
+                map(p + e.yxy) - map(p - e.yxy),
+                map(p + e.yyx) - map(p - e.yyx)
+            ));
+        }
+
+        // Lisa Frank Structural Color Palette (Hyper-saturated acid optics)
+        vec3 lisaFrankColor(float opd) {
+            // Base structural cosine palette
+            vec3 a = vec3(0.5);
+            vec3 b = vec3(0.5);
+            vec3 c = vec3(1.0, 1.4, 1.8);
+            vec3 d = vec3(0.0, 0.33, 0.67);
+            vec3 col = a + b * cos(6.28318 * (c * opd + d));
+            
+            // Feral saturation & contrast push
+            col = smoothstep(0.05, 0.95, col);
+            
+            // Inject Lisa Frank signature neons (Hot Magenta & Lime Green)
+            float magentaSpike = pow(sin(opd * 12.0) * 0.5 + 0.5, 6.0);
+            float limeSpike = pow(cos(opd * 17.0) * 0.5 + 0.5, 6.0);
+            
+            col = mix(col, vec3(1.0, 0.0, 0.8), magentaSpike);
+            col = mix(col, vec3(0.3, 1.0, 0.0), limeSpike);
+            
+            return col;
         }
 
         void main() {
-            // Map UV to [-1, 1] aspect corrected
-            vec2 uv = vUv * 2.0 - 1.0;
+            vec2 uv = (vUv - 0.5) * 2.0;
             uv.x *= u_resolution.x / u_resolution.y;
-
-            // Poincaré Disk Boundary Check
-            float r_euclid = length(uv);
-            if (r_euclid >= 0.99) {
-                gl_FragColor = vec4(0.02, 0.02, 0.02, 1.0);
-                return;
+            
+            // Camera setup
+            vec3 ro = vec3(0.0, 0.0, -5.0);
+            
+            // Interactive Orbit
+            vec2 m = u_mouse * 3.14159;
+            ro.yz *= rot(-m.y * 0.5);
+            ro.xz *= rot(-m.x + u_time * 0.2); // Constant drift
+            
+            vec3 fwd = normalize(-ro);
+            vec3 right = normalize(cross(vec3(0, 1, 0), fwd));
+            vec3 up = cross(fwd, right);
+            vec3 rd = normalize(fwd + uv.x * right + uv.y * up);
+            
+            // Raymarching Loop
+            float dO = 0.0;
+            vec3 p;
+            for(int i = 0; i < MAX_STEPS; i++) {
+                p = ro + rd * dO;
+                float dS = map(p);
+                dO += dS;
+                if(dO > MAX_DIST || abs(dS) < SURF_DIST) break;
             }
-
-            // Calculate Möbius center from mouse (constrained to disk)
-            vec2 m = u_mouse * 2.0 - 1.0;
-            m.x *= u_resolution.x / u_resolution.y;
-            if(length(m) > 0.9) m = normalize(m) * 0.9;
             
-            // Wander automatically if mouse is at center
-            if(length(u_mouse - 0.5) < 0.01) {
-                m = vec2(cos(u_time*0.5), sin(u_time*0.3)) * 0.5;
+            // Neon Void Background
+            vec3 col = vec3(0.05, 0.0, 0.1) * (1.0 - length(uv) * 0.3);
+            
+            if(dO < MAX_DIST) {
+                vec3 n = getNormal(p);
+                vec3 v = normalize(ro - p);
+                
+                // --- Structural Color & Birefringence Math ---
+                // View angle interference
+                float viewAngle = max(0.0, dot(n, v));
+                
+                // Simulating thin-film thickness warped by FBM
+                float thickness = 0.4 + 0.6 * fbm(p * 5.0 - u_time * 0.5);
+                
+                // Optical Path Difference (OPD)
+                float opd = 2.0 * 1.5 * thickness * sqrt(1.0 - pow(sin(acos(viewAngle))/1.5, 2.0));
+                
+                // Map OPD to Lisa Frank Palette
+                col = lisaFrankColor(opd * 3.0 - u_time * 0.3);
+                
+                // Isochromatic Stress Lines (Birefringence)
+                float contour = fract(opd * 8.0);
+                float line = smoothstep(0.0, 0.05, contour) * smoothstep(0.1, 0.05, contour);
+                col = mix(col, vec3(0.0, 1.0, 1.0), line * 0.8); // Cyan stress fractures
+                
+                // Specular Highlights (Plastic/Metallic feel)
+                vec3 lightDir = normalize(vec3(1.0, 2.0, -1.0));
+                vec3 h = normalize(lightDir + v);
+                float spec = pow(max(dot(n, h), 0.0), 128.0);
+                col += vec3(spec) * 1.5;
+                
+                // Ambient Occlusion
+                float ao = clamp(map(p + n * 0.15) * 6.0, 0.0, 1.0);
+                col *= mix(0.2, 1.0, ao);
             }
-
-            // 1. MÖBIUS TRANSFORM: Translate 'm' to origin
-            vec2 z = mobius_translate(uv, m);
-
-            // Hyperbolic distance (metric expands near boundary)
-            float d_hyp = 2.0 * atanh(length(z));
-
-            // 2. DOMAIN WARPING & SYMMETRY FOLDING
-            // Create a quasi-tiling structure
-            float symmetry_order = mix(7.0, 5.0, u_isPressed); // Shift symmetry on click
-            vec2 z_fold = fold_symmetry(z, symmetry_order);
             
-            // Inject structural stress via fBM in the folded hyperbolic space
-            vec2 warp = vec2(fbm(z_fold * 3.0 + u_time * 0.2), fbm(z_fold * 3.0 - u_time * 0.2));
-            vec2 z_stressed = z_fold + warp * 0.2;
-
-            // 3. STRUCTURAL COLOR (Thin-Film Interference)
-            // The "thickness" of the film is determined by the hyperbolic distance and organic stress
-            float thickness = fbm(z_stressed * 5.0) * 2.0;
+            // Volumetric Fog (Neon Abyss)
+            vec3 fogColor = vec3(0.05, 0.0, 0.1);
+            float fogAmount = 1.0 - exp(-dO * dO * 0.005);
+            col = mix(col, fogColor, fogAmount);
             
-            // Add high-frequency diffraction grating effect (Bragg reflection approximation)
-            float diffraction = sin(d_hyp * 40.0 - u_time * 5.0) * 0.5 + 0.5;
+            // Dithering (Anti-banding)
+            float dither = fract(sin(dot(uv * 100.0, vec2(12.9898, 78.233))) * 43758.5453);
+            col += (dither - 0.5) * (1.0 / 255.0);
             
-            // Michel-Lévy style interference calculation
-            float optical_path = d_hyp * 0.5 + thickness * 0.8 + diffraction * 0.1;
+            // ACES Tone Mapping
+            float a = 2.51;
+            float b = 0.03;
+            float c = 2.43;
+            float d = 0.59;
+            float e = 0.14;
+            col = clamp((col * (a * col + b)) / (col * (c * col + d) + e), 0.0, 1.0);
             
-            // Map to iridescent palette
-            vec3 color = palette(optical_path);
-
-            // 4. SHADING & TEXTURE
-            // Create "cell walls" (tessellation boundaries)
-            float cell_edge = abs(fract(d_hyp * 2.0 + warp.x) - 0.5);
-            float edge_mask = smoothstep(0.1, 0.0, cell_edge);
+            // Gamma Correction
+            col = pow(col, vec3(1.0 / 2.2));
             
-            // Darken edges, boost interior iridescence
-            color = mix(color, vec3(0.05, 0.0, 0.1), edge_mask * 0.8);
-            
-            // Exponential shadow near the absolute boundary of the disk
-            float vignette = smoothstep(0.99, 0.8, r_euclid);
-            color *= vignette;
-
-            // Add feral noise grit
-            float grit = fract(sin(dot(uv.xy, vec2(12.9898,78.233)) + u_time) * 43758.5453) * 0.1;
-            color += grit;
-
-            gl_FragColor = vec4(color, 1.0);
+            fragColor = vec4(col, 1.0);
         }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-        vertexShader,
-        fragmentShader,
-        uniforms: {
-            u_time: { value: 0 },
-            u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-            u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
-            u_isPressed: { value: 0.0 }
-        },
-        transparent: true
+      `
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
 
     canvas.__three = { renderer, scene, camera, material };
-}
+  }
 
-const { renderer, scene, camera, material } = canvas.__three;
+  const { renderer, scene, camera, material } = canvas.__three;
 
-if (material && material.uniforms) {
+  // Ensure safe uniform updates
+  if (material?.uniforms) {
     material.uniforms.u_time.value = time;
     material.uniforms.u_resolution.value.set(grid.width, grid.height);
     
-    // Smooth mouse interpolation for the Möbius center
-    const targetMouseX = mouse.x / grid.width;
-    const targetMouseY = 1.0 - (mouse.y / grid.height);
+    // Normalize mouse to -1 to 1 range
+    const mx = mouse.isPressed ? (mouse.x / grid.width) * 2 - 1 : 0;
+    const my = mouse.isPressed ? -(mouse.y / grid.height) * 2 + 1 : 0;
     
-    material.uniforms.u_mouse.value.x += (targetMouseX - material.uniforms.u_mouse.value.x) * 0.1;
-    material.uniforms.u_mouse.value.y += (targetMouseY - material.uniforms.u_mouse.value.y) * 0.1;
-    
-    // Smooth state transition for symmetry shifting
-    const targetPress = mouse.isPressed ? 1.0 : 0.0;
-    material.uniforms.u_isPressed.value += (targetPress - material.uniforms.u_isPressed.value) * 0.1;
-}
+    // Smoothly interpolate mouse to avoid jerky camera movements
+    material.uniforms.u_mouse.value.x += (mx - material.uniforms.u_mouse.value.x) * 0.05;
+    material.uniforms.u_mouse.value.y += (my - material.uniforms.u_mouse.value.y) * 0.05;
+  }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+  renderer.setSize(grid.width, grid.height, false);
+  renderer.render(scene, camera);
+
+} catch (err) {
+  console.error("Feral Raymarcher Failed:", err);
+  // Fallback to 2D context if WebGL fails
+  if (ctx) {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, grid.width, grid.height);
+    ctx.fillStyle = '#FF00FF';
+    ctx.font = '14px monospace';
+    ctx.fillText('WEBGL2 REQUIRED FOR FERAL QUASICRYSTAL OPTICS', 20, 30);
+  }
+}
