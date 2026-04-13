@@ -1,377 +1,207 @@
-if (!canvas.__state) {
-    canvas.__state = {
-        glitter: Array.from({length: 80}, () => ({
-            x: Math.random() * grid.width,
-            y: Math.random() * grid.height,
-            size: 2 + Math.random() * 6,
-            phase: Math.random() * Math.PI * 2,
-            speed: 0.5 + Math.random() * 2,
-            rotSpeed: (Math.random() - 0.5) * 5,
-            blinkSpeed: 5 + Math.random() * 10
-        })),
-        diamonds: Array.from({length: 6}, () => ({
-            x: Math.random() * grid.width,
-            y: Math.random() * grid.height,
-            size: 15 + Math.random() * 25,
-            color: ['#00FFFF', '#FF00FF', '#FFFF00', '#FF0080'][Math.floor(Math.random()*4)],
-            speedY: (Math.random() - 0.5) * 2,
-            speedX: (Math.random() - 0.5) * 2
-        })),
-        windows: [
-            { x: grid.width*0.1, y: grid.height*0.1, w: 220, h: 110, title: "WARNING", msg: "AESTHETIC_OVERLOAD" }
-        ],
-        texts: [
-            { x: grid.width*0.2, y: grid.height*0.8, str: "typing...", speed: 1 },
-            { x: grid.width*0.7, y: grid.height*0.3, str: "xX_laser_Xx", speed: 1.5 },
-            { x: grid.width*0.5, y: grid.height*0.5, str: "404_NOT_FOUND", speed: 0.8 },
-            { x: grid.width*0.8, y: grid.height*0.9, str: "seen 2:34am", speed: 1.2 },
-            { x: grid.width*0.1, y: grid.height*0.4, str: "<blink>DEITY</blink>", speed: 2.0 }
-        ],
-        wasPressed: false
-    };
-}
-
-const state = canvas.__state;
-const targetMouse = { 
-    x: mouse.x !== undefined ? mouse.x : grid.width/2, 
-    y: mouse.y !== undefined ? mouse.y : grid.height/2 
-};
-
-// Temporal Echo / Ghost Frame Body
-ctx.fillStyle = 'rgba(5, 5, 10, 0.18)'; 
-ctx.fillRect(0, 0, grid.width, grid.height);
-
-// Cat Setup (Deity Mode)
-let cx = grid.width / 2;
-let cy = grid.height / 2 + Math.sin(time * 2) * 20; 
-let scale = Math.max(50, Math.min(grid.width, grid.height) * 0.22);
-let glitchIntensity = mouse.isPressed ? 1.5 : 0.2 + Math.sin(time*5)*0.1;
-
-// --- UTILITY FUNCTIONS ---
-
-function drawCatPath(ctx, cx, cy, scale) {
-    ctx.beginPath();
-    ctx.moveTo(cx, cy + scale * 0.5); 
-    ctx.lineTo(cx - scale * 0.4, cy + scale * 0.3); 
-    ctx.lineTo(cx - scale * 0.5, cy - scale * 0.2); 
-    ctx.lineTo(cx - scale * 0.45, cy - scale * 0.5); 
-    ctx.lineTo(cx - scale * 0.35, cy - scale * 0.9); 
-    ctx.lineTo(cx - scale * 0.15, cy - scale * 0.5); 
-    ctx.lineTo(cx + scale * 0.15, cy - scale * 0.5); 
-    ctx.lineTo(cx + scale * 0.35, cy - scale * 0.9); 
-    ctx.lineTo(cx + scale * 0.45, cy - scale * 0.5); 
-    ctx.lineTo(cx + scale * 0.5, cy - scale * 0.2); 
-    ctx.lineTo(cx + scale * 0.4, cy + scale * 0.3); 
-    ctx.closePath();
-}
-
-function drawDiamond(ctx, x, y, size, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x, y - size);
-    ctx.lineTo(x + size*0.6, y);
-    ctx.lineTo(x, y + size);
-    ctx.lineTo(x - size*0.6, y);
-    ctx.closePath();
-    ctx.fill();
-}
-
-// --- RENDERING ---
-
-// 1. Glitter Signal Overprint
-state.glitter.forEach(g => {
-    g.y += g.speed;
-    if (g.y > grid.height + 10) {
-        g.y = -10;
-        g.x = Math.random() * grid.width;
-    }
-    let alpha = (Math.sin(time * g.blinkSpeed + g.phase) + 1) / 2;
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+try {
+  if (!canvas.__three) {
+    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
     
-    ctx.save();
-    ctx.translate(g.x, g.y);
-    ctx.rotate(time * g.rotSpeed);
-    ctx.beginPath();
-    let size = Math.max(0, g.size);
-    ctx.moveTo(0, -size);
-    ctx.quadraticCurveTo(0, 0, size, 0);
-    ctx.quadraticCurveTo(0, 0, 0, size);
-    ctx.quadraticCurveTo(0, 0, -size, 0);
-    ctx.quadraticCurveTo(0, 0, 0, -size);
-    ctx.fill();
-    ctx.restore();
-});
-
-// 2. Cosmic Space Collage (Diamonds)
-state.diamonds.forEach(d => {
-    d.x += d.speedX;
-    d.y += d.speedY;
-    if (d.x < -50) d.x = grid.width + 50;
-    if (d.x > grid.width + 50) d.x = -50;
-    if (d.y < -50) d.y = grid.height + 50;
-    if (d.y > grid.height + 50) d.y = -50;
+    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     
-    ctx.globalCompositeOperation = 'screen';
-    drawDiamond(ctx, d.x - 3, d.y, d.size, '#FF0000');
-    drawDiamond(ctx, d.x, d.y, d.size, '#00FF00');
-    drawDiamond(ctx, d.x + 3, d.y, d.size, '#0000FF');
-    ctx.globalCompositeOperation = 'source-over';
-});
-
-// 3. UFO Sci-Fi Intrusion
-let ufoX = cx + Math.cos(time * 0.8) * scale * 1.8;
-let ufoY = cy + Math.sin(time * 1.2) * scale * 0.6;
-
-ctx.fillStyle = '#C0C0C0';
-ctx.beginPath();
-ctx.ellipse(ufoX, ufoY, 45, 12, 0, 0, Math.PI*2);
-ctx.fill();
-ctx.fillStyle = '#00FFFF';
-ctx.beginPath();
-ctx.ellipse(ufoX, ufoY - 6, 22, 16, 0, Math.PI, 0);
-ctx.fill();
-
-ctx.globalCompositeOperation = 'screen';
-let gradBeam = ctx.createLinearGradient(0, ufoY, 0, ufoY + 150);
-gradBeam.addColorStop(0, 'rgba(0, 255, 255, 0.7)');
-gradBeam.addColorStop(1, 'rgba(0, 255, 255, 0.0)');
-ctx.fillStyle = gradBeam;
-ctx.beginPath();
-ctx.moveTo(ufoX - 12, ufoY + 6);
-ctx.lineTo(ufoX + 12, ufoY + 6);
-ctx.lineTo(ufoX + 50, ufoY + 150);
-ctx.lineTo(ufoX - 50, ufoY + 150);
-ctx.fill();
-ctx.globalCompositeOperation = 'source-over';
-
-// 4. Rainbow Puke / Laser Eyes
-if (mouse.isPressed) {
-    // Destroyer Cat (Lasers)
-    let ex1 = cx - scale * 0.25;
-    let ey1 = cy - scale * 0.1;
-    let ex2 = cx + scale * 0.25;
-    let ey2 = cy - scale * 0.1;
-    
-    ctx.globalCompositeOperation = 'screen';
-    let lw = 8 + Math.sin(time*30)*6;
-    
-    ctx.lineWidth = lw;
-    ctx.strokeStyle = '#FF0080';
-    ctx.beginPath(); ctx.moveTo(ex1, ey1); ctx.lineTo(targetMouse.x, targetMouse.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ex2, ey2); ctx.lineTo(targetMouse.x, targetMouse.y); ctx.stroke();
-    
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.beginPath(); ctx.moveTo(ex1, ey1); ctx.lineTo(targetMouse.x, targetMouse.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ex2, ey2); ctx.lineTo(targetMouse.x, targetMouse.y); ctx.stroke();
-    ctx.globalCompositeOperation = 'source-over';
-    
-    ctx.fillStyle = '#FF0080';
-    ctx.beginPath(); ctx.arc(targetMouse.x, targetMouse.y, 25 + Math.random()*20, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath(); ctx.arc(targetMouse.x, targetMouse.y, 10 + Math.random()*10, 0, Math.PI*2); ctx.fill();
-} else {
-    // Idiot Cat (Rainbow Puke)
-    const colors = ['#FF0080', '#FF8C00', '#FFD700', '#00FF00', '#00CED1', '#9400D3'];
-    let mouthX = cx;
-    let mouthY = cy + scale * 0.25;
-    let dx = targetMouse.x - mouthX;
-    let targetX = mouthX + dx * 0.4;
-    let targetY = grid.height + 100;
-    
-    ctx.globalCompositeOperation = 'screen';
-    for(let c=0; c<colors.length; c++) {
-        ctx.beginPath();
-        ctx.strokeStyle = colors[c];
-        ctx.lineWidth = Math.max(1, scale * 0.08);
-        
-        let steps = 25;
-        for(let i=0; i<=steps; i++) {
-            let t = i / steps;
-            let bx = mouthX + (targetX - mouthX) * t;
-            let by = mouthY + (targetY - mouthY) * t;
-            
-            let wave = Math.sin(t * 12 - time * 8) * (15 + t * 40);
-            bx += wave + (c - colors.length/2) * (scale * 0.07);
-            
-            if (i === 0) ctx.moveTo(bx, by);
-            else ctx.lineTo(bx, by);
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
+      },
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position, 1.0);
         }
-        ctx.stroke();
-    }
-    ctx.globalCompositeOperation = 'source-over';
-}
-
-// 5. RGB Phantom Cat
-const rx = (Math.random() - 0.5) * glitchIntensity * 25;
-const ry = (Math.random() - 0.5) * glitchIntensity * 25;
-
-ctx.globalCompositeOperation = 'screen';
-ctx.fillStyle = '#FF0080'; drawCatPath(ctx, cx + rx, cy + ry, scale); ctx.fill();
-ctx.fillStyle = '#00FF00'; drawCatPath(ctx, cx, cy, scale); ctx.fill();
-ctx.fillStyle = '#0000FF'; drawCatPath(ctx, cx - rx, cy - ry, scale); ctx.fill();
-ctx.globalCompositeOperation = 'source-over';
-
-// Eyes & Mouth Anchor Preservation
-ctx.fillStyle = '#FFFFFF';
-let p_dx = targetMouse.x - cx;
-let p_dy = targetMouse.y - cy;
-let p_dist = Math.sqrt(p_dx*p_dx + p_dy*p_dy) || 1;
-let maxOff = Math.max(0, scale * 0.06);
-let px = (p_dx / p_dist) * maxOff;
-let py = (p_dy / p_dist) * maxOff;
-
-ctx.beginPath();
-ctx.arc(cx - scale * 0.25, cy - scale * 0.1, Math.max(0, scale * 0.12), 0, Math.PI*2);
-ctx.arc(cx + scale * 0.25, cy - scale * 0.1, Math.max(0, scale * 0.12), 0, Math.PI*2);
-ctx.fill();
-
-ctx.fillStyle = '#000000';
-ctx.beginPath();
-ctx.arc(cx - scale * 0.25 + px, cy - scale * 0.1 + py, Math.max(0, scale * 0.05), 0, Math.PI*2);
-ctx.arc(cx + scale * 0.25 + px, cy - scale * 0.1 + py, Math.max(0, scale * 0.05), 0, Math.PI*2);
-ctx.fill();
-
-// Third Eye (Psychedelic Branch)
-if (Math.sin(time * 8) > 0) {
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - scale * 0.35, Math.max(0, scale * 0.09), Math.max(0, scale * 0.05), 0, 0, Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle = '#00FFFF';
-    ctx.beginPath();
-    ctx.arc(cx, cy - scale * 0.35, Math.max(0, scale * 0.03), 0, Math.PI*2);
-    ctx.fill();
-}
-
-// Mouth
-ctx.fillStyle = '#000000';
-ctx.beginPath();
-ctx.ellipse(cx, cy + scale * 0.25, Math.max(0, scale * 0.1), Math.max(0, scale * 0.15), 0, 0, Math.PI*2);
-ctx.fill();
-
-// 6. Blingee Text
-ctx.font = 'bold 36px "Comic Sans MS", cursive, sans-serif';
-ctx.textAlign = 'center';
-let titleTxt = "xX_G0D_C4T_Xx";
-let tx = grid.width / 2;
-let ty = 50;
-
-for(let i=6; i>=0; i--) {
-    if (i===0) {
-        ctx.fillStyle = '#FFFFFF';
-    } else {
-        ctx.fillStyle = `hsl(${(time * 150 + i * 25) % 360}, 100%, 50%)`;
-    }
-    ctx.fillText(titleTxt, tx + i*2, ty + i*2);
-}
-ctx.textAlign = 'left';
-
-// 7. Text/Interface Debris
-ctx.font = '14px monospace';
-state.texts.forEach((txt, i) => {
-    let x = txt.x + Math.sin(time * txt.speed + i) * 15;
-    let y = txt.y - time * 15 % grid.height;
-    if (y < -20) txt.y += grid.height + 40;
-    
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(Math.sin(time * txt.speed) * 0.1);
-    
-    if (Math.random() < 0.08) {
-        ctx.fillStyle = '#FF0080'; ctx.fillText(txt.str, 2, 0);
-        ctx.fillStyle = '#00FFFF'; ctx.fillText(txt.str, -2, 0);
-    }
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.fillText(txt.str, 0, 0);
-    ctx.restore();
-});
-
-// 8. MySpace / Windows 95 Error Boxes
-state.windows.forEach(w => {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(w.x + 5, w.y + 5, w.w, w.h);
-    
-    ctx.fillStyle = '#c0c0c0';
-    ctx.fillRect(w.x, w.y, w.w, w.h);
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(w.x, w.y, w.w, 2);
-    ctx.fillRect(w.x, w.y, 2, w.h);
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(w.x, w.y + w.h - 2, w.w, 2);
-    ctx.fillRect(w.x + w.w - 2, w.y, 2, w.h);
-    
-    ctx.fillStyle = '#000080';
-    ctx.fillRect(w.x + 3, w.y + 3, w.w - 6, 18);
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText(w.title, w.x + 6, w.y + 16);
-    
-    ctx.fillStyle = '#c0c0c0';
-    ctx.fillRect(w.x + w.w - 19, w.y + 4, 14, 14);
-    ctx.fillStyle = '#000000';
-    ctx.fillText("x", w.x + w.w - 15, w.y + 15);
-    
-    ctx.fillStyle = '#000000';
-    ctx.font = '12px monospace';
-    ctx.fillText(w.msg, w.x + 10, w.y + 45);
-    
-    let bx = w.x + w.w/2 - 25;
-    let by = w.y + w.h - 30;
-    ctx.fillStyle = '#c0c0c0'; ctx.fillRect(bx, by, 50, 20);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(bx, by, 50, 2); ctx.fillRect(bx, by, 2, 20);
-    ctx.fillStyle = '#808080'; ctx.fillRect(bx, by + 18, 50, 2); ctx.fillRect(bx + 48, by, 2, 20);
-    ctx.fillStyle = '#000000'; ctx.fillText("OK", bx + 17, by + 14);
-});
-
-if (mouse.isPressed && !state.wasPressed) {
-    state.windows.push({
-        x: Math.max(0, Math.min(targetMouse.x, grid.width - 200)),
-        y: Math.max(0, Math.min(targetMouse.y, grid.height - 100)),
-        w: 160 + Math.random() * 80,
-        h: 90 + Math.random() * 40,
-        title: "FATAL_ERROR",
-        msg: "0x" + Math.random().toString(16).slice(2,8).toUpperCase().padEnd(6, '0')
+      `,
+      fragmentShader: `
+        uniform float u_time;
+        uniform vec2 u_resolution;
+        uniform vec2 u_mouse;
+        
+        in vec2 vUv;
+        out vec4 fragColor;
+        
+        #define TAU 6.28318530718
+        #define PI 3.14159265359
+        
+        float hash(float n) { return fract(sin(n) * 43758.5453); }
+        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        
+        float noise(vec2 p) {
+            vec2 i = floor(p), f = fract(p);
+            vec2 u = f*f*(3.0-2.0*f);
+            return mix(mix(hash(i), hash(i+vec2(1.0,0.0)), u.x),
+                       mix(hash(i+vec2(0.0,1.0)), hash(i+vec2(1.0,1.0)), u.x), u.y);
+        }
+        
+        float fbm(vec2 p) {
+            float v = 0.0, a = 0.5;
+            for(int i=0; i<5; i++) {
+                v += a * noise(p);
+                p = p * 2.1 + vec2(1.7, 9.2);
+                a *= 0.5;
+            }
+            return v;
+        }
+        
+        vec2 curl(vec2 p) {
+            const float eps = 0.001;
+            float n0 = noise(p + vec2(eps, 0.0));
+            float n1 = noise(p - vec2(eps, 0.0));
+            float n2 = noise(p + vec2(0.0, eps));
+            float n3 = noise(p - vec2(0.0, eps));
+            return vec2(n2 - n3, n1 - n0) / (2.0 * eps);
+        }
+        
+        vec2 turbulence(vec2 p, int octaves) {
+            vec2 v = vec2(0.0);
+            float amp = 0.5;
+            float freq = 1.0;
+            for(int i=0; i<8; i++) {
+                if(i >= octaves) break;
+                v += amp * curl(p * freq);
+                freq *= 2.0;
+                amp *= 0.5;
+            }
+            return v;
+        }
+        
+        vec3 palette(float t) {
+            vec3 a = vec3(0.5, 0.5, 0.5);
+            vec3 b = vec3(0.5, 0.5, 0.5);
+            vec3 c = vec3(2.0, 1.0, 0.0);
+            vec3 d = vec3(0.50, 0.20, 0.25);
+            return a + b * cos(TAU * (c * t + d));
+        }
+        
+        vec2 voronoi(vec2 x) {
+            vec2 n = floor(x);
+            vec2 f = fract(x);
+            float m = 8.0;
+            vec2 mr = vec2(0.0);
+            for(int j=-1; j<=1; j++) {
+                for(int i=-1; i<=1; i++) {
+                    vec2 g = vec2(float(i), float(j));
+                    vec2 o = vec2(hash(n + g), hash(n + g + 13.0));
+                    o = 0.5 + 0.5 * sin(u_time * 2.0 + TAU * o);
+                    vec2 r = g - f + o;
+                    float d = dot(r, r);
+                    if(d < m) {
+                        m = d;
+                        mr = r;
+                    }
+                }
+            }
+            return vec2(m, mr.x);
+        }
+        
+        float leopard(vec2 p) {
+            vec2 v = voronoi(p * 5.0);
+            float ring = smoothstep(0.1, 0.25, v.x) - smoothstep(0.3, 0.45, v.x);
+            ring *= smoothstep(-0.2, 0.2, noise(p * 10.0));
+            float spot = smoothstep(0.1, 0.0, v.x);
+            return max(ring, spot * 0.7);
+        }
+        
+        float star(vec2 uv) {
+            float d = length(uv);
+            float a = atan(uv.y, uv.x);
+            float crossShape = abs(cos(a*2.0)) * abs(sin(a*2.0)) * 2.0;
+            return (0.005 / (d + 0.001)) * smoothstep(0.5, 0.0, crossShape);
+        }
+        
+        vec2 vhs_distort(vec2 uv, float t) {
+            float scanline = floor(uv.y * 240.0);
+            float jitter = (hash(vec2(scanline, floor(t * 30.0))) - 0.5) * 0.02;
+            float jitterMask = step(0.95, hash(vec2(scanline * 0.1, floor(t * 10.0))));
+            uv.x += jitter * jitterMask;
+            
+            float shockX = fract(t * 0.5);
+            float d = abs(uv.x - shockX);
+            float shock = exp(-d * d * 500.0) * 0.05 * sin(uv.y * 50.0 + t * 10.0);
+            uv.x += shock;
+            
+            return uv;
+        }
+        
+        void main() {
+            vec2 uv = vUv;
+            vec2 warpedUV = vhs_distort(uv, u_time);
+            
+            vec2 p = warpedUV * 2.0 - 1.0;
+            p.x *= u_resolution.x / u_resolution.y;
+            
+            vec2 m = u_mouse * 2.0 - 1.0;
+            m.x *= u_resolution.x / u_resolution.y;
+        
+            vec2 vel = turbulence(p * 1.2 + u_time * 0.15, 4);
+            
+            float dMouse = length(p - m);
+            vec2 marangoni = normalize(p - m + 0.001) * exp(-dMouse * 8.0) * 0.5;
+            vel += marangoni;
+        
+            vec2 q = p + vel * 0.5;
+            vec2 r = p + turbulence(q * 2.0 - u_time * 0.2, 3) * 0.4;
+        
+            float speed = length(vel);
+            vec3 col = palette(speed * 0.8 + u_time * 0.2 + r.y * 0.3);
+        
+            float finger = fbm(r * 3.0 - u_time * 0.5);
+            float tendril = smoothstep(0.45, 0.5, finger) - smoothstep(0.5, 0.55, finger);
+            col = mix(col, vec3(0.0, 1.0, 0.9), tendril * 0.8);
+        
+            float spots = leopard(r + vel * 0.2);
+            vec3 spotCol = vec3(0.1, 0.0, 0.25);
+            col = mix(col, spotCol, spots);
+        
+            float sparkles = 0.0;
+            for(int i=0; i<6; i++) {
+                vec2 sp = fract(r * (float(i)*0.5 + 2.0) + u_time * 0.05 * vec2(float(i), -float(i))) - 0.5;
+                sparkles += star(sp) * smoothstep(0.3, 0.7, noise(r * 8.0 + float(i)));
+            }
+            col += vec3(1.0, 0.5, 0.8) * sparkles * 2.5;
+        
+            float spread = 0.005 + 0.005 * sin(u_time);
+            float rChannel = fbm(q + vec2(spread, 0.0));
+            float bChannel = fbm(q - vec2(spread, 0.0));
+            col.r += rChannel * 0.2;
+            col.b += bChannel * 0.2;
+        
+            col *= 0.9 + 0.1 * sin(uv.y * u_resolution.y * 0.5);
+        
+            fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        }
+      `
     });
-    if (state.windows.length > 6) state.windows.shift();
-}
-state.wasPressed = mouse.isPressed;
-
-// 9. Compression Chew / Macroblocking
-if (Math.random() < 0.25) {
-    let bx = Math.floor(Math.random() * grid.width);
-    let by = Math.floor(Math.random() * grid.height);
-    let bw = Math.floor(32 + Math.random() * 96);
-    let bh = Math.floor(16 + Math.random() * 48);
     
-    try {
-        let sx = Math.max(0, Math.min(bx, canvas.width - bw));
-        let sy = Math.max(0, Math.min(by, canvas.height - bh));
-        let dx = sx + (Math.random()-0.5)*50;
-        let dy = sy + (Math.random()-0.5)*15;
-        ctx.drawImage(canvas, sx, sy, bw, bh, dx, dy, bw, bh);
-    } catch(e){}
-    
-    if (Math.random() < 0.35) {
-        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255, 0, 128, 0.35)' : 'rgba(0, 255, 255, 0.35)';
-        ctx.fillRect(bx, by, bw, bh);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    canvas.__three = { renderer, scene, camera, material };
+  }
+  
+  const { renderer, scene, camera, material } = canvas.__three;
+  
+  if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    if (material.uniforms.u_mouse) {
+      const targetX = mouse.x ? mouse.x / grid.width : 0.5;
+      const targetY = mouse.y ? 1.0 - (mouse.y / grid.height) : 0.5;
+      material.uniforms.u_mouse.value.x += (targetX - material.uniforms.u_mouse.value.x) * 0.1;
+      material.uniforms.u_mouse.value.y += (targetY - material.uniforms.u_mouse.value.y) * 0.1;
     }
+  }
+  
+  renderer.setSize(grid.width, grid.height, false);
+  renderer.render(scene, camera);
+} catch (e) {
+  console.error("WebGL Initialization Failed:", e);
 }
-
-// 10. CRT Raster & Scanline Bleed
-ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-for(let y = 0; y < grid.height; y += 3) {
-    ctx.fillRect(0, y, grid.width, 1);
-}
-
-let barY = (time * 180) % grid.height;
-ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-ctx.fillRect(0, barY, grid.width, grid.height * 0.12);
-
-let grad = ctx.createRadialGradient(grid.width/2, grid.height/2, grid.height*0.4, grid.width/2, grid.height/2, grid.height*0.9);
-grad.addColorStop(0, 'rgba(0,0,0,0)');
-grad.addColorStop(1, 'rgba(0,0,0,0.7)');
-ctx.fillStyle = grad;
-ctx.fillRect(0, 0, grid.width, grid.height);
