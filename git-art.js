@@ -1,202 +1,264 @@
-// Aperiodic Reaction-Diffusion: The Lisa Frank Ditherpunk Quasicrystal
-//
-// MECHANISM:
-// 1. Calculates a 5-fold (icosahedral) quasiperiodic interference field that breathes and glitches over time.
-// 2. Uses this aperiodic field to spatially modulate the feed/kill rates of a Gray-Scott reaction-diffusion system.
-// 3. The organic Turing patterns (worms, spots, labyrinths) are forced to grow along the forbidden 5-fold geometry.
-// 4. The chemical concentration is quantized via 4x4 Bayer ordered dithering (pixel_voxel style).
-// 5. The dithered values are mapped to a hyper-saturated, 12-step neon palette (lisa_frank_aesthetic).
-// 6. Rendered to a low-res pixel grid and nearest-neighbor upscaled.
-
-const scale = Math.max(1, Math.floor(Math.max(grid.width, grid.height) / 150));
-const W = Math.floor(grid.width / scale);
-const H = Math.floor(grid.height / scale);
-
-if (!canvas.__gsState || canvas.__gsState.W !== W || canvas.__gsState.H !== H) {
-    const A = new Float32Array(W * H).fill(1.0);
-    const B = new Float32Array(W * H).fill(0.0);
-    const nextA = new Float32Array(W * H);
-    const nextB = new Float32Array(W * H);
-    const phases = new Float32Array(5 * W * H);
-    const Q = new Float32Array(W * H);
-    
-    // Generate 5-fold quasicrystal basis vectors
-    const freq = 0.25; 
-    for (let j = 0; j < 5; j++) {
-        const angle = j * Math.PI / 5;
-        const kx = Math.cos(angle) * freq;
-        const ky = Math.sin(angle) * freq;
-        for (let y = 0; y < H; y++) {
-            for (let x = 0; x < W; x++) {
-                phases[j * W * H + y * W + x] = x * kx + y * ky;
-            }
-        }
-    }
-    
-    // Seed the initial feral growth along the quasicrystal nodes
-    for(let i = 0; i < W * H; i++) {
-        let sum = 0;
-        for(let j = 0; j < 5; j++) sum += Math.cos(phases[j * W * H + i]);
-        let q = (sum / 5) * 0.5 + 0.5;
-        if (q > 0.8 || Math.random() < 0.02) {
-            B[i] = 1.0;
-            A[i] = 0.0;
-        }
-    }
-    
-    const offscreen = document.createElement('canvas');
-    offscreen.width = W;
-    offscreen.height = H;
-    const offCtx = offscreen.getContext('2d');
-    const imgData = offCtx.createImageData(W, H);
-    
-    canvas.__gsState = { A, B, nextA, nextB, phases, Q, W, H, offscreen, offCtx, imgData, glitchOffset: 0 };
-}
-
-let { A, B, nextA, nextB, phases, Q, offscreen, offCtx, imgData } = canvas.__gsState;
-
-// 1. Machine Hesitation / Glitch
-let glitch = canvas.__gsState.glitchOffset;
-if (Math.random() < 0.015) canvas.__gsState.glitchOffset = glitch + Math.random() * 2.0;
-canvas.__gsState.glitchOffset *= 0.9;
-
-// 2. Update Quasicrystal Field
-const phi = 1.6180339887; // Golden Ratio
-const timeScaled = time * 0.8;
-for(let i = 0; i < W * H; i++) {
-    let sum = 0;
-    for(let j = 0; j < 5; j++) {
-        // Waves drift at different golden-ratio-scaled speeds, causing the structure to morph
-        sum += Math.cos(phases[j * W * H + i] - timeScaled * Math.pow(phi, j - 2) + (j % 2 === 0 ? glitch : -glitch)); 
-    }
-    Q[i] = (sum / 5.0) * 0.5 + 0.5; 
-}
-
-// 3. Parasite-Host Interaction (Mouse input)
-if (mouse.isPressed) {
-    let mx = Math.floor(mouse.x / scale);
-    let my = Math.floor(mouse.y / scale);
-    let radius = Math.floor(10 / scale) + 1;
-    for(let dy = -radius; dy <= radius; dy++) {
-        for(let dx = -radius; dx <= radius; dx++) {
-            if (dx * dx + dy * dy <= radius * radius) {
-                let px = (mx + dx + W) % W;
-                let py = (my + dy + H) % H;
-                B[py * W + px] = 1.0;
-                A[py * W + px] = 0.0;
-            }
-        }
-    }
-}
-
-// 4. Aperiodic Reaction-Diffusion (Gray-Scott)
-for (let step = 0; step < 4; step++) {
-    for(let y = 0; y < H; y++) {
-        let ym1w = ((y - 1 + H) % H) * W;
-        let yp1w = ((y + 1) % H) * W;
-        let yw = y * W;
+if (!canvas.__three) {
+    try {
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: false });
+        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
         
-        for(let x = 0; x < W; x++) {
-            let xm1 = (x - 1 + W) % W;
-            let xp1 = (x + 1) % W;
-            let i = yw + x;
-            
-            let a = A[i];
-            let b = B[i];
-            
-            // 3x3 Laplacian
-            let lapA = 
-                (A[ym1w + x] + A[yp1w + x] + A[yw + xm1] + A[yw + xp1]) * 0.2 +
-                (A[ym1w + xm1] + A[ym1w + xp1] + A[yp1w + xm1] + A[yp1w + xp1]) * 0.05 - a;
+        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: false });
+        renderer.setPixelRatio(1);
+        
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+        
+        const geometry = new THREE.PlaneGeometry(2, 2);
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+                u_isPressed: { value: 0.0 }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                in vec2 vUv;
+                out vec4 fragColor;
                 
-            let lapB = 
-                (B[ym1w + x] + B[yp1w + x] + B[yw + xm1] + B[yw + xp1]) * 0.2 +
-                (B[ym1w + xm1] + B[ym1w + xp1] + B[yp1w + xm1] + B[yp1w + xp1]) * 0.05 - b;
+                uniform float u_time;
+                uniform vec2 u_resolution;
+                uniform vec2 u_mouse;
+                uniform float u_isPressed;
                 
-            let abb = a * b * b;
-            let q = Q[i]; 
-            
-            // Quasicrystal field modulates the reaction, forcing Turing patterns into 5-fold symmetry
-            let f = 0.024 + 0.014 * q;
-            let k = 0.049 + 0.012 * q;
-            
-            nextA[i] = a + (1.0 * lapA - abb + f * (1.0 - a));
-            nextB[i] = b + (0.5 * lapB + abb - (k + f) * b);
-            
-            // Continuous injection at quasicrystal peaks to prevent total die-off (Thermal Bloom)
-            if (q > 0.85) nextB[i] += 0.003;
-            
-            if (nextA[i] > 1.0) nextA[i] = 1.0; else if (nextA[i] < 0.0) nextA[i] = 0.0;
-            if (nextB[i] > 1.0) nextB[i] = 1.0; else if (nextB[i] < 0.0) nextB[i] = 0.0;
-        }
+                // Bayer 4x4 Dither Matrix for Ditherpunk aesthetic
+                const float bayer4[16] = float[16](
+                    0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+                   12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+                    3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+                   15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+                );
+
+                // Lisa Frank Hyper-Saturated Palette
+                const vec3 palette[8] = vec3[8](
+                    vec3(1.0, 0.0, 0.5),    // 0: Neon Pink
+                    vec3(0.0, 1.0, 1.0),    // 1: Cyan
+                    vec3(1.0, 1.0, 0.0),    // 2: Yellow
+                    vec3(0.6, 0.0, 1.0),    // 3: Purple
+                    vec3(0.2, 1.0, 0.1),    // 4: Lime
+                    vec3(1.0, 0.4, 0.0),    // 5: Orange
+                    vec3(1.0, 1.0, 1.0),    // 6: White (Spores)
+                    vec3(0.05, 0.05, 0.15)  // 7: Dark Navy (Outline/Void)
+                );
+
+                // Nearest-color palette snapping with luma weighting
+                vec3 nearestPalette(vec3 col) {
+                    vec3 best = palette[0];
+                    float bestDist = 1000.0;
+                    vec3 weight = vec3(0.299, 0.587, 0.114);
+                    for(int i=0; i<8; i++) {
+                        vec3 p = palette[i];
+                        vec3 diff = col - p;
+                        float d = dot(diff * diff, weight);
+                        if(d < bestDist) {
+                            bestDist = d;
+                            best = p;
+                        }
+                    }
+                    return best;
+                }
+
+                // Procedural Noise Functions
+                vec2 hash2(vec2 p) {
+                    p = vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)));
+                    return fract(sin(p)*43758.5453123);
+                }
+                
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                }
+
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
+                               mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+                }
+
+                float fbm(vec2 p) {
+                    float v = 0.0;
+                    float a = 0.5;
+                    for(int i=0; i<4; i++) {
+                        v += a * noise(p);
+                        p *= 2.0;
+                        a *= 0.5;
+                    }
+                    return v;
+                }
+
+                // Cellular noise for fungal spores
+                float worley(vec2 p) {
+                    vec2 n = floor(p);
+                    vec2 f = fract(p);
+                    float md = 10.0;
+                    float md2 = 10.0;
+                    for(int y=-1; y<=1; y++) {
+                        for(int x=-1; x<=1; x++) {
+                            vec2 g = vec2(float(x), float(y));
+                            vec2 o = hash2(n + g);
+                            o = 0.5 + 0.5*sin(u_time*1.5 + 6.2831*o); 
+                            vec2 r = g + o - f;
+                            float d = length(r);
+                            if(d < md) {
+                                md2 = md;
+                                md = d;
+                            } else if(d < md2) {
+                                md2 = d;
+                            }
+                        }
+                    }
+                    return md2 - md;
+                }
+
+                // Base UV mapping with Golden Ratio rotation
+                vec2 getBaseUV(vec2 p_in) {
+                    vec2 u = (p_in - 0.5) * 2.0;
+                    u.x *= u_resolution.x / u_resolution.y;
+                    u *= 10.0; 
+                    
+                    float theta = u_time * 0.1;
+                    mat2 rot = mat2(cos(theta), -sin(theta), sin(theta), cos(theta));
+                    u = rot * u;
+                    u += u_time * vec2(0.5, 0.3);
+                    return u;
+                }
+
+                // 5-fold Penrose Quasicrystal generation
+                vec3 qc_color(vec2 u) {
+                    vec3 col = vec3(0.0);
+                    float phi = 1.6180339887;
+                    for(int i=0; i<5; i++) {
+                        float angle = float(i) * 3.14159265359 / 5.0;
+                        vec2 dir = vec2(cos(angle), sin(angle));
+                        float phase = u_time * phi; 
+                        float wave = cos(dot(u, dir) + phase) * 0.5 + 0.5;
+                        wave = smoothstep(0.2, 0.8, wave);
+                        
+                        vec3 dirCol;
+                        if(i==0) dirCol = palette[0];
+                        else if(i==1) dirCol = palette[1];
+                        else if(i==2) dirCol = palette[2];
+                        else if(i==3) dirCol = palette[3];
+                        else dirCol = palette[4];
+                        
+                        col += dirCol * wave;
+                    }
+                    return col / 2.5; 
+                }
+
+                // The Strange Mechanism: Fungal Quasicrystal Infection
+                vec3 getRawColor(vec2 p_in) {
+                    vec2 u = getBaseUV(p_in);
+                    
+                    vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
+                    float distToMouse = distance(p_in * aspect, u_mouse * aspect);
+                    float bloom = smoothstep(0.3, 0.0, distToMouse) * u_isPressed * 5.0;
+                    
+                    // Machine hesitation / glitch pulsing
+                    float hesitation = step(0.95, fract(sin(u_time * 12.0) * 43758.5453));
+                    float warpPulse = (sin(u_time * 0.5) * 0.5 + 0.5) * 2.0 + hesitation * 2.0 + bloom;
+                    
+                    vec2 warp = vec2(fbm(u + u_time), fbm(u - u_time*0.8));
+                    u += warp * warpPulse; 
+                    
+                    vec3 c = qc_color(u);
+                    
+                    // Fungal Spores (Lisa Frank Leopard Spots)
+                    float sporePulse = (cos(u_time * 0.7) * 0.5 + 0.5);
+                    float w = worley(u * 0.5);
+                    if (w < 0.15 * sporePulse) {
+                        c = mix(c, palette[6], 1.0 - w/(0.15 * sporePulse)); 
+                    }
+                    
+                    return c;
+                }
+
+                void main() {
+                    // Pixel Grid Lock
+                    float pixelSize = max(1.0, floor(u_resolution.x / 256.0));
+                    vec2 virtualRes = floor(u_resolution / pixelSize);
+                    vec2 fc = floor(vUv * virtualRes);
+                    vec2 p = (fc + 0.5) / virtualRes;
+                    
+                    vec2 px = 1.0 / virtualRes;
+                    
+                    // Sample raw continuous field for edge detection
+                    vec3 raw_center = getRawColor(p);
+                    vec3 raw_up = getRawColor(p + vec2(0.0, px.y));
+                    vec3 raw_down = getRawColor(p - vec2(0.0, px.y));
+                    vec3 raw_left = getRawColor(p - vec2(px.x, 0.0));
+                    vec3 raw_right = getRawColor(p + vec2(px.x, 0.0));
+                    
+                    // Snap to macro palette
+                    vec3 m_center = nearestPalette(raw_center);
+                    vec3 m_up = nearestPalette(raw_up);
+                    vec3 m_down = nearestPalette(raw_down);
+                    vec3 m_left = nearestPalette(raw_left);
+                    vec3 m_right = nearestPalette(raw_right);
+                    
+                    // 1px Hard Outline detection (Sobel-ish morphological filter)
+                    float edge = 0.0;
+                    if(distance(m_center, m_up) > 0.1) edge += 1.0;
+                    if(distance(m_center, m_down) > 0.1) edge += 1.0;
+                    if(distance(m_center, m_left) > 0.1) edge += 1.0;
+                    if(distance(m_center, m_right) > 0.1) edge += 1.0;
+                    
+                    // Apply Ordered Dithering to the center pixel
+                    int bx = int(fc.x) % 4;
+                    int by = int(fc.y) % 4;
+                    float bayerVal = bayer4[by * 4 + bx];
+                    vec3 dithered = raw_center + (bayerVal - 0.5) * 0.3;
+                    vec3 c_center = nearestPalette(dithered);
+                    
+                    // Composite outline over dithered result
+                    vec3 finalColor = edge > 0.5 ? palette[7] : c_center;
+                    
+                    fragColor = vec4(finalColor, 1.0);
+                }
+            `
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        scene.add(mesh);
+        
+        canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("WebGL Initialization Failed:", e);
+        return;
     }
-    let tempA = A; A = nextA; nextA = tempA;
-    let tempB = B; B = nextB; nextB = tempB;
 }
-canvas.__gsState.A = A;
-canvas.__gsState.B = B;
-canvas.__gsState.nextA = nextA;
-canvas.__gsState.nextB = nextB;
 
-// 5. Bayer Dithering & Lisa Frank Palette Mapping
-const data = imgData.data;
-const bayer4x4 = [
-    0, 8, 2, 10,
-    12, 4, 14, 6,
-    3, 11, 1, 9,
-    15, 7, 13, 5
-];
+const { renderer, scene, camera, material } = canvas.__three;
 
-// Hyper-saturated 12-step neon ramp
-const palette = [
-  [10, 0, 20],      // Deep Void
-  [30, 0, 60],      // Dark Purple
-  [100, 0, 150],    // Royal Purple
-  [180, 0, 200],    // Magenta
-  [255, 0, 128],    // Hot Pink
-  [255, 100, 0],    // Neon Orange
-  [255, 200, 0],    // Bright Yellow
-  [255, 255, 0],    // Laser Yellow
-  [0, 255, 200],    // Mint
-  [0, 255, 255],    // Cyan
-  [200, 255, 255],  // Pale Cyan
-  [255, 255, 255]   // White
-];
-const pLen = palette.length;
-
-for(let y = 0; y < H; y++) {
-    for(let x = 0; x < W; x++) {
-        let i = y * W + x;
-        // Invert so active infection (high B, low A) is bright
-        let v = 1.0 - (A[i] - B[i]); 
-        v = Math.max(0, Math.min(1, v));
-        
-        let bayer = (bayer4x4[(y % 4) * 4 + (x % 4)] / 16.0) - 0.5;
-        let v_dither = v + bayer * 0.2; 
-        
-        let pIdx = Math.floor(v_dither * pLen);
-        if (pIdx < 0) pIdx = 0;
-        if (pIdx >= pLen) pIdx = pLen - 1;
-        
-        let color = palette[pIdx];
-        let idx = i * 4;
-        data[idx] = color[0];
-        data[idx+1] = color[1];
-        data[idx+2] = color[2];
-        data[idx+3] = 255;
+if (material && material.uniforms) {
+    if (material.uniforms.u_time) {
+        material.uniforms.u_time.value = time;
+    }
+    if (material.uniforms.u_resolution) {
+        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+    if (material.uniforms.u_mouse) {
+        material.uniforms.u_mouse.value.set(mouse.x / grid.width, 1.0 - mouse.y / grid.height);
+    }
+    if (material.uniforms.u_isPressed) {
+        material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
     }
 }
 
-// 6. Pixel-Grid Locked Render
-offCtx.putImageData(imgData, 0, 0);
-
-ctx.fillStyle = '#050505';
-ctx.fillRect(0, 0, grid.width, grid.height);
-
-ctx.imageSmoothingEnabled = false;
-const drawW = W * scale;
-const drawH = H * scale;
-const offsetX = Math.floor((grid.width - drawW) / 2);
-const offsetY = Math.floor((grid.height - drawH) / 2);
-
-ctx.drawImage(offscreen, offsetX, offsetY, drawW, drawH);
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
