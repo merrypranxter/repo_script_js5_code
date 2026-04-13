@@ -1,207 +1,194 @@
-try {
-  if (!canvas.__three) {
-    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-    
-    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
-      },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float u_time;
-        uniform vec2 u_resolution;
-        uniform vec2 u_mouse;
+if (!canvas.__three) {
+    try {
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
         
-        in vec2 vUv;
-        out vec4 fragColor;
+        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
         
-        #define TAU 6.28318530718
-        #define PI 3.14159265359
-        
-        float hash(float n) { return fract(sin(n) * 43758.5453); }
-        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        
-        float noise(vec2 p) {
-            vec2 i = floor(p), f = fract(p);
-            vec2 u = f*f*(3.0-2.0*f);
-            return mix(mix(hash(i), hash(i+vec2(1.0,0.0)), u.x),
-                       mix(hash(i+vec2(0.0,1.0)), hash(i+vec2(1.0,1.0)), u.x), u.y);
-        }
-        
-        float fbm(vec2 p) {
-            float v = 0.0, a = 0.5;
-            for(int i=0; i<5; i++) {
-                v += a * noise(p);
-                p = p * 2.1 + vec2(1.7, 9.2);
-                a *= 0.5;
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position, 1.0);
             }
-            return v;
-        }
+        `;
         
-        vec2 curl(vec2 p) {
-            const float eps = 0.001;
-            float n0 = noise(p + vec2(eps, 0.0));
-            float n1 = noise(p - vec2(eps, 0.0));
-            float n2 = noise(p + vec2(0.0, eps));
-            float n3 = noise(p - vec2(0.0, eps));
-            return vec2(n2 - n3, n1 - n0) / (2.0 * eps);
-        }
-        
-        vec2 turbulence(vec2 p, int octaves) {
-            vec2 v = vec2(0.0);
-            float amp = 0.5;
-            float freq = 1.0;
-            for(int i=0; i<8; i++) {
-                if(i >= octaves) break;
-                v += amp * curl(p * freq);
-                freq *= 2.0;
-                amp *= 0.5;
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
+            
+            uniform float u_time;
+            uniform vec2 u_resolution;
+            uniform vec2 u_mouse;
+
+            // [ THE FERAL ENGINE: NOISE & HASH ]
+            float hash(vec2 p) {
+                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
             }
-            return v;
-        }
-        
-        vec3 palette(float t) {
-            vec3 a = vec3(0.5, 0.5, 0.5);
-            vec3 b = vec3(0.5, 0.5, 0.5);
-            vec3 c = vec3(2.0, 1.0, 0.0);
-            vec3 d = vec3(0.50, 0.20, 0.25);
-            return a + b * cos(TAU * (c * t + d));
-        }
-        
-        vec2 voronoi(vec2 x) {
-            vec2 n = floor(x);
-            vec2 f = fract(x);
-            float m = 8.0;
-            vec2 mr = vec2(0.0);
-            for(int j=-1; j<=1; j++) {
-                for(int i=-1; i<=1; i++) {
-                    vec2 g = vec2(float(i), float(j));
-                    vec2 o = vec2(hash(n + g), hash(n + g + 13.0));
-                    o = 0.5 + 0.5 * sin(u_time * 2.0 + TAU * o);
-                    vec2 r = g - f + o;
-                    float d = dot(r, r);
-                    if(d < m) {
-                        m = d;
-                        mr = r;
-                    }
+
+            float noise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                           mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+            }
+
+            float fbm(vec2 p) {
+                float v = 0.0;
+                float a = 0.5;
+                for (int i = 0; i < 4; i++) {
+                    v += a * noise(p);
+                    p *= 2.0;
+                    a *= 0.5;
                 }
+                return v;
             }
-            return vec2(m, mr.x);
-        }
-        
-        float leopard(vec2 p) {
-            vec2 v = voronoi(p * 5.0);
-            float ring = smoothstep(0.1, 0.25, v.x) - smoothstep(0.3, 0.45, v.x);
-            ring *= smoothstep(-0.2, 0.2, noise(p * 10.0));
-            float spot = smoothstep(0.1, 0.0, v.x);
-            return max(ring, spot * 0.7);
-        }
-        
-        float star(vec2 uv) {
-            float d = length(uv);
-            float a = atan(uv.y, uv.x);
-            float crossShape = abs(cos(a*2.0)) * abs(sin(a*2.0)) * 2.0;
-            return (0.005 / (d + 0.001)) * smoothstep(0.5, 0.0, crossShape);
-        }
-        
-        vec2 vhs_distort(vec2 uv, float t) {
-            float scanline = floor(uv.y * 240.0);
-            float jitter = (hash(vec2(scanline, floor(t * 30.0))) - 0.5) * 0.02;
-            float jitterMask = step(0.95, hash(vec2(scanline * 0.1, floor(t * 10.0))));
-            uv.x += jitter * jitterMask;
-            
-            float shockX = fract(t * 0.5);
-            float d = abs(uv.x - shockX);
-            float shock = exp(-d * d * 500.0) * 0.05 * sin(uv.y * 50.0 + t * 10.0);
-            uv.x += shock;
-            
-            return uv;
-        }
-        
-        void main() {
-            vec2 uv = vUv;
-            vec2 warpedUV = vhs_distort(uv, u_time);
-            
-            vec2 p = warpedUV * 2.0 - 1.0;
-            p.x *= u_resolution.x / u_resolution.y;
-            
-            vec2 m = u_mouse * 2.0 - 1.0;
-            m.x *= u_resolution.x / u_resolution.y;
-        
-            vec2 vel = turbulence(p * 1.2 + u_time * 0.15, 4);
-            
-            float dMouse = length(p - m);
-            vec2 marangoni = normalize(p - m + 0.001) * exp(-dMouse * 8.0) * 0.5;
-            vel += marangoni;
-        
-            vec2 q = p + vel * 0.5;
-            vec2 r = p + turbulence(q * 2.0 - u_time * 0.2, 3) * 0.4;
-        
-            float speed = length(vel);
-            vec3 col = palette(speed * 0.8 + u_time * 0.2 + r.y * 0.3);
-        
-            float finger = fbm(r * 3.0 - u_time * 0.5);
-            float tendril = smoothstep(0.45, 0.5, finger) - smoothstep(0.5, 0.55, finger);
-            col = mix(col, vec3(0.0, 1.0, 0.9), tendril * 0.8);
-        
-            float spots = leopard(r + vel * 0.2);
-            vec3 spotCol = vec3(0.1, 0.0, 0.25);
-            col = mix(col, spotCol, spots);
-        
-            float sparkles = 0.0;
-            for(int i=0; i<6; i++) {
-                vec2 sp = fract(r * (float(i)*0.5 + 2.0) + u_time * 0.05 * vec2(float(i), -float(i))) - 0.5;
-                sparkles += star(sp) * smoothstep(0.3, 0.7, noise(r * 8.0 + float(i)));
+
+            // [ HOLOGRAPHY: AdS METRIC WARP ]
+            // The boundary drives the bulk. Radial depth = scale.
+            vec2 adsWarp(vec2 uv, vec2 center) {
+                vec2 d = uv - center;
+                float r = length(d);
+                float z = max(0.03, 1.0 - r * 1.6); 
+                return center + (d / z) * 0.4;
             }
-            col += vec3(1.0, 0.5, 0.8) * sparkles * 2.5;
+
+            // [ GLITCHCORE / DAMAGE: MACROBLOCK DATAMOSH ]
+            // Compression chew, packet loss, and temporal smear
+            vec2 datamosh(vec2 uv, float t) {
+                vec2 grid = floor(uv * 18.0) / 18.0;
+                float glitch = step(0.82, noise(grid * 4.0 + floor(t * 12.0)));
+                vec2 motion = vec2(noise(grid + t), noise(grid - t)) * 0.1 - 0.05;
+                return mix(uv, grid + motion, glitch * 0.85);
+            }
+
+            // [ RETINAL SURREALISM: OP-ART ENGINE ]
+            // Radial hypnosis fields, zebra waves, figure-ground instability
+            float opArt(vec2 uv, float t) {
+                float r = length(uv - 0.5);
+                float a = atan(uv.y - 0.5, uv.x - 0.5);
+                // Zebra waves reacting to hidden pressure
+                float wave = sin(r * 75.0 - t * 6.0 + sin(a * 7.0 + t * 2.5) * 1.8);
+                return smoothstep(-0.15, 0.15, wave);
+            }
+
+            // [ CRYSTALLINE: BIREFRINGENCE OFFSET ]
+            // Double refraction through a simulated triclinic lattice
+            vec2 refractCrystal(vec2 uv, float ior, float t) {
+                float nX = fbm(uv * 12.0 + vec2(0.0, t * 0.15));
+                float nY = fbm(uv * 12.0 + vec2(t * 0.15, 0.0));
+                return uv + vec2(nX - 0.5, nY - 0.5) * ior * 0.045;
+            }
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / u_resolution;
+                vec2 origUV = uv;
+                
+                // Holographic boundary injection (Mouse as precursor signal)
+                vec2 mouse = u_mouse == vec2(0.0) ? vec2(0.5) : u_mouse / u_resolution;
+                mouse.y = 1.0 - mouse.y; // Correct Y-axis for GLSL
+                
+                uv = adsWarp(uv, mouse);
+                
+                // Damage: Tape tracking & head-switching noise
+                if (origUV.y < 0.08) {
+                    uv.x += (hash(uv * vec2(1.0, 60.0) + u_time) - 0.5) * 0.15;
+                }
+                
+                // Glitchcore: Compression chew
+                uv = datamosh(uv, u_time);
+                
+                // Crystalline RGB Phantom / Chromatic Interference
+                // Calcite ordinary ray (nR), intermediate (nG), extraordinary ray (nB)
+                vec2 uvR = refractCrystal(uv, 1.486, u_time);
+                vec2 uvG = refractCrystal(uv, 1.550, u_time * 1.08);
+                vec2 uvB = refractCrystal(uv, 1.658, u_time * 0.92);
+                
+                // Op-Art Evaluation
+                float opR = opArt(uvR, u_time);
+                float opG = opArt(uvG, u_time * 1.03);
+                float opB = opArt(uvB, u_time * 0.97);
+                
+                // [ LISA FRANK / ACID PALETTE: HYPERPOP RUPTURE ]
+                vec3 hotPink = vec3(1.0, 0.0, 0.55);
+                vec3 electricCyan = vec3(0.0, 1.0, 0.95);
+                vec3 toxicLime = vec3(0.65, 1.0, 0.0);
+                vec3 deepViolet = vec3(0.35, 0.0, 0.85);
+                vec3 pearlWhite = vec3(0.98, 0.95, 1.0);
+                
+                // Color Field Collision
+                vec3 color = mix(deepViolet, hotPink, opR);
+                color = mix(color, electricCyan, opG * 0.65);
+                color = mix(color, toxicLime, opB * 0.45 * (1.0 - opR));
+                
+                // Sparkles: Stochastic Glitter Overprint
+                float sparkle = step(0.985, hash(uv * 250.0 + u_time));
+                color = mix(color, pearlWhite, sparkle * opG * 1.5);
+                
+                // Temporal Echo / Phosphor Bloom
+                float ghost = opArt(origUV + vec2(sin(u_time), cos(u_time)) * 0.025, u_time * 0.4);
+                color += hotPink * ghost * 0.25;
+                
+                // CRT Raster Lines
+                float scanline = sin(origUV.y * u_resolution.y * 3.14159 * 0.6);
+                color *= 0.88 + 0.12 * scanline;
+                
+                fragColor = vec4(color, 1.0);
+            }
+        `;
         
-            float spread = 0.005 + 0.005 * sin(u_time);
-            float rChannel = fbm(q + vec2(spread, 0.0));
-            float bChannel = fbm(q - vec2(spread, 0.0));
-            col.r += rChannel * 0.2;
-            col.b += bChannel * 0.2;
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                u_mouse: { value: new THREE.Vector2(mouse.x, mouse.y) }
+            },
+            vertexShader,
+            fragmentShader,
+            depthWrite: false,
+            depthTest: false
+        });
         
-            col *= 0.9 + 0.1 * sin(uv.y * u_resolution.y * 0.5);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
         
-            fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
-        }
-      `
-    });
-    
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-    canvas.__three = { renderer, scene, camera, material };
-  }
-  
-  const { renderer, scene, camera, material } = canvas.__three;
-  
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    if (material.uniforms.u_mouse) {
-      const targetX = mouse.x ? mouse.x / grid.width : 0.5;
-      const targetY = mouse.y ? 1.0 - (mouse.y / grid.height) : 0.5;
-      material.uniforms.u_mouse.value.x += (targetX - material.uniforms.u_mouse.value.x) * 0.1;
-      material.uniforms.u_mouse.value.y += (targetY - material.uniforms.u_mouse.value.y) * 0.1;
+        canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("WebGL Initialization Failed:", e);
+        return;
     }
-  }
-  
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-} catch (e) {
-  console.error("WebGL Initialization Failed:", e);
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+    if (material.uniforms.u_time) {
+        material.uniforms.u_time.value = time;
+    }
+    if (material.uniforms.u_resolution) {
+        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+    if (material.uniforms.u_mouse) {
+        // Sticky, feral mouse lag (simulating slow frame persistence)
+        const targetX = mouse.x;
+        const targetY = mouse.y;
+        const currentX = material.uniforms.u_mouse.value.x;
+        const currentY = material.uniforms.u_mouse.value.y;
+        
+        // Only interpolate if we have a valid initial mouse position
+        if (currentX === 0 && currentY === 0 && (targetX !== 0 || targetY !== 0)) {
+            material.uniforms.u_mouse.value.set(targetX, targetY);
+        } else {
+            material.uniforms.u_mouse.value.x += (targetX - currentX) * 0.08;
+            material.uniforms.u_mouse.value.y += (targetY - currentY) * 0.08;
+        }
+    }
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
