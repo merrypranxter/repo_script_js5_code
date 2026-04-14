@@ -2,206 +2,231 @@ if (!canvas.__three) {
   try {
     const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
     if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-    
+
     const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    const camera = new THREE.Camera(); // Full-screen quad handled directly in vertex shader
     
-    // Lisa Frank Hyper-Neon Palette
-    const palette = [
-      new THREE.Vector3(1.0, 0.0, 1.0),   // Magenta
-      new THREE.Vector3(0.0, 1.0, 1.0),   // Cyan
-      new THREE.Vector3(1.0, 1.0, 0.0),   // Yellow
-      new THREE.Vector3(1.0, 0.0, 0.5),   // Hot Pink
-      new THREE.Vector3(0.5, 0.0, 1.0),   // Purple
-      new THREE.Vector3(0.5, 1.0, 0.0),   // Lime
-      new THREE.Vector3(1.0, 0.5, 0.0),   // Orange
-      new THREE.Vector3(1.0, 1.0, 1.0),   // White (Sparkles)
-      new THREE.Vector3(0.08, 0.0, 0.15)  // Dark Indigo (Outlines)
-    ];
-    
-    const uniforms = {
-      u_time: { value: 0 },
-      u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-      u_mouse: { value: new THREE.Vector2(0, 0) },
-      u_isPressed: { value: 0 },
-      u_palette: { value: palette }
-    };
-    
+    // Use an orthographic camera for a pure screen-space shader approach
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: uniforms,
+      uniforms: {
+        u_time: { value: 0.0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
+      },
       vertexShader: `
         out vec2 vUv;
         void main() {
           vUv = uv;
-          // Ignore camera, stretch quad perfectly to screen bounds
-          gl_Position = vec4(position.xy, 0.0, 1.0);
+          gl_Position = vec4(position, 1.0);
         }
       `,
       fragmentShader: `
+        precision highp float;
+        in vec2 vUv;
+        out vec4 fragColor;
+        
         uniform float u_time;
         uniform vec2 u_resolution;
         uniform vec2 u_mouse;
-        uniform float u_isPressed;
-        uniform vec3 u_palette[9];
 
-        in vec2 vUv;
-        out vec4 fragColor;
+        #define MAX_STEPS 100
+        #define SURF_DIST 0.002
+        #define MAX_DIST 25.0
+        #define PI 3.14159265359
 
-        // Bayer 4x4 Dither Matrix
-        const float bayer4[16] = float[16](
-            0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-           12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-            3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-           15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
-        );
-
-        // RGB to YUV for perceptual palette snapping
-        vec3 rgb2yuv(vec3 rgb) {
-            float y = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
-            float u = 0.492 * (rgb.b - y);
-            float v = 0.877 * (rgb.r - y);
-            return vec3(y, u, v);
+        // Photocopy noise / Precursor distribution
+        float hash21(vec2 p) {
+            p = fract(p * vec2(123.34, 456.21));
+            p += dot(p, p + 45.32);
+            return fract(p.x * p.y);
         }
 
-        float hash(vec2 p) {
-            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        // 4D / AdS Rotation
+        mat2 rot(float a) {
+            float s = sin(a), c = cos(a);
+            return mat2(c, -s, s, c);
         }
 
-        float noise(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            vec2 u = f*f*(3.0-2.0*f);
-            return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
-                       mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+        // Entanglement geometry: Ryu-Takayanagi minimal surface bridges
+        float smin(float a, float b, float k) {
+            float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+            return mix(b, a, h) - k * h * (1.0 - h);
         }
 
-        // Fractional Brownian Motion
-        float fbm(vec2 p) {
-            float v = 0.0;
-            float a = 0.5;
-            for(int i=0; i<4; i++) {
-                v += a * noise(p);
-                p *= 2.0;
-                a *= 0.5;
-            }
-            return v;
+        // Crystalline Structures: Cubic (Fm3̄m) and Hexagonal (P6₃/mmc)
+        float sdOctahedron(vec3 p, float s) {
+            p = abs(p);
+            return (p.x + p.y + p.z - s) * 0.57735027;
+        }
+
+        float sdHexPrism(vec3 p, vec2 h) {
+            const vec3 k = vec3(-0.8660254, 0.5, 0.57735);
+            p = abs(p);
+            p.xy -= 2.0 * min(dot(k.xy, p.xy), 0.0) * k.xy;
+            vec2 d = vec2(
+                length(p.xy - vec2(clamp(p.x, -k.z * h.x, k.z * h.x), h.x)) * sign(p.y - h.x),
+                p.z - h.y
+            );
+            return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+        }
+
+        // Holographic Warp: AdS Radial Depth as Scale
+        vec3 adsWarp(vec3 p) {
+            float z = max(0.05, abs(p.z) + 1.5);
+            float s = mix(1.0, 1.0 / z, 0.65); 
+            return p * s;
+        }
+
+        // Bulk / Boundary Dictionary Map
+        vec2 map(vec3 p) {
+            vec3 wp = adsWarp(p);
+            
+            float t = u_time * 0.25;
+            wp.xz *= rot(t + u_mouse.x * PI * 2.0);
+            wp.yz *= rot(t * 0.8 + u_mouse.y * PI * 2.0);
+            
+            // Subregion logic: infinite fractal lattice
+            vec3 q = mod(wp + 2.0, 4.0) - 2.0;
+            
+            // Phase transition logic: crystal structures shifting
+            float oct = sdOctahedron(q, 0.8 + sin(u_time * 0.5) * 0.15);
+            float hex = sdHexPrism(q, vec2(0.5 + cos(u_time * 0.7) * 0.1, 1.2));
+            
+            // Entanglement bridging forming minimal surfaces
+            float d = smin(oct, hex, 0.8);
+            
+            // Holographic principle: Hollow bulk, surface encoded
+            d = max(d, -sdOctahedron(q, 0.72));
+            
+            // Precursor nonlocal field injection (surface noise)
+            d += sin(wp.x * 15.0) * sin(wp.y * 15.0) * sin(wp.z * 15.0) * 0.02;
+            
+            return vec2(d, 1.0);
+        }
+
+        vec3 getNormal(vec3 p) {
+            vec2 e = vec2(0.002, 0.0);
+            vec3 n = vec3(
+                map(p + e.xyy).x - map(p - e.xyy).x,
+                map(p + e.yxy).x - map(p - e.yxy).x,
+                map(p + e.yyx).x - map(p - e.yyx).x
+            );
+            return normalize(n);
+        }
+
+        // Cyberdelic Neon / Lisa Frank Acid Palette
+        vec3 getAcidColor(vec3 p, vec3 n) {
+            vec3 magenta = vec3(1.0, 0.0, 0.80);
+            vec3 cyan    = vec3(0.0, 1.0, 0.94);
+            vec3 lime    = vec3(0.69, 1.0, 0.00);
+            vec3 orange  = vec3(1.0, 0.42, 0.00);
+            
+            float f = dot(n, vec3(0.577));
+            f = fract(f * 2.5 + length(p) * 0.5 - u_time * 0.4);
+            
+            vec3 c = mix(magenta, cyan, smoothstep(0.0, 0.33, f));
+            c = mix(c, lime, smoothstep(0.33, 0.66, f));
+            c = mix(c, orange, smoothstep(0.66, 1.0, f));
+            return c;
         }
 
         void main() {
-            // 1. Pixel Grid Lock (Maintains perfectly square pixels regardless of aspect)
-            float minRes = min(u_resolution.x, u_resolution.y);
-            float pixelSizeScale = 256.0 / minRes; // 256 virtual pixels across shortest dimension
-            vec2 virtRes = floor(u_resolution * pixelSizeScale);
-            vec2 pixelSize = 1.0 / virtRes;
-            vec2 snappedUV = floor(vUv / pixelSize) * pixelSize + pixelSize * 0.5;
+            vec2 uv = (vUv - 0.5) * 2.0;
+            uv.x *= u_resolution.x / u_resolution.y;
             
-            // Isotropic coordinates
-            vec2 p = (snappedUV - 0.5) * u_resolution / minRes * 30.0;
+            // Kaleidoscope / Mirror-Tile Pattern Warp (Psychedelic Collage)
+            float folds = 6.0;
+            float angleFold = atan(uv.y, uv.x);
+            float radiusFold = length(uv);
+            float sector = 2.0 * PI / folds;
+            angleFold = mod(angleFold, sector);
+            if (angleFold > sector * 0.5) angleFold = sector - angleFold;
+            vec2 kUv = vec2(cos(angleFold), sin(angleFold)) * radiusFold;
             
-            // 2. Feral Domain Warping (Lisa Frank Animal Print Infection)
-            float n1 = fbm(p * 0.3 + u_time * 0.2);
-            float n2 = fbm(p * 0.3 - u_time * 0.3 + 100.0);
-            vec2 warp = (vec2(n1, n2) - 0.5) * 2.0;
+            // Blend between pure space and kaleidoscope space based on radius
+            uv = mix(uv, kUv, smoothstep(0.5, 1.5, radiusFold));
             
-            // Mouse Interaction (Repeller)
-            vec2 m = u_mouse / u_resolution;
-            m.y = 1.0 - m.y; // Flip Y for WebGL
-            vec2 mIso = (m - 0.5) * u_resolution / minRes * 30.0;
-            float distToMouse = length(p - mIso);
-            float force = exp(-distToMouse * 0.2) * (u_isPressed > 0.5 ? -10.0 : 5.0);
+            vec3 ro = vec3(0.0, 0.0, -4.0);
+            vec3 rd = normalize(vec3(uv, 1.0));
             
-            p += warp * 5.0 * (1.0 + force * 0.5);
-            p += normalize(p - mIso + 0.001) * force * sin(u_time * 5.0);
+            float dO = 0.0;
+            vec3 p;
+            float minDist = 100.0;
             
-            // 3. Quasicrystal Layers (5-Fold Symmetry + Golden Ratio 1.618 Inflation)
-            float qVal1 = 0.0;
-            float qVal2 = 0.0;
-            float ghostVal = 0.0;
+            for(int i = 0; i < MAX_STEPS; i++) {
+                p = ro + rd * dO;
+                vec2 res = map(p);
+                float dS = res.x;
+                minDist = min(minDist, dS);
+                if(dS < SURF_DIST || dO > MAX_DIST) break;
+                dO += dS;
+            }
             
-            vec2 ghostP = p + vec2(sin(u_time), cos(u_time)) * 3.0;
+            vec3 color = vec3(0.015, 0.02, 0.03); // Void Black
             
-            for(int i = 0; i < 5; i++) {
-                float theta = float(i) * 3.14159265 * 2.0 / 5.0;
-                vec2 dir = vec2(cos(theta), sin(theta));
+            if(dO < MAX_DIST) {
+                vec3 n = getNormal(p);
+                vec3 baseColor = getAcidColor(p, n);
                 
-                float phase = dot(p, dir);
-                float phaseWarp = sin(p.x * 0.5 + u_time) * cos(p.y * 0.5 - u_time);
+                vec3 lightDir = normalize(vec3(1.0, 2.0, -1.5));
+                float diff = max(dot(n, lightDir), 0.0);
                 
-                qVal1 += cos(phase + u_time * 2.0 + phaseWarp);
-                qVal2 += cos(phase * 1.61803398 - u_time * 1.5 + phaseWarp * 1.618);
-                ghostVal += cos(dot(ghostP, dir) + (u_time - 0.5) * 2.0);
+                // Extreme specular for "Adamantine Luster"
+                vec3 viewDir = normalize(ro - p);
+                vec3 halfDir = normalize(lightDir + viewDir);
+                float spec = pow(max(dot(n, halfDir), 0.0), 64.0);
+                
+                float fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 4.0);
+                
+                color = baseColor * (diff * 0.6 + 0.4) + spec * vec3(1.0) + fresnel * vec3(0.0, 1.0, 0.94);
             }
             
-            qVal1 = (qVal1 + 5.0) / 10.0;
-            qVal2 = (qVal2 + 5.0) / 10.0;
-            ghostVal = (ghostVal + 5.0) / 10.0;
+            // Holographic Stretched Horizon Glow
+            float horizonGlow = exp(-minDist * 6.0) * 0.7;
+            color += vec3(1.0, 0.0, 0.8) * horizonGlow; // Magenta precursor bleed
             
-            // Feral Mixing of Inflation Layers
-            float qVal = mix(qVal1, qVal2, 0.5 + 0.5 * sin(u_time + p.y * 0.2));
+            // --- PRINT ARTIFACTS / PSYCHEDELIC COLLAGE ENGINE ---
             
-            // 4. Paper Misregistration / Chromatic Aberration
-            float bands = qVal * 8.0 - u_time * 2.0;
-            float rBands = fract(bands + 0.05);
-            float gBands = fract(bands);
-            float bBands = fract(bands - 0.05);
+            // 1. CMYK Misregistration (Simulated Chromatic Fringing)
+            float shiftX = 0.01 * hash21(vec2(u_time, vUv.y * 10.0));
+            color.r += max(0.0, color.r * shiftX * 50.0);
+            color.b += max(0.0, color.b * shiftX * -50.0);
+
+            // 2. Risograph Rainbow Halftone Screen
+            float luma = dot(color, vec3(0.299, 0.587, 0.114));
+            float htFreq = 120.0;
+            float htAngle = 0.785398; // 45 deg
+            mat2 rotScreen = mat2(cos(htAngle), -sin(htAngle), sin(htAngle), cos(htAngle));
+            vec2 st = rotScreen * vUv * vec2(u_resolution.x / u_resolution.y, 1.0) * htFreq;
+            vec2 grid = fract(st) - 0.5;
+            float dotRad = sqrt(1.0 - clamp(luma, 0.0, 1.0)) * 0.65;
+            float halftoneMask = smoothstep(dotRad + 0.08, dotRad - 0.08, length(grid));
             
-            // 5. Lisa Frank Gradient Synthesis
-            vec3 rawColor = vec3(
-                0.5 + 0.5 * sin(rBands * 6.28 + u_time + p.x * 0.3),
-                0.5 + 0.5 * sin(gBands * 6.28 + u_time * 1.3 + p.y * 0.3 + 2.0),
-                0.5 + 0.5 * sin(bBands * 6.28 + u_time * 0.7 + 4.0)
-            );
+            // Multiply blend halftone over substrate
+            vec3 risoPaper = vec3(0.12, 0.13, 0.12);
+            vec3 halftoneColor = mix(risoPaper, color * 1.6, halftoneMask);
             
-            // Hyper-saturation
-            float gray = dot(rawColor, vec3(0.299, 0.587, 0.114));
-            rawColor = mix(vec3(gray), rawColor, 3.5);
-            rawColor = clamp(rawColor, 0.0, 1.0);
+            // 3. Photocopy Noise / Xerox Streak
+            float streak = step(0.995, hash21(vec2(vUv.x * 0.05, u_time * 0.02))) * 0.3;
+            halftoneColor += vec3(streak);
             
-            // 6. Ordered Dither (Bayer 4x4)
-            int bx = int(mod(snappedUV.x * virtRes.x, 4.0));
-            int by = int(mod(snappedUV.y * virtRes.y, 4.0));
-            float bayerVal = bayer4[by * 4 + bx];
-            float spread = 0.3 + ghostVal * 0.4; // Ghost perturbs dither spread
-            vec3 ditheredColor = rawColor + (bayerVal - 0.5) * spread;
-            
-            // 7. Palette Map (Nearest YUV)
-            vec3 bestColor = u_palette[0];
-            float bestDist = 1e9;
-            vec3 targetYUV = rgb2yuv(ditheredColor);
-            
-            for(int i = 0; i < 9; i++) {
-                vec3 palColor = u_palette[i];
-                vec3 palYUV = rgb2yuv(palColor);
-                float d = dot(targetYUV - palYUV, targetYUV - palYUV);
-                if(d < bestDist) {
-                    bestDist = d;
-                    bestColor = palColor;
-                }
-            }
-            
-            // 8. Outline Detection (Simulated Sobel on geometry bands)
-            float edge = abs(fract(bands) - 0.5);
-            if(edge < 0.05 + force * 0.02) {
-                bestColor = u_palette[8]; // Dark Indigo Outline
-            }
-            
-            // 9. Sparkles (Dead Pixels Behaving Like Pollen)
-            float twinkleTime = floor(u_time * 10.0);
-            if(hash(snappedUV + twinkleTime) > 0.992) {
-                bestColor = u_palette[7]; // White
-            }
-            
-            fragColor = vec4(bestColor, 1.0);
+            // 4. Watercolor Paper Grain / Dust
+            float grain = fract(sin(dot(vUv * 1000.0 + u_time, vec2(127.1, 311.7))) * 43758.5453);
+            halftoneColor += (grain - 0.5) * 0.18;
+
+            fragColor = vec4(halftoneColor, 1.0);
         }
       `
     });
-    
+
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
-    
     canvas.__three = { renderer, scene, camera, material };
+
   } catch (e) {
     console.error("WebGL Initialization Failed:", e);
     return;
@@ -209,11 +234,17 @@ if (!canvas.__three) {
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
-if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  material.uniforms.u_mouse.value.set(mouse.x, mouse.y);
-  material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
+
+if (material?.uniforms) {
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  if (material.uniforms.u_mouse) {
+    // Map mouse position to normalized coordinates 0.0 to 1.0
+    const mx = mouse.x / grid.width;
+    const my = 1.0 - (mouse.y / grid.height);
+    // Smooth trailing interpolation for organic feel
+    material.uniforms.u_mouse.value.lerp(new THREE.Vector2(mx, my), 0.05);
+  }
 }
 
 renderer.setSize(grid.width, grid.height, false);
