@@ -1,178 +1,219 @@
 if (!canvas.__three) {
-    try {
-        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-        
-        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
-            },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                precision highp float;
-                in vec2 vUv;
-                out vec4 fragColor;
+  try {
+    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
+    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.Camera(); // Full-screen quad handled directly in vertex shader
+    
+    // Lisa Frank Hyper-Neon Palette
+    const palette = [
+      new THREE.Vector3(1.0, 0.0, 1.0),   // Magenta
+      new THREE.Vector3(0.0, 1.0, 1.0),   // Cyan
+      new THREE.Vector3(1.0, 1.0, 0.0),   // Yellow
+      new THREE.Vector3(1.0, 0.0, 0.5),   // Hot Pink
+      new THREE.Vector3(0.5, 0.0, 1.0),   // Purple
+      new THREE.Vector3(0.5, 1.0, 0.0),   // Lime
+      new THREE.Vector3(1.0, 0.5, 0.0),   // Orange
+      new THREE.Vector3(1.0, 1.0, 1.0),   // White (Sparkles)
+      new THREE.Vector3(0.08, 0.0, 0.15)  // Dark Indigo (Outlines)
+    ];
+    
+    const uniforms = {
+      u_time: { value: 0 },
+      u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+      u_mouse: { value: new THREE.Vector2(0, 0) },
+      u_isPressed: { value: 0 },
+      u_palette: { value: palette }
+    };
+    
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: uniforms,
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          // Ignore camera, stretch quad perfectly to screen bounds
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float u_time;
+        uniform vec2 u_resolution;
+        uniform vec2 u_mouse;
+        uniform float u_isPressed;
+        uniform vec3 u_palette[9];
 
-                uniform float u_time;
-                uniform vec2 u_resolution;
-                uniform vec2 u_mouse;
+        in vec2 vUv;
+        out vec4 fragColor;
 
-                vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) {
-                    return a + b*cos( 6.28318*(c*t+d) );
-                }
+        // Bayer 4x4 Dither Matrix
+        const float bayer4[16] = float[16](
+            0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+           12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+            3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+           15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+        );
 
-                vec2 hash2( vec2 p ) {
-                    return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);
-                }
+        // RGB to YUV for perceptual palette snapping
+        vec3 rgb2yuv(vec3 rgb) {
+            float y = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+            float u = 0.492 * (rgb.b - y);
+            float v = 0.877 * (rgb.r - y);
+            return vec3(y, u, v);
+        }
 
-                vec3 voronoi( in vec2 x ) {
-                    vec2 n = floor(x);
-                    vec2 f = fract(x);
-                    vec2 m = vec2(8.0);
-                    for( int j=-1; j<=1; j++ )
-                    for( int i=-1; i<=1; i++ ) {
-                        vec2 g = vec2(float(i),float(j));
-                        vec2 o = hash2( n + g );
-                        vec2 r = g - f + o;
-                        float d = dot(r,r);
-                        if( d<m.x ) {
-                            m.y = m.x;
-                            m.x = d;
-                        } else if( d<m.y ) {
-                            m.y = d;
-                        }
-                    }
-                    return vec3( sqrt(m.x), sqrt(m.y), 0.0 );
-                }
+        float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
 
-                float smin(float a, float b, float k) {
-                    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
-                    return mix(b, a, h) - k * h * (1.0 - h);
-                }
+        float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            vec2 u = f*f*(3.0-2.0*f);
+            return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
+                       mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+        }
 
-                vec3 boundaryData(vec3 p, float time) {
-                    float theta = atan(p.y, p.x);
-                    float z = p.z;
-                    vec2 uv = vec2(theta * 2.5, z);
-                    
-                    float depth = 3.0 - length(p.xy);
-                    float freq = mix(12.0, 2.0, clamp(depth, 0.0, 1.0));
-                    
-                    vec3 v = voronoi(uv * freq + time * 0.5);
-                    float spot = smoothstep(0.02, 0.15, v.y - v.x) - smoothstep(0.2, 0.3, v.y - v.x);
-                    
-                    vec3 col = palette(theta/3.14 + z*0.2 - time*0.8, 
-                                       vec3(0.8, 0.5, 0.6), 
-                                       vec3(0.4, 0.5, 0.4), 
-                                       vec3(1.0, 1.0, 1.0), 
-                                       vec3(0.0, 0.33, 0.67));
-                                       
-                    col = mix(col, vec3(1.0, 0.0, 0.8), spot);
-                    
-                    float scan = smoothstep(0.8, 1.0, sin(z * 10.0 - time * 5.0));
-                    col += vec3(0.0, 1.0, 1.0) * scan * 0.5;
-                    
-                    return col;
-                }
+        // Fractional Brownian Motion
+        float fbm(vec2 p) {
+            float v = 0.0;
+            float a = 0.5;
+            for(int i=0; i<4; i++) {
+                v += a * noise(p);
+                p *= 2.0;
+                a *= 0.5;
+            }
+            return v;
+        }
 
-                void main() {
-                    vec2 uv = vUv * 2.0 - 1.0;
-                    uv.x *= u_resolution.x / u_resolution.y;
-                    
-                    vec3 ro = vec3(0.0, 0.0, -3.0);
-                    vec3 rd = normalize(vec3(uv, 1.0));
-                    
-                    float t = 0.0;
-                    float max_t = 20.0;
-                    
-                    float glowBound = 0.0;
-                    float glowMem = 0.0;
-                    float glowPhoton = 0.0;
-                    
-                    vec3 p;
-                    for(int i=0; i<70; i++) {
-                        p = ro + rd * t;
-                        
-                        float dBound = 3.0 - length(p.xy);
-                        
-                        vec3 bhPos = vec3(sin(u_time)*0.8, cos(u_time*0.6)*0.8, 5.0);
-                        float scramble = sin(p.x * 10.0 + u_time) * sin(p.y * 10.0 + u_time) * sin(p.z * 10.0) * 0.05;
-                        float dHoriz = length(p - bhPos) - 1.2 + scramble;
-                        
-                        vec3 mPos = vec3((u_mouse.x - 0.5)*8.0, -(u_mouse.y - 0.5)*8.0, 2.0);
-                        float dAnchor = length(p - mPos) - 0.4;
-                        
-                        float dMembrane = smin(dHoriz, dAnchor, 2.5);
-                        
-                        float d = min(dBound, abs(dMembrane));
-                        
-                        glowBound += exp(-dBound * 3.0) * 0.02;
-                        glowMem += exp(-abs(dMembrane) * 6.0) * 0.025;
-                        
-                        float dPhoton = abs(dHoriz - 0.3);
-                        glowPhoton += exp(-dPhoton * 10.0) * 0.015;
-                        
-                        if(d < 0.01 || t > max_t) break;
-                        t += d * 0.8;
-                    }
-                    
-                    vec3 bData = boundaryData(p, u_time);
-                    
-                    vec3 memColor = palette(length(p) * 0.5 - u_time, vec3(0.8, 0.5, 0.7), vec3(0.5, 0.4, 0.2), vec3(2.0, 1.0, 1.0), vec3(0.0, 0.25, 0.25));
-                    
-                    vec3 memNoise = voronoi(p.xy * 5.0 + u_time);
-                    memColor += vec3(1.0, 0.5, 0.0) * memNoise.x * 0.5;
-                    
-                    vec3 col = bData * glowBound * 1.5 
-                             + memColor * glowMem * 2.0 
-                             + vec3(0.0, 1.0, 1.0) * glowPhoton * 3.0;
-                             
-                    col += vec3(0.5, 0.0, 1.0) * exp(-t * 0.15) * 0.1;
-                    
-                    float vignette = 1.0 - length(vUv * 2.0 - 1.0) * 0.5;
-                    col *= vignette;
-                    
-                    col = col / (1.0 + col);
-                    col = pow(col, vec3(1.0/2.2));
-                    
-                    fragColor = vec4(col, 1.0);
+        void main() {
+            // 1. Pixel Grid Lock (Maintains perfectly square pixels regardless of aspect)
+            float minRes = min(u_resolution.x, u_resolution.y);
+            float pixelSizeScale = 256.0 / minRes; // 256 virtual pixels across shortest dimension
+            vec2 virtRes = floor(u_resolution * pixelSizeScale);
+            vec2 pixelSize = 1.0 / virtRes;
+            vec2 snappedUV = floor(vUv / pixelSize) * pixelSize + pixelSize * 0.5;
+            
+            // Isotropic coordinates
+            vec2 p = (snappedUV - 0.5) * u_resolution / minRes * 30.0;
+            
+            // 2. Feral Domain Warping (Lisa Frank Animal Print Infection)
+            float n1 = fbm(p * 0.3 + u_time * 0.2);
+            float n2 = fbm(p * 0.3 - u_time * 0.3 + 100.0);
+            vec2 warp = (vec2(n1, n2) - 0.5) * 2.0;
+            
+            // Mouse Interaction (Repeller)
+            vec2 m = u_mouse / u_resolution;
+            m.y = 1.0 - m.y; // Flip Y for WebGL
+            vec2 mIso = (m - 0.5) * u_resolution / minRes * 30.0;
+            float distToMouse = length(p - mIso);
+            float force = exp(-distToMouse * 0.2) * (u_isPressed > 0.5 ? -10.0 : 5.0);
+            
+            p += warp * 5.0 * (1.0 + force * 0.5);
+            p += normalize(p - mIso + 0.001) * force * sin(u_time * 5.0);
+            
+            // 3. Quasicrystal Layers (5-Fold Symmetry + Golden Ratio 1.618 Inflation)
+            float qVal1 = 0.0;
+            float qVal2 = 0.0;
+            float ghostVal = 0.0;
+            
+            vec2 ghostP = p + vec2(sin(u_time), cos(u_time)) * 3.0;
+            
+            for(int i = 0; i < 5; i++) {
+                float theta = float(i) * 3.14159265 * 2.0 / 5.0;
+                vec2 dir = vec2(cos(theta), sin(theta));
+                
+                float phase = dot(p, dir);
+                float phaseWarp = sin(p.x * 0.5 + u_time) * cos(p.y * 0.5 - u_time);
+                
+                qVal1 += cos(phase + u_time * 2.0 + phaseWarp);
+                qVal2 += cos(phase * 1.61803398 - u_time * 1.5 + phaseWarp * 1.618);
+                ghostVal += cos(dot(ghostP, dir) + (u_time - 0.5) * 2.0);
+            }
+            
+            qVal1 = (qVal1 + 5.0) / 10.0;
+            qVal2 = (qVal2 + 5.0) / 10.0;
+            ghostVal = (ghostVal + 5.0) / 10.0;
+            
+            // Feral Mixing of Inflation Layers
+            float qVal = mix(qVal1, qVal2, 0.5 + 0.5 * sin(u_time + p.y * 0.2));
+            
+            // 4. Paper Misregistration / Chromatic Aberration
+            float bands = qVal * 8.0 - u_time * 2.0;
+            float rBands = fract(bands + 0.05);
+            float gBands = fract(bands);
+            float bBands = fract(bands - 0.05);
+            
+            // 5. Lisa Frank Gradient Synthesis
+            vec3 rawColor = vec3(
+                0.5 + 0.5 * sin(rBands * 6.28 + u_time + p.x * 0.3),
+                0.5 + 0.5 * sin(gBands * 6.28 + u_time * 1.3 + p.y * 0.3 + 2.0),
+                0.5 + 0.5 * sin(bBands * 6.28 + u_time * 0.7 + 4.0)
+            );
+            
+            // Hyper-saturation
+            float gray = dot(rawColor, vec3(0.299, 0.587, 0.114));
+            rawColor = mix(vec3(gray), rawColor, 3.5);
+            rawColor = clamp(rawColor, 0.0, 1.0);
+            
+            // 6. Ordered Dither (Bayer 4x4)
+            int bx = int(mod(snappedUV.x * virtRes.x, 4.0));
+            int by = int(mod(snappedUV.y * virtRes.y, 4.0));
+            float bayerVal = bayer4[by * 4 + bx];
+            float spread = 0.3 + ghostVal * 0.4; // Ghost perturbs dither spread
+            vec3 ditheredColor = rawColor + (bayerVal - 0.5) * spread;
+            
+            // 7. Palette Map (Nearest YUV)
+            vec3 bestColor = u_palette[0];
+            float bestDist = 1e9;
+            vec3 targetYUV = rgb2yuv(ditheredColor);
+            
+            for(int i = 0; i < 9; i++) {
+                vec3 palColor = u_palette[i];
+                vec3 palYUV = rgb2yuv(palColor);
+                float d = dot(targetYUV - palYUV, targetYUV - palYUV);
+                if(d < bestDist) {
+                    bestDist = d;
+                    bestColor = palColor;
                 }
-            `
-        });
-        
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-        
-        canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
-    }
+            }
+            
+            // 8. Outline Detection (Simulated Sobel on geometry bands)
+            float edge = abs(fract(bands) - 0.5);
+            if(edge < 0.05 + force * 0.02) {
+                bestColor = u_palette[8]; // Dark Indigo Outline
+            }
+            
+            // 9. Sparkles (Dead Pixels Behaving Like Pollen)
+            float twinkleTime = floor(u_time * 10.0);
+            if(hash(snappedUV + twinkleTime) > 0.992) {
+                bestColor = u_palette[7]; // White
+            }
+            
+            fragColor = vec4(bestColor, 1.0);
+        }
+      `
+    });
+    
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
 if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    if (material.uniforms.u_mouse) {
-        const targetX = (mouse && mouse.x !== undefined ? mouse.x : grid.width / 2) / grid.width;
-        const targetY = (mouse && mouse.y !== undefined ? mouse.y : grid.height / 2) / grid.height;
-        material.uniforms.u_mouse.value.x += (targetX - material.uniforms.u_mouse.value.x) * 0.1;
-        material.uniforms.u_mouse.value.y += (targetY - material.uniforms.u_mouse.value.y) * 0.1;
-    }
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  material.uniforms.u_mouse.value.set(mouse.x, mouse.y);
+  material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
 }
 
 renderer.setSize(grid.width, grid.height, false);
