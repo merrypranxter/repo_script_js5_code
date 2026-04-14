@@ -1,194 +1,266 @@
-if (!canvas.__three) {
-    try {
-        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-        
-        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-        camera.position.z = 1;
-        
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
-        
-        const fragmentShader = `
-            in vec2 vUv;
-            out vec4 fragColor;
-            
-            uniform float u_time;
-            uniform vec2 u_resolution;
-            uniform vec2 u_mouse;
+// THE FERAL DESIGN-BRAIN: INITIATED
+// [MECHANISM]: Hyperbolic Chladni Resonance in a Folded p6m Space
+// [GENOME]: 
+//   - vibration: Chladni modal equations, acoustic radiation pressure (Gor'kov potential proxy)
+//   - tesselations: p6m (hexagonal) kaleidoscopic domain folding
+//   - psychedelic_collage: Cyberdelic neon palette, displacement warp, chromatic aberration, xerox glitch
 
-            // [ THE FERAL ENGINE: NOISE & HASH ]
-            float hash(vec2 p) {
-                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-            }
+if (!ctx) return; // Only execute if Canvas 2D context is available
 
-            float noise(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                f = f * f * (3.0 - 2.0 * f);
-                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-                           mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-            }
+// --- GENOME EXTRACTION: PALETTES & CONSTANTS ---
+const PALETTE = {
+    void_black: '#040608',
+    neon_cyan: [0, 255, 240],       // #00FFF0
+    electric_magenta: [255, 0, 204], // #FF00CC
+    acid_lime: [176, 255, 0],       // #B0FF00
+    electric_orange: [255, 107, 0], // #FF6B00
+    cobalt_blue: [0, 71, 255]       // #0047FF
+};
 
-            float fbm(vec2 p) {
-                float v = 0.0;
-                float a = 0.5;
-                for (int i = 0; i < 4; i++) {
-                    v += a * noise(p);
-                    p *= 2.0;
-                    a *= 0.5;
-                }
-                return v;
-            }
+const COLORS = [
+    PALETTE.neon_cyan,
+    PALETTE.electric_magenta,
+    PALETTE.acid_lime,
+    PALETTE.electric_orange,
+    PALETTE.cobalt_blue
+];
 
-            // [ HOLOGRAPHY: AdS METRIC WARP ]
-            // The boundary drives the bulk. Radial depth = scale.
-            vec2 adsWarp(vec2 uv, vec2 center) {
-                vec2 d = uv - center;
-                float r = length(d);
-                float z = max(0.03, 1.0 - r * 1.6); 
-                return center + (d / z) * 0.4;
-            }
+const NUM_PARTICLES = 4000;
+const BASE_SCALE = 6.0;
+const EPSILON = 0.01;
 
-            // [ GLITCHCORE / DAMAGE: MACROBLOCK DATAMOSH ]
-            // Compression chew, packet loss, and temporal smear
-            vec2 datamosh(vec2 uv, float t) {
-                vec2 grid = floor(uv * 18.0) / 18.0;
-                float glitch = step(0.82, noise(grid * 4.0 + floor(t * 12.0)));
-                vec2 motion = vec2(noise(grid + t), noise(grid - t)) * 0.1 - 0.05;
-                return mix(uv, grid + motion, glitch * 0.85);
-            }
+// --- STATE MANAGEMENT ---
+if (!canvas.__feralState) {
+    canvas.__feralState = {
+        particles: [],
+        m: 2.0,
+        n: 3.0,
+        target_m: 2.0,
+        target_n: 3.0,
+        initialized: false
+    };
+}
+const state = canvas.__feralState;
 
-            // [ RETINAL SURREALISM: OP-ART ENGINE ]
-            // Radial hypnosis fields, zebra waves, figure-ground instability
-            float opArt(vec2 uv, float t) {
-                float r = length(uv - 0.5);
-                float a = atan(uv.y - 0.5, uv.x - 0.5);
-                // Zebra waves reacting to hidden pressure
-                float wave = sin(r * 75.0 - t * 6.0 + sin(a * 7.0 + t * 2.5) * 1.8);
-                return smoothstep(-0.15, 0.15, wave);
-            }
-
-            // [ CRYSTALLINE: BIREFRINGENCE OFFSET ]
-            // Double refraction through a simulated triclinic lattice
-            vec2 refractCrystal(vec2 uv, float ior, float t) {
-                float nX = fbm(uv * 12.0 + vec2(0.0, t * 0.15));
-                float nY = fbm(uv * 12.0 + vec2(t * 0.15, 0.0));
-                return uv + vec2(nX - 0.5, nY - 0.5) * ior * 0.045;
-            }
-
-            void main() {
-                vec2 uv = gl_FragCoord.xy / u_resolution;
-                vec2 origUV = uv;
-                
-                // Holographic boundary injection (Mouse as precursor signal)
-                vec2 mouse = u_mouse == vec2(0.0) ? vec2(0.5) : u_mouse / u_resolution;
-                mouse.y = 1.0 - mouse.y; // Correct Y-axis for GLSL
-                
-                uv = adsWarp(uv, mouse);
-                
-                // Damage: Tape tracking & head-switching noise
-                if (origUV.y < 0.08) {
-                    uv.x += (hash(uv * vec2(1.0, 60.0) + u_time) - 0.5) * 0.15;
-                }
-                
-                // Glitchcore: Compression chew
-                uv = datamosh(uv, u_time);
-                
-                // Crystalline RGB Phantom / Chromatic Interference
-                // Calcite ordinary ray (nR), intermediate (nG), extraordinary ray (nB)
-                vec2 uvR = refractCrystal(uv, 1.486, u_time);
-                vec2 uvG = refractCrystal(uv, 1.550, u_time * 1.08);
-                vec2 uvB = refractCrystal(uv, 1.658, u_time * 0.92);
-                
-                // Op-Art Evaluation
-                float opR = opArt(uvR, u_time);
-                float opG = opArt(uvG, u_time * 1.03);
-                float opB = opArt(uvB, u_time * 0.97);
-                
-                // [ LISA FRANK / ACID PALETTE: HYPERPOP RUPTURE ]
-                vec3 hotPink = vec3(1.0, 0.0, 0.55);
-                vec3 electricCyan = vec3(0.0, 1.0, 0.95);
-                vec3 toxicLime = vec3(0.65, 1.0, 0.0);
-                vec3 deepViolet = vec3(0.35, 0.0, 0.85);
-                vec3 pearlWhite = vec3(0.98, 0.95, 1.0);
-                
-                // Color Field Collision
-                vec3 color = mix(deepViolet, hotPink, opR);
-                color = mix(color, electricCyan, opG * 0.65);
-                color = mix(color, toxicLime, opB * 0.45 * (1.0 - opR));
-                
-                // Sparkles: Stochastic Glitter Overprint
-                float sparkle = step(0.985, hash(uv * 250.0 + u_time));
-                color = mix(color, pearlWhite, sparkle * opG * 1.5);
-                
-                // Temporal Echo / Phosphor Bloom
-                float ghost = opArt(origUV + vec2(sin(u_time), cos(u_time)) * 0.025, u_time * 0.4);
-                color += hotPink * ghost * 0.25;
-                
-                // CRT Raster Lines
-                float scanline = sin(origUV.y * u_resolution.y * 3.14159 * 0.6);
-                color *= 0.88 + 0.12 * scanline;
-                
-                fragColor = vec4(color, 1.0);
-            }
-        `;
-        
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_mouse: { value: new THREE.Vector2(mouse.x, mouse.y) }
-            },
-            vertexShader,
-            fragmentShader,
-            depthWrite: false,
-            depthTest: false
+// Initialize particles if needed
+if (!state.initialized || state.particles.length === 0) {
+    for (let i = 0; i < NUM_PARTICLES; i++) {
+        state.particles.push({
+            x: Math.random() * grid.width,
+            y: Math.random() * grid.height,
+            vx: 0,
+            vy: 0,
+            color: COLORS[Math.floor(Math.random() * COLORS.length)],
+            life: Math.random()
         });
-        
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-        
-        canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
     }
+    state.initialized = true;
+    
+    // Fill initial background
+    ctx.fillStyle = PALETTE.void_black;
+    ctx.fillRect(0, 0, grid.width, grid.height);
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+// --- MATHEMATICAL FRAMEWORK ---
 
-if (material && material.uniforms) {
-    if (material.uniforms.u_time) {
-        material.uniforms.u_time.value = time;
+// 1. Psychedelic Displacement Warp
+function noiseWarp(x, y, t) {
+    // Fast pseudo-harmonic interference field
+    const nx = Math.sin(x * 2.1 + t) * Math.cos(y * 1.9 - t * 0.5);
+    const ny = Math.sin(y * 3.3 + t * 1.5) * Math.cos(x * 2.7 - t * 1.2);
+    return { x: nx, y: ny };
+}
+
+// 2. p6m Tessellation Fold (Hexagonal Kaleidoscope)
+function foldP6m(px, py) {
+    const sqrt3 = 1.73205080757;
+    let x = Math.abs(px);
+    let y = Math.abs(py);
+    
+    // Fold across first diagonal
+    if (y > x * sqrt3) {
+        let nx = x * 0.5 + y * (sqrt3 / 2);
+        let ny = x * (sqrt3 / 2) - y * 0.5;
+        x = nx; y = ny;
     }
-    if (material.uniforms.u_resolution) {
-        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    x = Math.abs(x);
+    
+    // Fold across second diagonal
+    if (y > x * sqrt3) {
+        let nx = x * 0.5 + y * (sqrt3 / 2);
+        let ny = x * (sqrt3 / 2) - y * 0.5;
+        x = nx; y = ny;
     }
-    if (material.uniforms.u_mouse) {
-        // Sticky, feral mouse lag (simulating slow frame persistence)
-        const targetX = mouse.x;
-        const targetY = mouse.y;
-        const currentX = material.uniforms.u_mouse.value.x;
-        const currentY = material.uniforms.u_mouse.value.y;
-        
-        // Only interpolate if we have a valid initial mouse position
-        if (currentX === 0 && currentY === 0 && (targetX !== 0 || targetY !== 0)) {
-            material.uniforms.u_mouse.value.set(targetX, targetY);
-        } else {
-            material.uniforms.u_mouse.value.x += (targetX - currentX) * 0.08;
-            material.uniforms.u_mouse.value.y += (targetY - currentY) * 0.08;
+    return { x: Math.abs(x), y: Math.abs(y) };
+}
+
+// 3. Chladni Modal Resonance Equation
+function chladni(x, y, m, n) {
+    // Classic square plate eigenmode superposition
+    return Math.sin(n * x) * Math.sin(m * y) + Math.sin(m * x) * Math.sin(n * y);
+}
+
+// 4. Unified Field Evaluation (The "Acoustic Radiation Pressure")
+function evaluateField(px, py, t, warpIntensity, m, n) {
+    // Normalize coordinates
+    let aspect = grid.width / grid.height;
+    let nx = (px / grid.width - 0.5) * BASE_SCALE * aspect;
+    let ny = (py / grid.height - 0.5) * BASE_SCALE;
+    
+    // Apply Warp
+    let warp = noiseWarp(nx, ny, t);
+    nx += warp.x * warpIntensity;
+    ny += warp.y * warpIntensity;
+    
+    // Apply p6m Fold
+    let folded = foldP6m(nx, ny);
+    
+    // Evaluate Chladni Resonance
+    return chladni(folded.x, folded.y, m, n);
+}
+
+// --- DYNAMIC INTERACTION ---
+// The mouse acts as a high-frequency bow on the Chladni plate, overclocking the modes
+let isOverclocked = mouse.isPressed;
+let warpIntensity = isOverclocked ? 0.8 : 0.15;
+
+if (isOverclocked) {
+    state.target_m = 5.0 + Math.sin(time * 2.0) * 3.0;
+    state.target_n = 7.0 + Math.cos(time * 1.5) * 4.0;
+} else {
+    // Slowly drift through fundamental harmonies
+    state.target_m = 2.0 + Math.sin(time * 0.2) * 1.0;
+    state.target_n = 3.0 + Math.cos(time * 0.3) * 1.0;
+}
+
+// Smoothly interpolate modes (momentum)
+state.m += (state.target_m - state.m) * 0.05;
+state.n += (state.target_n - state.n) * 0.05;
+
+// --- RENDER LOOP ---
+
+// 1. Feedback / Motion Blur (Analog Xerox Ghosting)
+ctx.globalCompositeOperation = 'source-over';
+ctx.fillStyle = `rgba(4, 6, 8, ${isOverclocked ? 0.2 : 0.1})`; 
+ctx.fillRect(0, 0, grid.width, grid.height);
+
+ctx.globalCompositeOperation = 'screen';
+
+// 2. Particle Physics (Gor'kov Potential Migration)
+for (let i = 0; i < state.particles.length; i++) {
+    let p = state.particles[i];
+    
+    // Numerical Gradient of the field (seeking nodal lines where C = 0)
+    let v0 = evaluateField(p.x, p.y, time, warpIntensity, state.m, state.n);
+    let vx_eps = evaluateField(p.x + EPSILON * grid.width, p.y, time, warpIntensity, state.m, state.n);
+    let vy_eps = evaluateField(p.x, p.y + EPSILON * grid.height, time, warpIntensity, state.m, state.n);
+    
+    let dx = (vx_eps - v0) / EPSILON;
+    let dy = (vy_eps - v0) / EPSILON;
+    
+    // Force directs particles *away* from antinodes and *towards* nodes (where field approaches 0)
+    // We multiply by v0 so the force is proportional to current amplitude, directing downhill towards 0.
+    let forceX = -v0 * dx;
+    let forceY = -v0 * dy;
+    
+    // Add some thermal noise (Brownian motion)
+    forceX += (Math.random() - 0.5) * 0.5;
+    forceY += (Math.random() - 0.5) * 0.5;
+    
+    // If overclocked, particles panic
+    if (isOverclocked) {
+        let dxMouse = p.x - mouse.x;
+        let dyMouse = p.y - mouse.y;
+        let dist = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
+        if (dist < 200) {
+            forceX += (dxMouse / dist) * 10;
+            forceY += (dyMouse / dist) * 10;
         }
     }
+    
+    // Update velocity with friction
+    p.vx = p.vx * 0.85 + forceX * 0.2;
+    p.vy = p.vy * 0.85 + forceY * 0.2;
+    
+    // Limit velocity
+    let speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    if (speed > 10) {
+        p.vx = (p.vx / speed) * 10;
+        p.vy = (p.vy / speed) * 10;
+    }
+    
+    let oldX = p.x;
+    let oldY = p.y;
+    
+    p.x += p.vx;
+    p.y += p.vy;
+    
+    // Wrap around (Infinite Torus Topology)
+    if (p.x < 0) { p.x = grid.width; oldX = p.x; }
+    if (p.x > grid.width) { p.x = 0; oldX = p.x; }
+    if (p.y < 0) { p.y = grid.height; oldY = p.y; }
+    if (p.y > grid.height) { p.y = 0; oldY = p.y; }
+    
+    // Pulse alpha based on life and speed
+    p.life += 0.02;
+    let alpha = (Math.sin(p.life) * 0.5 + 0.5) * (isOverclocked ? 0.8 : 0.4);
+    
+    // --- CHROMATIC ABERRATION RENDER ---
+    // Split the path into RGB components offset by velocity
+    let aberration = isOverclocked ? 3.0 : 1.0;
+    
+    ctx.lineWidth = 1.5;
+    
+    // Red Channel
+    ctx.strokeStyle = `rgba(255, 0, 100, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(oldX - p.vx * aberration, oldY - p.vy * aberration);
+    ctx.lineTo(p.x - p.vx * aberration, p.y - p.vy * aberration);
+    ctx.stroke();
+    
+    // Green Channel (Base Color)
+    ctx.strokeStyle = `rgba(${p.color[0]}, ${p.color[1]}, ${p.color[2]}, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(oldX, oldY);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    
+    // Blue Channel
+    ctx.strokeStyle = `rgba(0, 100, 255, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(oldX + p.vx * aberration, oldY + p.vy * aberration);
+    ctx.lineTo(p.x + p.vx * aberration, p.y + p.vy * aberration);
+    ctx.stroke();
 }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// 3. Glitch / Scan-Bend Composite (Analog Artifacts)
+// Occasional horizontal tearing to break the clean math
+if (Math.random() < (isOverclocked ? 0.3 : 0.05)) {
+    ctx.globalCompositeOperation = 'source-over';
+    let sliceY = Math.random() * grid.height;
+    let sliceHeight = Math.random() * 40 + 5;
+    let shiftX = (Math.random() - 0.5) * (isOverclocked ? 40 : 10);
+    
+    // Draw slice shifted
+    ctx.drawImage(
+        canvas, 
+        0, sliceY, grid.width, sliceHeight, 
+        shiftX, sliceY, grid.width, sliceHeight
+    );
+    
+    // Add RGB split overlay on the slice
+    ctx.fillStyle = `rgba(255, 0, 204, 0.2)`; // electric magenta
+    ctx.fillRect(shiftX, sliceY, grid.width, sliceHeight);
+}
+
+// 4. Subtle Halftone/Noise Grain Overlay
+ctx.globalCompositeOperation = 'overlay';
+ctx.fillStyle = `rgba(255, 255, 255, 0.03)`;
+for (let i = 0; i < 50; i++) {
+    let gx = Math.random() * grid.width;
+    let gy = Math.random() * grid.height;
+    let r = Math.max(0, Math.random() * 2);
+    ctx.beginPath();
+    ctx.arc(gx, gy, r, 0, Math.PI * 2);
+    ctx.fill();
+}
