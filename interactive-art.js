@@ -1,191 +1,252 @@
-if (!canvas.__three) {
-  try {
-    const gl = canvas.getContext('webgl2', { alpha: true, antialias: false });
-    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-
-    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: false });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+if (!canvas.__weirdState) {
+    // FERAL DESIGN BRAIN INITIALIZATION
+    // Blending Psychedelic Collage (Cyberdelic Neon, CMYK Misregistration, Xerox Noise)
+    // with Tessellations (p6m / 7-fold hyperbolic symmetries)
+    // and Vibration Physics (Chladni modal eigenfrequencies, acoustic radiation pressure)
     
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
+    const numParticles = 4000;
+    const particles = new Float32Array(numParticles * 6); // x, y, vx, vy, colorType, life
+    
+    for (let i = 0; i < numParticles; i++) {
+        const idx = i * 6;
+        particles[idx] = Math.random() * grid.width;
+        particles[idx + 1] = Math.random() * grid.height;
+        particles[idx + 2] = 0; // vx
+        particles[idx + 3] = 0; // vy
+        particles[idx + 4] = Math.floor(Math.random() * 3); // 0: Cyan, 1: Magenta, 2: Lime/Yellow
+        particles[idx + 5] = Math.random(); // life / phase
+    }
 
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform vec2 u_mouse;
-      uniform float u_pixelScale;
-
-      // Lisa Frank x Ditherpunk Palette
-      const int PALETTE_SIZE = 8;
-      vec3 palette[PALETTE_SIZE] = vec3[](
-          vec3(0.05, 0.00, 0.15), // Deep Void Purple (Outlines)
-          vec3(1.00, 0.00, 0.50), // Hot Pink
-          vec3(0.00, 1.00, 1.00), // Lisa Cyan
-          vec3(0.60, 0.00, 1.00), // Electric Purple
-          vec3(0.60, 1.00, 0.00), // Toxic Lime
-          vec3(1.00, 0.90, 0.00), // Sun Yellow
-          vec3(1.00, 0.40, 0.00), // Neon Orange
-          vec3(1.00, 1.00, 1.00)  // White
-      );
-
-      // 4x4 Bayer Matrix for Ordered Dithering
-      const float bayer4[16] = float[16](
-          0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-         12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-          3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-         15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
-      );
-
-      // YUV conversion for better perceptual palette snapping
-      vec3 rgb2yuv(vec3 c) {
-          return vec3(
-              dot(c, vec3(0.299, 0.587, 0.114)),
-              dot(c, vec3(-0.147, -0.289, 0.436)),
-              dot(c, vec3(0.615, -0.515, -0.100))
-          );
-      }
-
-      // Nearest palette match using YUV distance
-      vec3 nearestPalette(vec3 col) {
-          vec3 best = palette[0];
-          float bestDist = 1e9;
-          vec3 targetYUV = rgb2yuv(col);
-          
-          for (int i = 0; i < PALETTE_SIZE; i++) {
-              vec3 p = palette[i];
-              vec3 diff = targetYUV - rgb2yuv(p);
-              // Weight luma slightly higher for better dither structure
-              float dist = diff.x*diff.x*1.5 + diff.y*diff.y + diff.z*diff.z;
-              if (dist < bestDist) { 
-                  bestDist = dist; 
-                  best = p; 
-              }
-          }
-          return best;
-      }
-
-      // Quasicrystal Math: 5-fold Pentagrid (Penrose/de Bruijn)
-      float getQuasicrystalField(vec2 p) {
-          float field = 0.0;
-          float phi = 1.6180339887; // The Golden Ratio
-          
-          // Phason shift (translates the aperiodic structure without periodic repetition)
-          vec2 phason = vec2(u_time * 0.4, u_time * 0.25) + (u_mouse * 4.0);
-          
-          for(int i = 0; i < 5; i++) {
-              // 5-fold symmetry angles
-              float angle = float(i) * 3.14159265 / 2.5;
-              vec2 dir = vec2(cos(angle), sin(angle));
-              
-              // Feral mutation: non-linear domain warping via phi
-              float warp = sin(dot(p, dir.yx) * phi + u_time * 1.5) * 0.4;
-              
-              field += cos(dot(p, dir) * 8.0 + dot(phason, dir) + warp);
-          }
-          return field;
-      }
-
-      void main() {
-          // Pixelate Grid Lock - Essential for the voxel/pixel ditherpunk aesthetic
-          vec2 pixelCoord = floor(gl_FragCoord.xy / u_pixelScale);
-          vec2 snappedUv = (pixelCoord * u_pixelScale) / u_resolution;
-          
-          // Center and scale UV for the mathematical field
-          vec2 p = (snappedUv - 0.5) * (u_resolution / u_resolution.y);
-          p *= 2.5; // Zoom out to see the 5-fold rosettes
-
-          // Sample the field and its neighbors for Sobel edge detection
-          float f = getQuasicrystalField(p);
-          float fU = getQuasicrystalField(p + vec2(0.0, 1.0/u_resolution.y) * u_pixelScale * 1.5);
-          float fR = getQuasicrystalField(p + vec2(1.0/u_resolution.x, 0.0) * u_pixelScale * 1.5);
-          
-          // Compute topographic contour lines
-          float edge = abs(f - fU) + abs(f - fR);
-          bool isEdge = edge > 0.85;
-
-          // Map the aperiodic field to a hyper-saturated Lisa Frank color gradient
-          float normField = (f + 5.0) / 10.0; 
-          vec3 baseColor = 0.5 + 0.5 * cos(6.28318 * (normField * 1.5 - u_time * 0.2 + vec3(0.0, 0.33, 0.67)));
-          
-          // Overclock the saturation for that 90s feral neon look
-          baseColor = smoothstep(0.1, 0.9, baseColor);
-          baseColor = mix(baseColor, vec3(1.0, 0.0, 1.0), sin(normField * 12.0) * 0.5 + 0.5);
-
-          // Apply Ordered Dithering (Bayer 4x4)
-          int bx = int(pixelCoord.x) % 4;
-          int by = int(pixelCoord.y) % 4;
-          float bayerVal = bayer4[by * 4 + bx];
-          
-          // Spread controls the harshness of the ditherpunk transition
-          float spread = 0.35;
-          vec3 dithered = baseColor + (bayerVal - 0.5) * spread;
-
-          // Snap to the curated palette
-          vec3 finalColor = nearestPalette(dithered);
-
-          // Hard pixel-art outline overlay
-          if (isEdge) {
-              finalColor = palette[0]; // Snap outline to void purple
-          }
-
-          fragColor = vec4(finalColor, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0, 0) },
-        u_pixelScale: { value: 3.0 } // Virtual pixel size
-      },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-
-    canvas.__three = { renderer, scene, camera, material, targetMouse: new THREE.Vector2() };
-  } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
-    return;
-  }
+    canvas.__weirdState = {
+        particles,
+        m: 3,
+        n: 5,
+        targetM: 3,
+        targetN: 5,
+        folds: 7, // {7,3} hyperbolic inspiration
+        lastTime: time,
+        glitchY: 0,
+        glitchHeight: 0
+    };
+    
+    // Initial void background
+    ctx.fillStyle = '#040608'; // Void Black
+    ctx.fillRect(0, 0, grid.width, grid.height);
 }
 
-const { renderer, scene, camera, material, targetMouse } = canvas.__three;
+const state = canvas.__weirdState;
+const dt = Math.min(time - state.lastTime, 0.1);
+state.lastTime = time;
 
-if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  
-  // Dynamic pixel scale based on canvas size to maintain the chunky ditherpunk feel
-  material.uniforms.u_pixelScale.value = Math.max(2.0, Math.floor(grid.width / 320));
+const cx = grid.width / 2;
+const cy = grid.height / 2;
+const maxRadius = Math.min(cx, cy);
 
-  // Smooth mouse interpolation for fluid phason shifts
-  if (mouse.isPressed) {
-    targetMouse.x = (mouse.x / grid.width) * 2 - 1;
-    targetMouse.y = -(mouse.y / grid.height) * 2 + 1;
-  } else {
-    // Feral drift when not interacting
-    targetMouse.x = Math.sin(time * 0.3) * 0.5;
-    targetMouse.y = Math.cos(time * 0.4) * 0.5;
-  }
-  
-  material.uniforms.u_mouse.value.lerp(targetMouse, 0.05);
+// FERAL MECHANISM 1: Unstable Eigenfrequencies (Machine Hesitation)
+// The modal indices drift organically, never quite settling, causing the "sand" to constantly seek new nodal lines.
+if (Math.random() < 0.02) {
+    state.targetM = 1 + Math.random() * 6;
+    state.targetN = 1 + Math.random() * 6;
+}
+state.m += (state.targetM - state.m) * 0.05;
+state.n += (state.targetN - state.n) * 0.05;
+
+// FERAL MECHANISM 2: Feedback Loop Kaleidoscope (from psychedelic_collage)
+// We don't clear the screen; we draw a highly transparent dark rectangle to create trails.
+// We also apply a slight scale/zoom to the existing canvas to create an infinite descent.
+ctx.globalCompositeOperation = 'source-over';
+ctx.fillStyle = 'rgba(4, 6, 8, 0.08)'; // Void Black with transparency
+ctx.fillRect(0, 0, grid.width, grid.height);
+
+// Slight zoom feedback
+ctx.save();
+ctx.translate(cx, cy);
+ctx.scale(1.002, 1.002);
+ctx.rotate(Math.sin(time * 0.1) * 0.001);
+ctx.translate(-cx, -cy);
+ctx.globalAlpha = 0.95;
+ctx.drawImage(canvas, 0, 0);
+ctx.restore();
+
+// Math utilities for the forces
+const TWO_PI = Math.PI * 2;
+const sector = TWO_PI / state.folds;
+const scale = 0.02; // Spatial frequency scale
+
+// Approximate gradient of folded Chladni function
+function getForce(x, y, m, n) {
+    // 1. Center coordinates
+    let dx = x - cx;
+    let dy = y - cy;
+    
+    // 2. Kaleidoscope fold (polar mirroring)
+    let angle = Math.atan2(dy, dx);
+    let radius = Math.sqrt(dx * dx + dy * dy);
+    
+    // Fold angle
+    angle = ((angle % sector) + sector) % sector;
+    if (angle > sector / 2) angle = sector - angle;
+    
+    // Add a time-based twist (displacement warp)
+    angle += Math.sin(radius * 0.01 - time) * 0.1;
+    
+    // Unfold to warped cartesian
+    let wx = Math.cos(angle) * radius * scale;
+    let wy = Math.sin(angle) * radius * scale;
+    
+    // 3. Chladni Equation: Z = sin(n*x)*sin(m*y) ± sin(m*x)*sin(n*y)
+    // We sample a small epsilon to find the gradient (pushing towards Z=0 nodes)
+    const eps = 0.01;
+    
+    const calcZ = (px, py) => {
+        return Math.sin(n * px) * Math.sin(m * py) - Math.sin(m * px) * Math.sin(n * py);
+    };
+    
+    let z = calcZ(wx, wy);
+    let zx = calcZ(wx + eps, wy);
+    let zy = calcZ(wx, wy + eps);
+    
+    // Gradient of the absolute value (particles bounce off antinodes, settle on nodes)
+    // Force is negative gradient of |Z|
+    let sign = Math.sign(z) || 1;
+    let fx = -(zx - z) / eps * sign;
+    let fy = -(zy - z) / eps * sign;
+    
+    // Rotate force back to original space
+    let forceAngle = Math.atan2(fy, fx) + (Math.atan2(dy, dx) - angle);
+    let forceMag = Math.sqrt(fx*fx + fy*fy);
+    
+    return {
+        x: Math.cos(forceAngle) * forceMag,
+        y: Math.sin(forceAngle) * forceMag,
+        zMag: Math.abs(z)
+    };
 }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// Interaction: Mouse acts as a massive antinode repeller
+let mouseForce = { x: 0, y: 0 };
+
+ctx.globalCompositeOperation = 'screen';
+
+// Colors from Acid Vibration & Cyberdelic Neon palettes
+const colors = [
+    { c: '#00FFF0', offX: 2.0, offY: 0 },   // Neon Cyan
+    { c: '#FF00CC', offX: -1.5, offY: 1.0 }, // Electric Magenta
+    { c: '#B0FF00', offX: 0.5, offY: -0.5 }  // Acid Lime
+];
+
+// FERAL MECHANISM 3: CMYK Misregistration + Acoustic Radiation
+// Particles are drawn with structural offsets based on their color assignment.
+const p = state.particles;
+for (let i = 0; i < p.length; i += 6) {
+    let px = p[i];
+    let py = p[i + 1];
+    let vx = p[i + 2];
+    let vy = p[i + 3];
+    let colorIdx = p[i + 4];
+    let life = p[i + 5];
+    
+    // Get structural force
+    let force = getForce(px, py, state.m, state.n);
+    
+    // Mouse repeller
+    if (mouse.isPressed) {
+        let mdx = px - mouse.x;
+        let mdy = py - mouse.y;
+        let distSq = mdx * mdx + mdy * mdy;
+        if (distSq < 20000) {
+            let dist = Math.sqrt(distSq);
+            force.x += (mdx / dist) * 5;
+            force.y += (mdy / dist) * 5;
+        }
+    }
+    
+    // Apply forces
+    vx += force.x * 0.5;
+    vy += force.y * 0.5;
+    
+    // Add "electrostatic grain" jitter
+    vx += (Math.random() - 0.5) * 0.5;
+    vy += (Math.random() - 0.5) * 0.5;
+    
+    // Friction (damping)
+    vx *= 0.85;
+    vy *= 0.85;
+    
+    px += vx;
+    py += vy;
+    
+    // Wrap around boundaries
+    if (px < 0) px += grid.width;
+    if (px > grid.width) px -= grid.width;
+    if (py < 0) py += grid.height;
+    if (py > grid.height) py -= grid.height;
+    
+    // Update state
+    p[i] = px;
+    p[i + 1] = py;
+    p[i + 2] = vx;
+    p[i + 3] = vy;
+    
+    // Life cycle
+    p[i + 5] += 0.01;
+    if (p[i + 5] > 1) p[i + 5] = 0;
+    
+    // Render
+    let colConf = colors[colorIdx];
+    
+    // CMYK offset glitch based on velocity and distance from center
+    let intensity = Math.min(1, Math.sqrt(vx*vx + vy*vy) * 0.2);
+    let drawX = px + colConf.offX * intensity * 5;
+    let drawY = py + colConf.offY * intensity * 5;
+    
+    // Draw particle
+    ctx.fillStyle = colConf.c;
+    // Size pulses based on the acoustic energy (zMag) at that point
+    let size = Math.max(0.5, 2.5 - force.zMag * 2); 
+    
+    // Occasionally draw a "xerox streak" instead of a dot
+    if (Math.random() < 0.001) {
+        ctx.fillRect(drawX, drawY, Math.random() * 20 + 5, 1);
+    } else {
+        ctx.fillRect(drawX, drawY, size, size);
+    }
+}
+
+// FERAL MECHANISM 4: Xerox / Scan Bend Glitch
+// Periodically slice and shift a horizontal band of the canvas to simulate
+// analog video sync loss or databending.
+ctx.globalCompositeOperation = 'source-over';
+if (Math.random() < 0.05) {
+    state.glitchY = Math.random() * grid.height;
+    state.glitchHeight = 2 + Math.random() * 20;
+}
+
+if (state.glitchHeight > 0) {
+    // Extract slice
+    let sliceY = state.glitchY;
+    let sliceH = state.glitchHeight;
+    let shiftX = (Math.random() - 0.5) * 40;
+    
+    // Draw shifted
+    ctx.drawImage(
+        canvas, 
+        0, sliceY, grid.width, sliceH,
+        shiftX, sliceY, grid.width, sliceH
+    );
+    
+    // Add raw noise line
+    ctx.fillStyle = Math.random() > 0.5 ? '#00FFF0' : '#FF00CC';
+    ctx.globalAlpha = Math.random() * 0.3;
+    ctx.fillRect(0, sliceY + Math.random() * sliceH, grid.width, 1);
+    ctx.globalAlpha = 1.0;
+    
+    state.glitchHeight -= 2;
+}
+
+// Vignette (Paper grain / dark edges)
+let grad = ctx.createRadialGradient(cx, cy, maxRadius * 0.5, cx, cy, maxRadius * 1.2);
+grad.addColorStop(0, 'rgba(4, 6, 8, 0)');
+grad.addColorStop(1, 'rgba(4, 6, 8, 0.8)');
+ctx.fillStyle = grad;
+ctx.fillRect(0, 0, grid.width, grid.height);
