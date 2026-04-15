@@ -1,260 +1,239 @@
 if (!canvas.__three) {
   try {
     const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-    if (!gl) throw new Error("WebGL2 required for Feral CA Feedback");
+    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-    renderer.autoClear = false;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+    camera.position.z = 1.0;
 
-    const sceneUpdate = new THREE.Scene();
-    const sceneDisplay = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
 
-    const rtOpts = {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-      type: THREE.FloatType,
-      wrapS: THREE.RepeatWrapping,
-      wrapT: THREE.RepeatWrapping
-    };
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
+      uniform vec2 u_mouse;
+      uniform float u_isPressed;
 
-    const fboW = Math.floor(grid.width / 2);
-    const fboH = Math.floor(grid.height / 2);
+      #define PI 3.14159265359
 
-    const fboA = new THREE.WebGLRenderTarget(fboW, fboH, rtOpts);
-    const fboB = new THREE.WebGLRenderTarget(fboW, fboH, rtOpts);
+      // Feral Design Brain: Simplex 3D Noise for Domain Warping & Glitchcore Artifacts
+      vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+      vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
 
-    const updateMat = new THREE.ShaderMaterial({
+      float snoise(vec3 v){ 
+        const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+        const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i  = floor(v + dot(v, C.yyy) );
+        vec3 x0 = v - i + dot(i, C.xxx) ;
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min( g.xyz, l.zxy );
+        vec3 i2 = max( g.xyz, l.zxy );
+        vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+        vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+        vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
+        i = mod(i, 289.0 ); 
+        vec4 p = permute( permute( permute( 
+                   i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                 + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+                 + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+        float n_ = 1.0/7.0;
+        vec3  ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z *ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_ );
+        vec4 x = x_ *ns.x + ns.yyyy;
+        vec4 y = y_ *ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4( x.xy, y.xy );
+        vec4 b1 = vec4( x.zw, y.zw );
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+        vec3 p0 = vec3(a0.xy,h.x);
+        vec3 p1 = vec3(a0.zw,h.y);
+        vec3 p2 = vec3(a1.xy,h.z);
+        vec3 p3 = vec3(a1.zw,h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+        p0 *= norm.x;
+        p1 *= norm.y;
+        p2 *= norm.z;
+        p3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
+      }
+
+      float fbm(vec3 p) {
+        float sum = 0.0;
+        float amp = 1.0;
+        float freq = 1.0;
+        for(int i = 0; i < 4; i++) {
+            sum += snoise(p * freq) * amp;
+            freq *= 2.0;
+            amp *= 0.5;
+        }
+        return sum;
+      }
+
+      // Domain Warp Combinator
+      vec2 domainWarp(vec2 p, float time) {
+        float warp = fbm(vec3(p * 2.0, time * 0.2));
+        float warp2 = fbm(vec3(p * 2.0 + warp, time * 0.3 + 1.2));
+        return p + vec2(warp, warp2) * 0.2;
+      }
+
+      // Cymatic Vibration Physics: Chladni Resonance Patterns
+      float chladni(vec2 p, float m, float n) {
+        float a = sin(m * PI * p.x) * sin(n * PI * p.y);
+        float b = sin(n * PI * p.x) * sin(m * PI * p.y);
+        // Nodal lines accumulate sand where vibration is zero
+        float resonance = abs(a + b);
+        // We want the nodal lines to glow (invert the distance to 0)
+        return smoothstep(0.4, 0.0, resonance);
+      }
+
+      // Psychedelic Collage / Lisa Frank Aesthetic: Acid Vibration Palette
+      vec3 hyperpopPalette(float t) {
+        vec3 voidBlack = vec3(0.04, 0.06, 0.08);
+        vec3 neonCyan = vec3(0.0, 1.0, 0.94); // #00FFEE
+        vec3 hotMagenta = vec3(1.0, 0.0, 0.78); // #FF00C8
+        vec3 acidLime = vec3(0.67, 1.0, 0.0); // #AAFF00
+        vec3 electricOrange = vec3(1.0, 0.42, 0.0); // #FF6B00
+        
+        t = fract(t);
+        if (t < 0.2) return mix(voidBlack, neonCyan, t * 5.0);
+        if (t < 0.4) return mix(neonCyan, hotMagenta, (t - 0.2) * 5.0);
+        if (t < 0.6) return mix(hotMagenta, acidLime, (t - 0.4) * 5.0);
+        if (t < 0.8) return mix(acidLime, electricOrange, (t - 0.6) * 5.0);
+        return mix(electricOrange, voidBlack, (t - 0.8) * 5.0);
+      }
+
+      void main() {
+        // Normalize coordinates
+        vec2 uv = vUv * 2.0 - 1.0;
+        uv.x *= u_resolution.x / u_resolution.y;
+        
+        // Surveillance Apparition: Mouse as a strange attractor
+        vec2 mouse = u_mouse * 2.0 - 1.0;
+        mouse.x *= u_resolution.x / u_resolution.y;
+        float dMouse = length(uv - mouse);
+        
+        // Tension: Mouse pull (distorts space heavily if close)
+        float pull = (u_isPressed > 0.5 ? 0.3 : 0.05) / (dMouse + 0.1);
+        uv += normalize(uv - mouse) * pull * sin(u_time * 4.0);
+
+        // Candy-Crash Compression (Glitchcore Macroblocking)
+        float glitchThreshold = u_isPressed > 0.5 ? 0.2 : 0.75;
+        vec2 block = floor(uv * 16.0) / 16.0;
+        float glitchNoise = fbm(vec3(block * 3.0, u_time * 1.5));
+        
+        if (glitchNoise > glitchThreshold) {
+            // Horizontal tearing / Scanline sync loss
+            uv.x += snoise(vec3(block.y * 10.0, u_time, 0.0)) * (u_isPressed > 0.5 ? 0.4 : 0.1);
+            // Vertical jitter
+            uv.y -= snoise(vec3(block.x * 10.0, u_time, 1.0)) * 0.02;
+        }
+
+        // Apply Domain Warp to UVs
+        vec2 warpedUv = domainWarp(uv, u_time);
+        
+        // Oscillating Modal Frequencies (Chladni Plate Simulation)
+        float m = 2.0 + 3.0 * abs(sin(u_time * 0.2));
+        float n = 3.0 + 4.0 * abs(cos(u_time * 0.15));
+        
+        // CMYK Misregistration / RGB Phantom (Channel Split)
+        float splitStrength = u_isPressed > 0.5 ? 0.15 : 0.02;
+        float rOffset = splitStrength * snoise(vec3(uv.y * 5.0, u_time, 0.0));
+        float bOffset = -splitStrength * snoise(vec3(uv.y * 6.0, u_time, 1.0));
+        
+        // Calculate Cymatic Resonance for each color channel
+        float chR = chladni(warpedUv + vec2(rOffset, 0.0), m, n);
+        float chG = chladni(warpedUv, m, n);
+        float chB = chladni(warpedUv + vec2(bOffset, 0.0), m, n);
+        
+        // Map to Acid Vibration Palette & Phosphor Bloom
+        vec3 colorR = hyperpopPalette(chR - u_time * 0.3 + 0.0);
+        vec3 colorG = hyperpopPalette(chG - u_time * 0.3 + 0.33);
+        vec3 colorB = hyperpopPalette(chB - u_time * 0.3 + 0.66);
+        
+        vec3 finalColor = vec3(colorR.r, colorG.g, colorB.b);
+        
+        // Damage Aesthetics: CRT Raster & Scanlines
+        float scanline = sin(vUv.y * u_resolution.y * 2.0) * 0.05;
+        finalColor -= scanline;
+        
+        // Damage Aesthetics: Photocopy Noise / Film Grain
+        float grain = fract(sin(dot(vUv * (u_time + 1.0), vec2(12.9898, 78.233))) * 43758.5453);
+        finalColor += (grain - 0.5) * 0.15;
+        
+        // Damage Aesthetics: Vignette / Cathode Tube Edge Burn
+        float vignette = length(vUv - 0.5);
+        finalColor *= smoothstep(0.8, 0.3, vignette);
+        
+        // Overdrive pop on click (Temporal Echo Stutter simulation)
+        if (u_isPressed > 0.5 && sin(u_time * 50.0) > 0.0) {
+            finalColor = 1.0 - finalColor; // Invert flash
+        }
+        
+        fragColor = vec4(finalColor, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
       uniforms: {
-        u_state: { value: null },
-        u_res: { value: new THREE.Vector2(fboW, fboH) },
         u_time: { value: 0 },
-        u_mouse: { value: new THREE.Vector2() },
-        u_mouse_pressed: { value: 0 }
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+        u_isPressed: { value: 0.0 }
       },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
-        uniform sampler2D u_state;
-        uniform vec2 u_res;
-        uniform float u_time;
-        uniform vec2 u_mouse;
-        uniform float u_mouse_pressed;
-        out vec4 fragColor;
-
-        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
-        float snoise(vec2 v) {
-          const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-          vec2 i  = floor(v + dot(v, C.yy) );
-          vec2 x0 = v -   i + dot(i, C.xx);
-          vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-          vec4 x12 = x0.xyxy + C.xxzz;
-          x12.xy -= i1;
-          i = mod289(i);
-          vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
-          vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-          m = m*m ; m = m*m ;
-          vec3 x = 2.0 * fract(p * C.www) - 1.0;
-          vec3 h = abs(x) - 0.5;
-          vec3 ox = floor(x + 0.5);
-          vec3 a0 = x - ox;
-          m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-          vec3 g;
-          g.x  = a0.x  * x0.x  + h.x  * x0.y;
-          g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-          return 130.0 * dot(m, g);
-        }
-
-        vec2 kaleidoscope(vec2 uv, float folds) {
-          vec2 p = uv - 0.5;
-          float r = length(p);
-          float a = atan(p.y, p.x);
-          float sector = 6.2831853 / folds;
-          a = mod(a, sector);
-          if(a > sector/2.0) a = sector - a;
-          a += snoise(uv * 1.5 + u_time * 0.1) * 0.15;
-          return vec2(cos(a), sin(a)) * r + 0.5;
-        }
-
-        void main() {
-          vec2 uv = gl_FragCoord.xy / u_res;
-
-          vec2 k_uv = kaleidoscope(uv, 8.0);
-
-          float n1 = snoise(k_uv * 3.0 + u_time * 0.2);
-          float n2 = snoise(k_uv * 3.0 - u_time * 0.2 + 100.0);
-          vec2 d_uv = k_uv + vec2(n1, n2) * 0.008;
-
-          d_uv = (d_uv - 0.5) * 0.98 + 0.5;
-
-          float r = texture(u_state, fract(d_uv + vec2(0.003, 0.0))).r;
-          float g = texture(u_state, fract(d_uv)).g;
-          float b = texture(u_state, fract(d_uv - vec2(0.003, 0.0))).b;
-          vec3 state = vec3(r, g, b);
-
-          float sumR = 0.0;
-          vec2 texel = 1.0 / u_res;
-          for(int y=-1; y<=1; y++){
-            for(int x=-1; x<=1; x++){
-              if(x==0 && y==0) continue;
-              float val = texture(u_state, fract(d_uv + vec2(float(x),float(y))*texel)).r;
-              sumR += val > 0.5 ? 1.0 : 0.0;
-            }
-          }
-          
-          float aliveR = state.r > 0.5 ? 1.0 : 0.0;
-          if (aliveR == 1.0) {
-            if (sumR < 2.0 || sumR > 3.0) aliveR = 0.0;
-          } else {
-            if (sumR == 3.0) aliveR = 1.0;
-          }
-          
-          state.r = mix(state.r, aliveR, 0.15);
-          state.g = mix(state.g, fract(state.g + state.r * 0.1), 0.5);
-          state.b = mix(state.b, fract(state.b + state.g * 0.1), 0.5);
-
-          state *= 0.97;
-
-          vec2 target_pos = u_mouse_pressed > 0.5 ? u_mouse : vec2(0.5 + 0.4*sin(u_time*0.8), 0.5 + 0.4*cos(u_time*1.2)) * u_res;
-          float dist = length(gl_FragCoord.xy - target_pos);
-          if (dist < 25.0) {
-            float intensity = 1.0 - (dist / 25.0);
-            vec3 brush = vec3(
-              0.5 + 0.5 * sin(u_time * 8.0),
-              0.5 + 0.5 * sin(u_time * 9.0 + 2.0),
-              0.5 + 0.5 * sin(u_time * 10.0 + 4.0)
-            );
-            state = mix(state, brush, intensity * 0.8);
-          } else if (u_time < 0.5) {
-            if (length(uv - 0.5) < 0.2 && fract(sin(dot(uv, vec2(12.9898,78.233))) * 43758.5453) > 0.8) {
-              state = vec3(1.0, 0.5, 0.0);
-            }
-          }
-
-          fragColor = vec4(state, 1.0);
-        }
-      `
+      depthWrite: false,
+      depthTest: false
     });
 
-    const displayMat = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_tex: { value: null },
-        u_res: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_time: { value: 0 }
-      },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
-        uniform sampler2D u_tex;
-        uniform vec2 u_res;
-        uniform float u_time;
-        out vec4 fragColor;
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
 
-        float halftone(vec2 fragCoord, float freq, float angle, float luma) {
-          float rad = radians(angle);
-          mat2 rot = mat2(cos(rad), -sin(rad), sin(rad), cos(rad));
-          vec2 uv = rot * fragCoord * freq / 1024.0;
-          vec2 cell = fract(uv) - 0.5;
-          float dist = length(cell);
-          float dotRadius = sqrt(1.0 - luma) * 0.5;
-          return smoothstep(dotRadius + 0.05, dotRadius - 0.05, dist);
-        }
-
-        float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-
-        void main() {
-          vec2 uv = gl_FragCoord.xy / u_res;
-          
-          float r = texture(u_tex, uv + vec2(0.006, 0.003)).r;
-          float g = texture(u_tex, uv).g;
-          float b = texture(u_tex, uv - vec2(0.005, -0.004)).b;
-          vec3 col = vec3(r, g, b);
-
-          vec3 magenta = vec3(1.0, 0.0, 0.78);
-          vec3 yellow  = vec3(1.0, 0.9, 0.0);
-          vec3 cyan    = vec3(0.0, 1.0, 0.93);
-          vec3 black   = vec3(0.04, 0.02, 0.06);
-          
-          vec3 mapped = black;
-          mapped = mix(mapped, magenta, col.r);
-          mapped = mix(mapped, yellow, col.g);
-          mapped = mix(mapped, cyan, col.b);
-          mapped += col.r * col.g * vec3(1.0, 0.4, 0.0);
-
-          float luma = dot(mapped, vec3(0.299, 0.587, 0.114));
-          float ht = halftone(gl_FragCoord.xy, 120.0, 45.0, luma);
-          
-          vec3 print_col = mix(mapped * 0.15, mapped, ht * 0.8 + 0.2);
-
-          float grain = hash(uv + u_time);
-          print_col += (grain - 0.5) * 0.15;
-
-          float dist = length(uv - 0.5);
-          print_col *= smoothstep(0.9, 0.2, dist);
-
-          fragColor = vec4(print_col, 1.0);
-        }
-      `
-    });
-
-    const geo = new THREE.PlaneGeometry(2, 2);
-    sceneUpdate.add(new THREE.Mesh(geo, updateMat));
-    sceneDisplay.add(new THREE.Mesh(geo, displayMat));
-
-    canvas.__three = { renderer, sceneUpdate, sceneDisplay, camera, updateMat, displayMat, fboA, fboB, ping: 0, fboW, fboH };
+    canvas.__three = { renderer, scene, camera, material };
   } catch (e) {
     console.error("WebGL Initialization Failed:", e);
     return;
   }
 }
 
-const cache = canvas.__three;
-if (!cache) return;
+const { renderer, scene, camera, material } = canvas.__three;
 
-const { renderer, sceneUpdate, sceneDisplay, camera, updateMat, displayMat, fboA, fboB, fboW, fboH } = cache;
-let ping = cache.ping;
-
-if (updateMat?.uniforms) {
-  updateMat.uniforms.u_time.value = time;
-  updateMat.uniforms.u_mouse.value.set(
-    (mouse.x / grid.width) * fboW,
-    ((grid.height - mouse.y) / grid.height) * fboH
-  );
-  updateMat.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
-  updateMat.uniforms.u_state.value = ping === 0 ? fboA.texture : fboB.texture;
-}
-
-const nextFbo = ping === 0 ? fboB : fboA;
-
-renderer.setSize(fboW, fboH, false);
-renderer.setRenderTarget(nextFbo);
-renderer.render(sceneUpdate, camera);
-
-if (displayMat?.uniforms) {
-  displayMat.uniforms.u_time.value = time;
-  displayMat.uniforms.u_res.value.set(grid.width, grid.height);
-  displayMat.uniforms.u_tex.value = nextFbo.texture;
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  
+  // Normalize mouse coordinates [0.0, 1.0] mapping from top-left, inverted Y for GLSL
+  const mx = mouse.x / grid.width;
+  const my = 1.0 - (mouse.y / grid.height);
+  
+  // Smoothly interpolate mouse position for a fluid "strange attractor" feel
+  material.uniforms.u_mouse.value.x += (mx - material.uniforms.u_mouse.value.x) * 0.1;
+  material.uniforms.u_mouse.value.y += (my - material.uniforms.u_mouse.value.y) * 0.1;
+  
+  material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
 }
 
 renderer.setSize(grid.width, grid.height, false);
-renderer.setRenderTarget(null);
-renderer.render(sceneDisplay, camera);
-
-cache.ping = 1 - ping;
+renderer.render(scene, camera);
