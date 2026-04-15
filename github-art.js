@@ -1,343 +1,258 @@
-try {
-    // 1. INITIALIZE THREE.JS & WEBGL2 CONTEXT
-    if (!canvas.__three) {
-        const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, powerPreference: 'high-performance' });
-        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
+// FERAL DESIGN BRAIN: ACTIVE
+// MECHANISM: Cyberdelic Mycelial Membrane (Domain-Warped Gray-Scott CA + CMYK Xerox Artifacts)
+// REJECTED: Clean, mathematically perfect Turing patterns.
+// EMBRACED: Chromatic aberration, photocopy noise, Lisa Frank neon palettes, and glitch scan-bends.
 
-        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: false, antialias: false });
-        renderer.autoClear = false;
+if (!canvas.__feralCA) {
+    // --------------------------------------------------------
+    // 1. INITIALIZE THE REACTION-DIFFUSION SUBSTRATE
+    // --------------------------------------------------------
+    const W = 256;
+    const H = 256;
+    const SIZE = W * H;
 
-        // Simulation resolution (fixed for consistent RD dynamics, independent of screen size)
-        const SIM_RES = 512;
+    const state = {
+        W, H, SIZE,
+        u: new Float32Array(SIZE).fill(1.0),
+        v: new Float32Array(SIZE).fill(0.0),
+        next_u: new Float32Array(SIZE),
+        next_v: new Float32Array(SIZE),
+        F_map: new Float32Array(SIZE),
+        k_map: new Float32Array(SIZE),
+        offCanvas: document.createElement('canvas'),
+        lutR: new Uint8Array(256),
+        lutG: new Uint8Array(256),
+        lutB: new Uint8Array(256),
+        lastMouse: { x: -1, y: -1 }
+    };
 
-        // Use HalfFloatType for balance of precision and compatibility. 
-        // FloatType is ideal but fails on some mobile devices. HalfFloat is usually enough for Gray-Scott.
-        const targetOptions = {
-            width: SIM_RES,
-            height: SIM_RES,
-            format: THREE.RGBAFormat,
-            type: THREE.HalfFloatType,
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            wrapS: THREE.RepeatWrapping,
-            wrapT: THREE.RepeatWrapping,
-            depthBuffer: false,
-            stencilBuffer: false
-        };
+    state.offCanvas.width = W;
+    state.offCanvas.height = H;
+    state.offCtx = state.offCanvas.getContext('2d', { willReadFrequently: true });
+    state.imgData = state.offCtx.createImageData(W, H);
 
-        const rtA = new THREE.WebGLRenderTarget(SIM_RES, SIM_RES, targetOptions);
-        const rtB = new THREE.WebGLRenderTarget(SIM_RES, SIM_RES, targetOptions);
+    // --------------------------------------------------------
+    // 2. BUILD THE "LISA FRANK / ACID VIBRATION" PALETTE LUT
+    // --------------------------------------------------------
+    // Repo 4: Cyberdelic Neon + Acid Vibration
+    const hexToRgb = (hex) => {
+        let bigint = parseInt(hex.replace('#', ''), 16);
+        return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+    };
 
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        const scene = new THREE.Scene();
-        const geometry = new THREE.PlaneGeometry(2, 2);
+    const stops = [
+        { pct: 0.00, c: hexToRgb('#040608') }, // Void Black
+        { pct: 0.15, c: hexToRgb('#3D0070') }, // Deep Violet
+        { pct: 0.30, c: hexToRgb('#FF00C8') }, // Hot Magenta
+        { pct: 0.50, c: hexToRgb('#FF6B00') }, // Electric Orange
+        { pct: 0.70, c: hexToRgb('#FFE800') }, // Riso Yellow
+        { pct: 0.85, c: hexToRgb('#00FFF0') }, // Neon Cyan
+        { pct: 1.00, c: hexToRgb('#FFFFFF') }  // Hot White
+    ];
 
-        // --- COMPACT SIMPLEX NOISE FOR GLSL ---
-        const snoiseGLSL = `
-            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-            vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-            vec3 permute(vec3 x) { return mod289(((x*34.0)+10.0)*x); }
-            float snoise(vec2 v) {
-                const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-                vec2 i  = floor(v + dot(v, C.yy) );
-                vec2 x0 = v -   i + dot(i, C.xx);
-                vec2 i1;
-                i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-                vec4 x12 = x0.xyxy + C.xxzz;
-                x12.xy -= i1;
-                i = mod289(i);
-                vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
-                vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-                m = m*m ; m = m*m ;
-                vec3 x = 2.0 * fract(p * C.www) - 1.0;
-                vec3 h = abs(x) - 0.5;
-                vec3 ox = floor(x + 0.5);
-                vec3 a0 = x - ox;
-                m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-                vec3 g;
-                g.x  = a0.x  * x0.x  + h.x  * x0.y;
-                g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-                return 130.0 * dot(m, g);
+    for (let i = 0; i < 256; i++) {
+        let pct = i / 255;
+        let c1 = stops[0], c2 = stops[stops.length - 1];
+        for (let j = 0; j < stops.length - 1; j++) {
+            if (pct >= stops[j].pct && pct <= stops[j + 1].pct) {
+                c1 = stops[j]; c2 = stops[j + 1]; break;
             }
-        `;
-
-        // --- SIMULATION SHADER (The Feral Mechanism) ---
-        // Blends Reaction-Diffusion with Domain Warping and spatially varying parameters.
-        const simMaterial = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_state: { value: null },
-                u_res: { value: new THREE.Vector2(SIM_RES, SIM_RES) },
-                u_time: { value: 0 },
-                u_mouse: { value: new THREE.Vector2(-1, -1) },
-                u_mouse_pressed: { value: 0 }
-            },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                precision highp float;
-                uniform sampler2D u_state;
-                uniform vec2 u_res;
-                uniform float u_time;
-                uniform vec2 u_mouse;
-                uniform float u_mouse_pressed;
-                in vec2 vUv;
-                out vec4 fragColor;
-
-                ${snoiseGLSL}
-
-                void main() {
-                    vec2 px = 1.0 / u_res;
-                    
-                    // DOMAIN WARP: The chemical lattice is fluid and shifting
-                    float warpX = snoise(vUv * 3.0 + u_time * 0.1);
-                    float warpY = snoise(vUv * 3.0 - u_time * 0.15 + 100.0);
-                    vec2 flowWarp = vec2(warpX, warpY) * 0.003;
-                    
-                    vec2 uv = vUv + flowWarp;
-
-                    vec2 state = texture(u_state, uv).rg;
-                    float u = state.r;
-                    float v = state.g;
-
-                    // 9-Point Laplacian (Karl Sims weighted)
-                    vec2 lap = vec2(0.0);
-                    lap += texture(u_state, uv + vec2(-1.0,  0.0) * px).rg * 0.2;
-                    lap += texture(u_state, uv + vec2( 1.0,  0.0) * px).rg * 0.2;
-                    lap += texture(u_state, uv + vec2( 0.0, -1.0) * px).rg * 0.2;
-                    lap += texture(u_state, uv + vec2( 0.0,  1.0) * px).rg * 0.2;
-                    lap += texture(u_state, uv + vec2(-1.0, -1.0) * px).rg * 0.05;
-                    lap += texture(u_state, uv + vec2( 1.0, -1.0) * px).rg * 0.05;
-                    lap += texture(u_state, uv + vec2(-1.0,  1.0) * px).rg * 0.05;
-                    lap += texture(u_state, uv + vec2( 1.0,  1.0) * px).rg * 0.05;
-                    lap -= state;
-
-                    // FERAL PARAMETERS: Map noise to Pearson Classification map
-                    // Slowly drift across the parameter space (U-Skate -> Mitosis -> Chaos)
-                    float paramNoiseF = snoise(vUv * 1.5 - u_time * 0.02);
-                    float paramNoiseK = snoise(vUv * 1.5 + u_time * 0.03 + 50.0);
-                    
-                    // F range: 0.010 (Chaos) to 0.062 (U-Skate)
-                    float F = mix(0.015, 0.065, paramNoiseF * 0.5 + 0.5);
-                    // k range: 0.041 (Spirals) to 0.065 (Worms)
-                    float k = mix(0.045, 0.065, paramNoiseK * 0.5 + 0.5);
-
-                    // Reaction
-                    float reaction = u * v * v;
-                    
-                    // Gray-Scott Equations
-                    float du = 1.0 * lap.r - reaction + F * (1.0 - u);
-                    float dv = 0.5 * lap.g + reaction - (F + k) * v;
-
-                    float nextU = clamp(u + du, 0.0, 1.0);
-                    float nextV = clamp(v + dv, 0.0, 1.0);
-
-                    // INTERACTION: Inject V (activator) with mouse
-                    if (u_mouse_pressed > 0.5) {
-                        float dist = distance(vUv, u_mouse);
-                        if (dist < 0.02) {
-                            nextV = mix(nextV, 1.0, smoothstep(0.02, 0.0, dist));
-                            nextU = mix(nextU, 0.0, smoothstep(0.02, 0.0, dist));
-                        }
-                    }
-
-                    fragColor = vec4(nextU, nextV, 0.0, 1.0);
-                }
-            `
-        });
-
-        // --- DISPLAY SHADER (The Lisa Frank Aesthetic) ---
-        // Maps the chemical state to aggressive, saturated, embossed neon colors.
-        const displayMaterial = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_state: { value: null },
-                u_time: { value: 0 },
-                u_res: { value: new THREE.Vector2(grid.width, grid.height) }
-            },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                precision highp float;
-                uniform sampler2D u_state;
-                uniform float u_time;
-                uniform vec2 u_res;
-                in vec2 vUv;
-                out vec4 fragColor;
-
-                ${snoiseGLSL}
-
-                // Psychedelic HSB to RGB
-                vec3 hsb2rgb(vec3 c) {
-                    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-                    rgb = rgb * rgb * (3.0 - 2.0 * rgb);
-                    return c.z * mix(vec3(1.0), rgb, c.y);
-                }
-
-                void main() {
-                    // Slight zoom and pan for the display
-                    vec2 uv = (vUv - 0.5) * 0.95 + 0.5;
-                    uv += vec2(sin(u_time*0.1), cos(u_time*0.15)) * 0.02;
-
-                    vec2 state = texture(u_state, uv).rg;
-                    float u = state.r;
-                    float v = state.g;
-
-                    // Compute pseudo-normals for embossing (Karl Sims style)
-                    vec2 px = 1.0 / vec2(512.0); // Match sim res
-                    float vn = texture(u_state, uv + vec2(0.0, 1.0)*px).g;
-                    float ve = texture(u_state, uv + vec2(1.0, 0.0)*px).g;
-                    vec2 grad = vec2(ve - v, vn - v);
-                    float emboss = dot(grad, normalize(vec2(1.0, 1.0))) * 12.0;
-
-                    // Lisa Frank Neon Mutation
-                    // Base hue driven by V concentration and spatial noise
-                    float baseNoise = snoise(uv * 4.0 + u_time * 0.2);
-                    
-                    // Hot magenta, cyan, electric yellow, lime green
-                    float hue = fract(v * 1.5 - u_time * 0.1 + baseNoise * 0.3);
-                    
-                    // Quantize hue slightly for a retro posterized feel
-                    hue = mix(hue, floor(hue * 8.0) / 8.0, 0.6);
-
-                    // Saturation drops where U is high (background)
-                    float sat = smoothstep(0.1, 0.6, 1.0 - u) * 0.8 + 0.2;
-                    
-                    // Brightness spiked by reaction edges (emboss)
-                    float bri = smoothstep(0.0, 0.4, v) + emboss;
-                    
-                    // Deep space background with subtle void tendrils
-                    float bgNoise = snoise(uv * 10.0 - u_time * 0.5);
-                    vec3 bg = vec3(0.05, 0.0, 0.15) * (1.0 + bgNoise * 0.5);
-
-                    vec3 col = hsb2rgb(vec3(hue, sat, clamp(bri, 0.0, 1.0)));
-                    
-                    // Blend reaction over background
-                    col = mix(bg, col, smoothstep(0.05, 0.2, v));
-
-                    // Add "Glitter" (high freq noise on high gradients)
-                    float glitterNoise = fract(sin(dot(vUv + u_time, vec2(12.9898, 78.233))) * 43758.5453);
-                    float glitter = step(0.85, glitterNoise) * smoothstep(0.05, 0.15, length(grad));
-                    col += glitter * vec3(1.0, 0.6, 0.9); // Pinkish glitter
-
-                    // Vignette
-                    float vig = length(vUv - 0.5);
-                    col *= smoothstep(0.8, 0.3, vig);
-
-                    fragColor = vec4(col, 1.0);
-                }
-            `
-        });
-
-        const mesh = new THREE.Mesh(geometry, simMaterial);
-        scene.add(mesh);
-
-        // --- INITIAL SEEDING ---
-        // Create a noisy canvas to seed the initial textures
-        const seedCanvas = document.createElement('canvas');
-        seedCanvas.width = SIM_RES;
-        seedCanvas.height = SIM_RES;
-        const sctx = seedCanvas.getContext('2d');
-        
-        // Fill with U=1 (Red channel in texture, mapped to red color here)
-        sctx.fillStyle = 'rgba(255, 0, 0, 255)'; 
-        sctx.fillRect(0, 0, SIM_RES, SIM_RES);
-        
-        // Draw chaotic V seeds (Green channel)
-        sctx.fillStyle = 'rgba(255, 255, 0, 255)'; // R=255 (U=1), G=255 (V=1)
-        for(let i=0; i<50; i++) {
-            sctx.beginPath();
-            sctx.arc(
-                Math.random() * SIM_RES, 
-                Math.random() * SIM_RES, 
-                Math.random() * 15 + 2, 
-                0, Math.PI*2
-            );
-            sctx.fill();
         }
-        
-        const seedTexture = new THREE.CanvasTexture(seedCanvas);
-        seedTexture.minFilter = THREE.LinearFilter;
-        seedTexture.magFilter = THREE.LinearFilter;
-
-        // Render seed to rtA
-        simMaterial.uniforms.u_state.value = seedTexture;
-        renderer.setRenderTarget(rtA);
-        renderer.render(scene, camera);
-        
-        // Clean up seed texture mapping, replace with rtA for ping-pong
-        mesh.material = simMaterial;
-
-        canvas.__three = { 
-            renderer, scene, camera, mesh, 
-            simMaterial, displayMaterial, 
-            rtA, rtB, 
-            frame: 0 
-        };
+        let t = (pct - c1.pct) / (c2.pct - c1.pct);
+        state.lutR[i] = c1.c[0] + t * (c2.c[0] - c1.c[0]);
+        state.lutG[i] = c1.c[1] + t * (c2.c[1] - c1.c[1]);
+        state.lutB[i] = c1.c[2] + t * (c2.c[2] - c1.c[2]);
     }
 
-    const t = canvas.__three;
-    if (!t) return;
+    // --------------------------------------------------------
+    // 3. GENERATE DOMAIN-WARPED PARAMETER MAPS (NOISE REPO)
+    // --------------------------------------------------------
+    // A simple value noise implementation to create geological strata of pattern types
+    const P = new Uint8Array(512);
+    for (let i = 0; i < 256; i++) P[i] = P[i + 256] = Math.floor(Math.random() * 256);
+    const lerp = (t, a, b) => a + t * (b - a);
+    const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
 
-    // --- UPDATE UNIFORMS ---
-    const mx = mouse.x / grid.width;
-    const my = 1.0 - (mouse.y / grid.height); // Flip Y for WebGL
+    const vnoise = (x, y) => {
+        let X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+        x -= Math.floor(x); y -= Math.floor(y);
+        let u = fade(x), v = fade(y);
+        let A = P[X] + Y, B = P[X + 1] + Y;
+        return lerp(v, lerp(u, P[P[A]], P[P[B]]), lerp(u, P[P[A + 1]], P[P[B + 1]])) / 255;
+    };
 
-    if (t.simMaterial && t.simMaterial.uniforms) {
-        t.simMaterial.uniforms.u_time.value = time;
-        t.simMaterial.uniforms.u_mouse.value.set(mx, my);
-        t.simMaterial.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
-    }
-    
-    if (t.displayMaterial && t.displayMaterial.uniforms) {
-        t.displayMaterial.uniforms.u_time.value = time;
-        t.displayMaterial.uniforms.u_res.value.set(grid.width, grid.height);
-    }
+    // Map the grid to different Gray-Scott ecosystem zones
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            let nx = x * 0.015, ny = y * 0.015;
+            // Domain warp: perturb the noise coordinates with another noise
+            let warpX = vnoise(nx + 5.2, ny + 1.3) * 2.0;
+            let warpY = vnoise(nx + 1.7, ny + 9.2) * 2.0;
+            let n = vnoise(nx + warpX, ny + warpY); 
 
-    // --- PING-PONG SIMULATION LOOP ---
-    // Multiple steps per frame for faster evolution
-    const steps = 12; 
-    t.mesh.material = t.simMaterial;
-
-    for (let i = 0; i < steps; i++) {
-        const readTarget = (t.frame % 2 === 0) ? t.rtA : t.rtB;
-        const writeTarget = (t.frame % 2 === 0) ? t.rtB : t.rtA;
-
-        t.simMaterial.uniforms.u_state.value = readTarget.texture;
-        t.renderer.setRenderTarget(writeTarget);
-        t.renderer.render(t.scene, t.camera);
-
-        t.frame++;
+            // Blend between Chaos (ε), U-Skate (π), and Turing Spots (δ)
+            state.F_map[y * W + x] = lerp(n, 0.018, 0.070);
+            state.k_map[y * W + x] = lerp(n, 0.055, 0.063);
+        }
     }
 
-    // --- DISPLAY TO SCREEN ---
-    t.mesh.material = t.displayMaterial;
-    // Read from the last written target
-    t.displayMaterial.uniforms.u_state.value = (t.frame % 2 === 0) ? t.rtA.texture : t.rtB.texture;
-    
-    t.renderer.setRenderTarget(null);
-    t.renderer.setSize(grid.width, grid.height, false);
-    t.renderer.render(t.scene, t.camera);
+    // Seed the center to start the reaction
+    for (let i = 0; i < 20; i++) {
+        let cx = W/2 + (Math.random()-0.5)*40;
+        let cy = H/2 + (Math.random()-0.5)*40;
+        for (let y = -5; y <= 5; y++) {
+            for (let x = -5; x <= 5; x++) {
+                state.v[Math.floor(cy + y) * W + Math.floor(cx + x)] = 1.0;
+            }
+        }
+    }
 
-} catch (e) {
-    console.error("Feral Mold System Failure:", e);
-    // Fallback if WebGL fails (e.g. context loss)
-    if (ctx) {
-        ctx.fillStyle = '#050505';
-        ctx.fillRect(0, 0, grid.width, grid.height);
-        ctx.fillStyle = '#ff00ff';
-        ctx.font = '20px monospace';
-        ctx.fillText('CRITICAL: WEBGL CONTEXT LOST', 20, 40);
-        ctx.fillText('FERAL MOLD CONTAINED.', 20, 70);
+    // --------------------------------------------------------
+    // 4. CREATE HALFTONE / XEROX PRINT ARTIFACT PATTERN
+    // --------------------------------------------------------
+    const ptCanvas = document.createElement('canvas');
+    ptCanvas.width = 4; ptCanvas.height = 4;
+    const pCtx = ptCanvas.getContext('2d');
+    pCtx.fillStyle = '#000'; // Dark dot
+    pCtx.beginPath(); pCtx.arc(2, 2, 1.2, 0, Math.PI * 2); pCtx.fill();
+    state.halftonePat = ctx.createPattern(ptCanvas, 'repeat');
+
+    canvas.__feralCA = state;
+}
+
+const state = canvas.__feralCA;
+const { W, H, SIZE, u, v, next_u, next_v, F_map, k_map, lutR, lutG, lutB } = state;
+
+// --------------------------------------------------------
+// 5. MOUSE INTERACTION: INJECT SPORES
+// --------------------------------------------------------
+let mx = Math.floor((mouse.x / grid.width) * W);
+let my = Math.floor((mouse.y / grid.height) * H);
+
+if (mouse.isPressed && mx >= 0 && mx < W && my >= 0 && my < H) {
+    for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+            let px = (mx + dx + W) % W;
+            let py = (my + dy + H) % H;
+            v[py * W + px] = 1.0;
+            u[py * W + px] = 0.0;
+        }
     }
 }
+
+// Spontaneous Glitch Spore Injection (keeps the ecosystem alive)
+if (Math.random() < 0.02) {
+    let px = Math.floor(Math.random() * W);
+    let py = Math.floor(Math.random() * H);
+    v[py * W + px] = 1.0;
+}
+
+// --------------------------------------------------------
+// 6. GRAY-SCOTT REACTION-DIFFUSION CA LOOP (CPU OPTIMIZED)
+// --------------------------------------------------------
+// 9-point Karl Sims Laplacian. Runs multiple micro-steps per frame.
+const steps = 8;
+for (let s = 0; s < steps; s++) {
+    for (let y = 0; y < H; y++) {
+        let yw = y * W;
+        let y_up = ((y - 1 + H) % H) * W;
+        let y_down = ((y + 1) % H) * W;
+
+        for (let x = 0; x < W; x++) {
+            let idx = yw + x;
+            let x_l = (x - 1 + W) % W;
+            let x_r = (x + 1) % W;
+
+            let U = u[idx];
+            let V = v[idx];
+
+            let lapU = -U 
+                + 0.2 * (u[yw + x_l] + u[yw + x_r] + u[y_up + x] + u[y_down + x])
+                + 0.05 * (u[y_up + x_l] + u[y_up + x_r] + u[y_down + x_l] + u[y_down + x_r]);
+                
+            let lapV = -V 
+                + 0.2 * (v[yw + x_l] + v[yw + x_r] + v[y_up + x] + v[y_down + x])
+                + 0.05 * (v[y_up + x_l] + v[y_up + x_r] + v[y_down + x_l] + v[y_down + x_r]);
+
+            let uvv = U * V * V;
+            let F = F_map[idx];
+            let k = k_map[idx];
+
+            // Forward Euler integration
+            next_u[idx] = Math.max(0, Math.min(1, U + (1.0 * lapU - uvv + F * (1.0 - U))));
+            next_v[idx] = Math.max(0, Math.min(1, V + (0.5 * lapV + uvv - (F + k) * V)));
+        }
+    }
+    // Swap buffers
+    u.set(next_u);
+    v.set(next_v);
+}
+
+// --------------------------------------------------------
+// 7. RENDER PASS: CHROMATIC ABERRATION & CMYK MISREGISTRATION
+// --------------------------------------------------------
+// Repo 4: "Glitch Scan Bend" & "CMYK Misregistration"
+let data = state.imgData.data;
+let baseAberration = Math.floor(2 + Math.sin(time * 2) * 2);
+
+for (let y = 0; y < H; y++) {
+    // Scanline dropout / glitch artifact
+    let rowAberration = baseAberration;
+    if (Math.random() < 0.02) rowAberration += Math.floor(Math.random() * 15); 
+
+    let yw = y * W;
+    for (let x = 0; x < W; x++) {
+        let idx = yw + x;
+        
+        // Misregister the reads for R, G, B channels based on the V concentration
+        let idx_l = yw + ((x - rowAberration + W) % W);
+        let idx_r = yw + ((x + rowAberration) % W);
+
+        let v_val = v[idx];
+        let v_left = v[idx_l];
+        let v_right = v[idx_r];
+
+        // Map to Acid Vibration palette
+        let cR = lutR[Math.floor(v_left * 255)];
+        let cG = lutG[Math.floor(v_val * 255)];
+        let cB = lutB[Math.floor(v_right * 255)];
+
+        let pIdx = idx * 4;
+        data[pIdx] = cR;
+        data[pIdx + 1] = cG;
+        data[pIdx + 2] = cB;
+        data[pIdx + 3] = 255;
+    }
+}
+
+// --------------------------------------------------------
+// 8. FINAL COMPOSITING: XEROX & HALFTONE OVERLAY
+// --------------------------------------------------------
+state.offCtx.putImageData(state.imgData, 0, 0);
+
+ctx.save();
+// Disable smoothing for raw, crunchy pixel scaling
+ctx.imageSmoothingEnabled = false;
+
+// Draw the cyberdelic mycelium stretched to the canvas
+ctx.drawImage(state.offCanvas, 0, 0, grid.width, grid.height);
+
+// Apply Print Artifact: Halftone Dot Screen (Repo 4)
+ctx.globalCompositeOperation = 'overlay';
+ctx.fillStyle = state.halftonePat;
+ctx.globalAlpha = 0.4;
+ctx.fillRect(0, 0, grid.width, grid.height);
+
+// Apply Print Artifact: Xerox Edge Vignette / Toner Burn
+ctx.globalCompositeOperation = 'multiply';
+let gradient = ctx.createRadialGradient(
+    grid.width / 2, grid.height / 2, grid.width * 0.3,
+    grid.width / 2, grid.height / 2, grid.width * 0.8
+);
+gradient.addColorStop(0, 'rgba(20, 0, 40, 0)');
+gradient.addColorStop(1, 'rgba(10, 0, 20, 0.9)');
+ctx.fillStyle = gradient;
+ctx.globalAlpha = 1.0;
+ctx.fillRect(0, 0, grid.width, grid.height);
+
+ctx.restore();
