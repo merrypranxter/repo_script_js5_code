@@ -1,282 +1,247 @@
 if (!canvas.__three) {
     try {
-        const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false });
-        if (!gl) throw new Error("WebGL2 required but not supported.");
-
-        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: false });
-        renderer.setPixelRatio(1);
-        renderer.autoClear = false;
-
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        const scene = new THREE.Scene();
-        const geometry = new THREE.PlaneGeometry(2, 2);
-
-        // Ping-Pong FBOs for feedback loop
-        const rtOpts = {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
-            type: THREE.FloatType,
-            wrapS: THREE.RepeatWrapping,
-            wrapT: THREE.RepeatWrapping
-        };
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
         
-        // Use a slightly lower resolution for the simulation to create "xerox/newsprint" chunky artifacts
-        const simRes = { width: Math.floor(grid.width * 0.5), height: Math.floor(grid.height * 0.5) };
-        const fbo = [
-            new THREE.WebGLRenderTarget(simRes.width, simRes.height, rtOpts),
-            new THREE.WebGLRenderTarget(simRes.width, simRes.height, rtOpts)
-        ];
-
-        // Seed the initial buffer with noise
-        const seedData = new Float32Array(simRes.width * simRes.height * 4);
-        for (let i = 0; i < seedData.length; i += 4) {
-            seedData[i] = Math.random();
-            seedData[i+1] = Math.random();
-            seedData[i+2] = Math.random();
-            seedData[i+3] = 1.0;
-        }
-        const seedTex = new THREE.DataTexture(seedData, simRes.width, simRes.height, THREE.RGBAFormat, THREE.FloatType);
-        seedTex.needsUpdate = true;
-
-        // THE FERAL MECHANISM: Feedback Kaleidoscope + Gray-Scott Reaction Proxy
-        const updateMat = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_tex: { value: seedTex },
-                u_res: { value: new THREE.Vector2(simRes.width, simRes.height) },
-                u_time: { value: 0.0 },
-                u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
-                u_mouse_pressed: { value: 0.0 }
-            },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                precision highp float;
-                uniform sampler2D u_tex;
-                uniform vec2 u_res;
-                uniform float u_time;
-                uniform vec2 u_mouse;
-                uniform float u_mouse_pressed;
-
-                in vec2 vUv;
-                out vec4 fragColor;
-
-                // Psychedelic Collage: Kaleidoscope fold
-                vec2 kal(vec2 uv, float folds, float spin) {
-                    vec2 p = uv * 2.0 - 1.0;
-                    float r = length(p);
-                    float a = atan(p.y, p.x);
-                    float sector = 6.2831853 / folds;
-                    a = mod(a, sector);
-                    a = abs(a - sector / 2.0);
-                    a += spin;
-                    return vec2(cos(a), sin(a)) * r * 0.5 + 0.5;
-                }
-
-                void main() {
-                    vec2 uv = vUv;
-                    
-                    // Gradient calculation for displacement warp
-                    vec2 texel = 1.0 / u_res;
-                    float n = texture(u_tex, fract(uv + vec2(0.0, texel.y))).r;
-                    float s = texture(u_tex, fract(uv - vec2(0.0, texel.y))).r;
-                    float e = texture(u_tex, fract(uv + vec2(texel.x, 0.0))).r;
-                    float w = texture(u_tex, fract(uv - vec2(texel.x, 0.0))).r;
-                    
-                    vec2 grad = vec2(e - w, n - s);
-                    
-                    // Feral mechanism: UV displacement driven by own gradient
-                    vec2 offsetUV = uv - grad * 0.005;
-                    
-                    // Apply slow zoom and rotation to pull patterns inward (infinite dive)
-                    vec2 center = vec2(0.5);
-                    vec2 centered = offsetUV - center;
-                    float angle = u_time * 0.05;
-                    mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-                    offsetUV = center + rot * centered * 0.99;
-
-                    // Kaleidoscope injection (Lisa Frank / Psychedelic geometry)
-                    vec2 k_uv = kal(offsetUV, 5.0, u_time * 0.1);
-                    
-                    // Sample previous states
-                    vec4 prev = texture(u_tex, fract(offsetUV));
-                    vec4 prevK = texture(u_tex, fract(mix(offsetUV, k_uv, 0.05))); // Blend folds
-
-                    // "Infection" growth logic (Proxy for CA/Reaction Diffusion)
-                    float thickness = prevK.r;
-                    float energy = prev.g;
-                    
-                    // Structural color film grows over time, driven by local gradients
-                    thickness += 0.005 + length(grad) * 0.1;
-                    energy = mix(energy, length(grad) * 5.0, 0.1);
-
-                    // User interaction: Acid burn injection
-                    float dist = length(uv - u_mouse);
-                    if (u_mouse_pressed > 0.5 && dist < 0.05) {
-                        thickness = fract(u_time * 2.0);
-                        energy = 1.0;
+        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+        
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+        
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
+            
+            uniform float u_time;
+            uniform vec2 u_mouse;
+            uniform float u_pressed;
+            uniform vec2 u_resolution;
+            
+            // --- NOISE ---
+            vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+            float snoise(vec2 v) {
+              const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+              vec2 i  = floor(v + dot(v, C.yy) );
+              vec2 x0 = v -   i + dot(i, C.xx);
+              vec2 i1;
+              i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+              vec4 x12 = x0.xyxy + C.xxzz;
+              x12.xy -= i1;
+              i = mod(i, 289.0);
+              vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+              vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+              m = m*m ; m = m*m ;
+              vec3 x = 2.0 * fract(p * C.www) - 1.0;
+              vec3 h = abs(x) - 0.5;
+              vec3 ox = floor(x + 0.5);
+              vec3 a0 = x - ox;
+              m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+              vec3 g;
+              g.x  = a0.x  * x0.x  + h.x  * x0.y;
+              g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+              return 130.0 * dot(m, g);
+            }
+            
+            vec2 random2(vec2 p) {
+                return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);
+            }
+            
+            float worleyF2minusF1(vec2 p) {
+                vec2 i_st = floor(p);
+                vec2 f_st = fract(p);
+                float m_dist1 = 10.0;
+                float m_dist2 = 10.0;
+                for (int y= -1; y <= 1; y++) {
+                    for (int x= -1; x <= 1; x++) {
+                        vec2 neighbor = vec2(float(x),float(y));
+                        vec2 point = random2(i_st + neighbor);
+                        point = 0.5 + 0.5*sin(u_time * 0.8 + 6.2831*point);
+                        vec2 diff = neighbor + point - f_st;
+                        float dist = length(diff);
+                        if (dist < m_dist1) {
+                            m_dist2 = m_dist1;
+                            m_dist1 = dist;
+                        } else if (dist < m_dist2) {
+                            m_dist2 = dist;
+                        }
                     }
-
-                    // Wrap thickness to simulate cyclic film layers
-                    fragColor = vec4(fract(thickness), clamp(energy, 0.0, 1.0), 0.0, 1.0);
                 }
-            `
-        });
-
-        // DISPLAY SHADER: Structural Color + Xerox Halftone + Chromatic Aberration
-        const displayMat = new THREE.ShaderMaterial({
+                return m_dist2 - m_dist1;
+            }
+            
+            // --- MECHANICS ---
+            vec2 kaleidoscope(vec2 uv, float folds) {
+                float angle = atan(uv.y, uv.x);
+                float radius = length(uv);
+                float sector = 6.2831853 / folds;
+                angle = mod(angle, sector);
+                if (angle > sector * 0.5) angle = sector - angle;
+                return vec2(cos(angle), sin(angle)) * radius;
+            }
+            
+            float chladni(vec2 uv, float m, float n) {
+                float pi = 3.14159265;
+                float a = cos(n * pi * uv.x) * cos(m * pi * uv.y);
+                float b = cos(m * pi * uv.x) * cos(n * pi * uv.y);
+                return a - b;
+            }
+            
+            vec2 domainWarp(vec2 p, float strength) {
+                vec2 warp1 = vec2(snoise(p * 2.0 + u_time * 0.5), snoise(p * 2.0 - u_time * 0.5 + vec2(5.2, 1.3)));
+                vec2 warp2 = vec2(snoise((p + warp1) * 4.0 - u_time), snoise((p + warp1) * 4.0 + u_time + vec2(1.7, 9.2)));
+                return p + (warp1 * 0.6 + warp2 * 0.4) * strength;
+            }
+            
+            // --- PALETTES ---
+            vec3 getHostColor(float v) {
+                vec3 gold = vec3(0.79, 0.66, 0.30);
+                vec3 violet = vec3(0.24, 0.0, 0.44);
+                vec3 black = vec3(0.04, 0.04, 0.07);
+                v = v * 2.0; 
+                v = v * 0.5 + 0.5; 
+                if(v > 0.5) return mix(violet, gold, smoothstep(0.5, 1.0, v));
+                return mix(black, violet, smoothstep(0.0, 0.5, v));
+            }
+            
+            vec3 getParasiteColor(float v) {
+                vec3 magenta = vec3(1.0, 0.0, 0.8);
+                vec3 cyan = vec3(0.0, 1.0, 0.94);
+                vec3 lime = vec3(0.67, 1.0, 0.0);
+                v = fract(v * 2.0 - u_time * 0.5);
+                if(v < 0.333) return mix(magenta, cyan, v * 3.0);
+                if(v < 0.666) return mix(cyan, lime, (v - 0.333) * 3.0);
+                return mix(lime, magenta, (v - 0.666) * 3.0);
+            }
+            
+            // --- RENDER PASS ---
+            vec3 render(vec2 uv, float infection) {
+                vec2 centered = uv * 2.0 - 1.0;
+                centered.x *= u_resolution.x / u_resolution.y;
+                
+                vec2 offset = vec2(sin(u_time*0.5), cos(u_time*0.3)) * 0.05;
+                vec2 wobbled = centered + offset;
+                
+                vec2 k_uv = kaleidoscope(wobbled, 8.0);
+                vec2 p_uv = domainWarp(centered, 0.5 + infection * 1.5);
+                vec2 final_uv = mix(k_uv, p_uv, infection);
+                
+                float mc = 2.0 + sin(u_time * 0.4) * 1.5;
+                float nc = 4.0 + cos(u_time * 0.3) * 1.5;
+                
+                float c_val = chladni(final_uv * 3.0, mc, nc) * 0.5;
+                float w_val = worleyF2minusF1(final_uv * (4.0 + infection * 4.0));
+                
+                float mixed_val = mix(abs(c_val), w_val, infection);
+                
+                float edge_noise = snoise(uv * 100.0) * 0.05;
+                float edge = smoothstep(0.0, 0.05 + edge_noise, mixed_val);
+                
+                vec3 host_col = getHostColor(c_val);
+                vec3 parasite_col = getParasiteColor(w_val);
+                
+                vec3 base_col = mix(host_col, parasite_col, infection);
+                return base_col * (0.1 + 0.9 * edge);
+            }
+            
+            void main() {
+                vec2 uv = vUv;
+                vec2 centered = uv * 2.0 - 1.0;
+                centered.x *= u_resolution.x / u_resolution.y;
+                
+                vec2 mouseCentered = u_mouse * 2.0 - 1.0;
+                mouseCentered.x *= u_resolution.x / u_resolution.y;
+                float distToMouse = length(centered - mouseCentered);
+                
+                float infectionNoise = snoise(centered * 2.0 - u_time * 0.3) * 0.5 + 0.5;
+                float infection = smoothstep(1.2, 0.0, distToMouse) * infectionNoise;
+                infection = mix(infection, infectionNoise, u_pressed);
+                
+                vec2 dir = normalize(centered + 0.001);
+                float shift = (0.005 + u_pressed * 0.02) * infection;
+                
+                float r = render(uv + dir * shift, infection).r;
+                float g = render(uv, infection).g;
+                float b = render(uv - dir * shift, infection).b;
+                
+                vec3 col = vec3(r, g, b);
+                
+                float grain = fract(sin(dot(uv + u_time, vec2(12.9898,78.233))) * 43758.5453);
+                float gv = grain * 2.0 - 1.0;
+                col = col + gv * (col - col * col) * 0.3;
+                
+                float luma = dot(col, vec3(0.299, 0.587, 0.114));
+                float freq = 200.0;
+                float rad = 0.785398;
+                mat2 rot = mat2(cos(rad), -sin(rad), sin(rad), cos(rad));
+                vec2 cell = fract(rot * uv * freq) - 0.5;
+                float dotRadius = sqrt(1.0 - luma) * 0.6;
+                float ht = smoothstep(dotRadius + 0.1, dotRadius - 0.1, length(cell));
+                
+                vec3 paper = vec3(0.83, 0.77, 0.59);
+                vec3 halftone_print = mix(paper, col, ht);
+                col = mix(col, halftone_print, infection * 0.8);
+                
+                float dist = length(centered);
+                float vignette = smoothstep(1.6, 0.4, dist);
+                col *= vignette;
+                
+                fragColor = vec4(col, 1.0);
+            }
+        `;
+        
+        const material = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
             uniforms: {
-                u_tex: { value: null },
-                u_res: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_time: { value: 0.0 }
+                u_time: { value: 0 },
+                u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+                u_pressed: { value: 0.0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
             },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                precision highp float;
-                uniform sampler2D u_tex;
-                uniform vec2 u_res;
-                uniform float u_time;
-
-                in vec2 vUv;
-                out vec4 fragColor;
-
-                // Structural Color: Thin-film interference
-                vec3 thinFilm(float thickness, float viewAngle) {
-                    float n_film = 1.56; // Chitin / jewel beetle index
-                    // Scale thickness from normalized state to nanometers (100nm - 1000nm)
-                    float d = mix(100.0, 1000.0, thickness); 
-                    
-                    // Optical path difference: 2nd cos(theta)
-                    float pathDiff = 2.0 * n_film * d * cos(viewAngle);
-                    
-                    // Wavelengths for RGB peaks (nm)
-                    vec3 lambda = vec3(650.0, 530.0, 440.0); 
-                    vec3 phase = (pathDiff / lambda) * 6.2831853;
-                    
-                    // Constructive/Destructive interference
-                    return 0.5 + 0.5 * cos(phase);
-                }
-
-                // Psychedelic Collage: Halftone dot screen
-                float halftone(vec2 fragCoord, float luma) {
-                    float freq = 120.0; // Lines per inch proxy
-                    float angle = 0.785398; // 45 degrees
-                    mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-                    vec2 uv = rot * fragCoord * freq / u_res.x;
-                    vec2 cell = fract(uv) - 0.5;
-                    float dist = length(cell);
-                    float dotRadius = luma * 0.7; // Luma modulates dot size
-                    return smoothstep(dotRadius + 0.1, dotRadius - 0.1, dist);
-                }
-
-                // Hash for xerox grain
-                float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-
-                void main() {
-                    // Chromatic Aberration sampling (Psychedelic scan-bend)
-                    vec2 dir = normalize(vUv - 0.5);
-                    float aberration = 0.015; // Shift amount
-                    
-                    // Sample thickness (R channel) with RGB split
-                    float thickR = texture(u_tex, fract(vUv + dir * aberration)).r;
-                    float thickG = texture(u_tex, fract(vUv)).r;
-                    float thickB = texture(u_tex, fract(vUv - dir * aberration)).r;
-                    
-                    // Energy (G channel) dictates iridescence viewing angle shift
-                    float energy = texture(u_tex, vUv).g;
-                    float viewAngle = mix(0.0, 1.0, energy);
-
-                    // Map thickness to Structural Color (Lisa Frank Acid Palette emergence)
-                    vec3 colR = thinFilm(thickR, viewAngle);
-                    vec3 colG = thinFilm(thickG, viewAngle);
-                    vec3 colB = thinFilm(thickB, viewAngle);
-                    
-                    vec3 finalCol = vec3(colR.r, colG.g, colB.b);
-
-                    // Boost saturation (Acid Vibration)
-                    float luma = dot(finalCol, vec3(0.299, 0.587, 0.114));
-                    finalCol = mix(vec3(luma), finalCol, 1.8);
-
-                    // Apply Print Artifacts (Xerox Noise + Halftone)
-                    float grain = hash(vUv * 100.0 + u_time);
-                    finalCol += (grain - 0.5) * 0.15; // Electrostatic grain
-                    
-                    float ht = halftone(gl_FragCoord.xy, luma);
-                    finalCol *= mix(0.3, 1.1, ht); // Screenprint ink dot crush
-
-                    // Vignette burn
-                    float vignette = length(vUv - 0.5);
-                    finalCol *= smoothstep(0.8, 0.3, vignette);
-
-                    fragColor = vec4(finalCol, 1.0);
-                }
-            `
+            vertexShader,
+            fragmentShader
         });
-
-        const mesh = new THREE.Mesh(geometry, updateMat);
+        
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(mesh);
-
-        canvas.__three = { 
-            renderer, scene, camera, mesh, updateMat, displayMat, 
-            fbo, ping: 0, simRes 
-        };
-
+        
+        canvas.__three = { renderer, scene, camera, material };
     } catch (e) {
         console.error("WebGL Initialization Failed:", e);
         return;
     }
 }
 
-const sys = canvas.__three;
-if (!sys) return;
+const { renderer, scene, camera, material } = canvas.__three;
 
-// Update Canvas size if grid changed
-sys.renderer.setSize(grid.width, grid.height, false);
-sys.displayMat.uniforms.u_res.value.set(grid.width, grid.height);
-
-// Update simulation uniforms
-const mx = mouse.x / grid.width;
-const my = 1.0 - (mouse.y / grid.height); // Flip Y for WebGL
-
-sys.updateMat.uniforms.u_time.value = time;
-sys.updateMat.uniforms.u_mouse.value.set(mx, my);
-sys.updateMat.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
-
-sys.displayMat.uniforms.u_time.value = time;
-
-// MULTI-STEP SIMULATION LOOP (Overclocked CA logic)
-const SIM_STEPS = 4; 
-for (let i = 0; i < SIM_STEPS; i++) {
-    const pong = 1 - sys.ping;
+if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
     
-    // Set material to update logic
-    sys.mesh.material = sys.updateMat;
-    sys.updateMat.uniforms.u_tex.value = sys.fbo[sys.ping].texture;
+    const targetX = mouse.x / grid.width;
+    const targetY = 1.0 - (mouse.y / grid.height);
     
-    // Render to next buffer
-    sys.renderer.setRenderTarget(sys.fbo[pong]);
-    sys.renderer.render(sys.scene, sys.camera);
+    if (material.uniforms.u_mouse) {
+        if (isNaN(material.uniforms.u_mouse.value.x)) {
+            material.uniforms.u_mouse.value.set(0.5, 0.5);
+        }
+        material.uniforms.u_mouse.value.x += (targetX - material.uniforms.u_mouse.value.x) * 0.1;
+        material.uniforms.u_mouse.value.y += (targetY - material.uniforms.u_mouse.value.y) * 0.1;
+    }
     
-    // Swap
-    sys.ping = pong;
+    if (material.uniforms.u_pressed) {
+        const targetPressed = mouse.isPressed ? 1.0 : 0.0;
+        if (isNaN(material.uniforms.u_pressed.value)) material.uniforms.u_pressed.value = 0.0;
+        material.uniforms.u_pressed.value += (targetPressed - material.uniforms.u_pressed.value) * 0.1;
+    }
 }
 
-// FINAL DISPLAY RENDER (Structural Color + Xerox)
-sys.mesh.material = sys.displayMat;
-sys.displayMat.uniforms.u_tex.value = sys.fbo[sys.ping].texture;
-
-sys.renderer.setRenderTarget(null); // Render to screen
-sys.renderer.render(sys.scene, sys.camera);
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
