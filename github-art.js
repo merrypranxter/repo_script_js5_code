@@ -1,239 +1,343 @@
-if (!canvas.__three) {
-  try {
-    const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
+try {
+    // 1. INITIALIZE THREE.JS & WEBGL2 CONTEXT
+    if (!canvas.__three) {
+        const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, powerPreference: 'high-performance' });
+        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1.0;
+        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: false, antialias: false });
+        renderer.autoClear = false;
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
+        // Simulation resolution (fixed for consistent RD dynamics, independent of screen size)
+        const SIM_RES = 512;
 
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform vec2 u_mouse;
-      uniform float u_isPressed;
+        // Use HalfFloatType for balance of precision and compatibility. 
+        // FloatType is ideal but fails on some mobile devices. HalfFloat is usually enough for Gray-Scott.
+        const targetOptions = {
+            width: SIM_RES,
+            height: SIM_RES,
+            format: THREE.RGBAFormat,
+            type: THREE.HalfFloatType,
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            wrapS: THREE.RepeatWrapping,
+            wrapT: THREE.RepeatWrapping,
+            depthBuffer: false,
+            stencilBuffer: false
+        };
 
-      #define PI 3.14159265359
+        const rtA = new THREE.WebGLRenderTarget(SIM_RES, SIM_RES, targetOptions);
+        const rtB = new THREE.WebGLRenderTarget(SIM_RES, SIM_RES, targetOptions);
 
-      // Feral Design Brain: Simplex 3D Noise for Domain Warping & Glitchcore Artifacts
-      vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
-      vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const scene = new THREE.Scene();
+        const geometry = new THREE.PlaneGeometry(2, 2);
 
-      float snoise(vec3 v){ 
-        const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
-        const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-        vec3 i  = floor(v + dot(v, C.yyy) );
-        vec3 x0 = v - i + dot(i, C.xxx) ;
-        vec3 g = step(x0.yzx, x0.xyz);
-        vec3 l = 1.0 - g;
-        vec3 i1 = min( g.xyz, l.zxy );
-        vec3 i2 = max( g.xyz, l.zxy );
-        vec3 x1 = x0 - i1 + 1.0 * C.xxx;
-        vec3 x2 = x0 - i2 + 2.0 * C.xxx;
-        vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
-        i = mod(i, 289.0 ); 
-        vec4 p = permute( permute( permute( 
-                   i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-                 + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
-                 + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
-        float n_ = 1.0/7.0;
-        vec3  ns = n_ * D.wyz - D.xzx;
-        vec4 j = p - 49.0 * floor(p * ns.z *ns.z);
-        vec4 x_ = floor(j * ns.z);
-        vec4 y_ = floor(j - 7.0 * x_ );
-        vec4 x = x_ *ns.x + ns.yyyy;
-        vec4 y = y_ *ns.x + ns.yyyy;
-        vec4 h = 1.0 - abs(x) - abs(y);
-        vec4 b0 = vec4( x.xy, y.xy );
-        vec4 b1 = vec4( x.zw, y.zw );
-        vec4 s0 = floor(b0)*2.0 + 1.0;
-        vec4 s1 = floor(b1)*2.0 + 1.0;
-        vec4 sh = -step(h, vec4(0.0));
-        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
-        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
-        vec3 p0 = vec3(a0.xy,h.x);
-        vec3 p1 = vec3(a0.zw,h.y);
-        vec3 p2 = vec3(a1.xy,h.z);
-        vec3 p3 = vec3(a1.zw,h.w);
-        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-        p0 *= norm.x;
-        p1 *= norm.y;
-        p2 *= norm.z;
-        p3 *= norm.w;
-        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-        m = m * m;
-        return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
-      }
+        // --- COMPACT SIMPLEX NOISE FOR GLSL ---
+        const snoiseGLSL = `
+            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec3 permute(vec3 x) { return mod289(((x*34.0)+10.0)*x); }
+            float snoise(vec2 v) {
+                const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+                vec2 i  = floor(v + dot(v, C.yy) );
+                vec2 x0 = v -   i + dot(i, C.xx);
+                vec2 i1;
+                i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                vec4 x12 = x0.xyxy + C.xxzz;
+                x12.xy -= i1;
+                i = mod289(i);
+                vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+                vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+                m = m*m ; m = m*m ;
+                vec3 x = 2.0 * fract(p * C.www) - 1.0;
+                vec3 h = abs(x) - 0.5;
+                vec3 ox = floor(x + 0.5);
+                vec3 a0 = x - ox;
+                m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+                vec3 g;
+                g.x  = a0.x  * x0.x  + h.x  * x0.y;
+                g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+                return 130.0 * dot(m, g);
+            }
+        `;
 
-      float fbm(vec3 p) {
-        float sum = 0.0;
-        float amp = 1.0;
-        float freq = 1.0;
-        for(int i = 0; i < 4; i++) {
-            sum += snoise(p * freq) * amp;
-            freq *= 2.0;
-            amp *= 0.5;
+        // --- SIMULATION SHADER (The Feral Mechanism) ---
+        // Blends Reaction-Diffusion with Domain Warping and spatially varying parameters.
+        const simMaterial = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_state: { value: null },
+                u_res: { value: new THREE.Vector2(SIM_RES, SIM_RES) },
+                u_time: { value: 0 },
+                u_mouse: { value: new THREE.Vector2(-1, -1) },
+                u_mouse_pressed: { value: 0 }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                precision highp float;
+                uniform sampler2D u_state;
+                uniform vec2 u_res;
+                uniform float u_time;
+                uniform vec2 u_mouse;
+                uniform float u_mouse_pressed;
+                in vec2 vUv;
+                out vec4 fragColor;
+
+                ${snoiseGLSL}
+
+                void main() {
+                    vec2 px = 1.0 / u_res;
+                    
+                    // DOMAIN WARP: The chemical lattice is fluid and shifting
+                    float warpX = snoise(vUv * 3.0 + u_time * 0.1);
+                    float warpY = snoise(vUv * 3.0 - u_time * 0.15 + 100.0);
+                    vec2 flowWarp = vec2(warpX, warpY) * 0.003;
+                    
+                    vec2 uv = vUv + flowWarp;
+
+                    vec2 state = texture(u_state, uv).rg;
+                    float u = state.r;
+                    float v = state.g;
+
+                    // 9-Point Laplacian (Karl Sims weighted)
+                    vec2 lap = vec2(0.0);
+                    lap += texture(u_state, uv + vec2(-1.0,  0.0) * px).rg * 0.2;
+                    lap += texture(u_state, uv + vec2( 1.0,  0.0) * px).rg * 0.2;
+                    lap += texture(u_state, uv + vec2( 0.0, -1.0) * px).rg * 0.2;
+                    lap += texture(u_state, uv + vec2( 0.0,  1.0) * px).rg * 0.2;
+                    lap += texture(u_state, uv + vec2(-1.0, -1.0) * px).rg * 0.05;
+                    lap += texture(u_state, uv + vec2( 1.0, -1.0) * px).rg * 0.05;
+                    lap += texture(u_state, uv + vec2(-1.0,  1.0) * px).rg * 0.05;
+                    lap += texture(u_state, uv + vec2( 1.0,  1.0) * px).rg * 0.05;
+                    lap -= state;
+
+                    // FERAL PARAMETERS: Map noise to Pearson Classification map
+                    // Slowly drift across the parameter space (U-Skate -> Mitosis -> Chaos)
+                    float paramNoiseF = snoise(vUv * 1.5 - u_time * 0.02);
+                    float paramNoiseK = snoise(vUv * 1.5 + u_time * 0.03 + 50.0);
+                    
+                    // F range: 0.010 (Chaos) to 0.062 (U-Skate)
+                    float F = mix(0.015, 0.065, paramNoiseF * 0.5 + 0.5);
+                    // k range: 0.041 (Spirals) to 0.065 (Worms)
+                    float k = mix(0.045, 0.065, paramNoiseK * 0.5 + 0.5);
+
+                    // Reaction
+                    float reaction = u * v * v;
+                    
+                    // Gray-Scott Equations
+                    float du = 1.0 * lap.r - reaction + F * (1.0 - u);
+                    float dv = 0.5 * lap.g + reaction - (F + k) * v;
+
+                    float nextU = clamp(u + du, 0.0, 1.0);
+                    float nextV = clamp(v + dv, 0.0, 1.0);
+
+                    // INTERACTION: Inject V (activator) with mouse
+                    if (u_mouse_pressed > 0.5) {
+                        float dist = distance(vUv, u_mouse);
+                        if (dist < 0.02) {
+                            nextV = mix(nextV, 1.0, smoothstep(0.02, 0.0, dist));
+                            nextU = mix(nextU, 0.0, smoothstep(0.02, 0.0, dist));
+                        }
+                    }
+
+                    fragColor = vec4(nextU, nextV, 0.0, 1.0);
+                }
+            `
+        });
+
+        // --- DISPLAY SHADER (The Lisa Frank Aesthetic) ---
+        // Maps the chemical state to aggressive, saturated, embossed neon colors.
+        const displayMaterial = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_state: { value: null },
+                u_time: { value: 0 },
+                u_res: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                precision highp float;
+                uniform sampler2D u_state;
+                uniform float u_time;
+                uniform vec2 u_res;
+                in vec2 vUv;
+                out vec4 fragColor;
+
+                ${snoiseGLSL}
+
+                // Psychedelic HSB to RGB
+                vec3 hsb2rgb(vec3 c) {
+                    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+                    rgb = rgb * rgb * (3.0 - 2.0 * rgb);
+                    return c.z * mix(vec3(1.0), rgb, c.y);
+                }
+
+                void main() {
+                    // Slight zoom and pan for the display
+                    vec2 uv = (vUv - 0.5) * 0.95 + 0.5;
+                    uv += vec2(sin(u_time*0.1), cos(u_time*0.15)) * 0.02;
+
+                    vec2 state = texture(u_state, uv).rg;
+                    float u = state.r;
+                    float v = state.g;
+
+                    // Compute pseudo-normals for embossing (Karl Sims style)
+                    vec2 px = 1.0 / vec2(512.0); // Match sim res
+                    float vn = texture(u_state, uv + vec2(0.0, 1.0)*px).g;
+                    float ve = texture(u_state, uv + vec2(1.0, 0.0)*px).g;
+                    vec2 grad = vec2(ve - v, vn - v);
+                    float emboss = dot(grad, normalize(vec2(1.0, 1.0))) * 12.0;
+
+                    // Lisa Frank Neon Mutation
+                    // Base hue driven by V concentration and spatial noise
+                    float baseNoise = snoise(uv * 4.0 + u_time * 0.2);
+                    
+                    // Hot magenta, cyan, electric yellow, lime green
+                    float hue = fract(v * 1.5 - u_time * 0.1 + baseNoise * 0.3);
+                    
+                    // Quantize hue slightly for a retro posterized feel
+                    hue = mix(hue, floor(hue * 8.0) / 8.0, 0.6);
+
+                    // Saturation drops where U is high (background)
+                    float sat = smoothstep(0.1, 0.6, 1.0 - u) * 0.8 + 0.2;
+                    
+                    // Brightness spiked by reaction edges (emboss)
+                    float bri = smoothstep(0.0, 0.4, v) + emboss;
+                    
+                    // Deep space background with subtle void tendrils
+                    float bgNoise = snoise(uv * 10.0 - u_time * 0.5);
+                    vec3 bg = vec3(0.05, 0.0, 0.15) * (1.0 + bgNoise * 0.5);
+
+                    vec3 col = hsb2rgb(vec3(hue, sat, clamp(bri, 0.0, 1.0)));
+                    
+                    // Blend reaction over background
+                    col = mix(bg, col, smoothstep(0.05, 0.2, v));
+
+                    // Add "Glitter" (high freq noise on high gradients)
+                    float glitterNoise = fract(sin(dot(vUv + u_time, vec2(12.9898, 78.233))) * 43758.5453);
+                    float glitter = step(0.85, glitterNoise) * smoothstep(0.05, 0.15, length(grad));
+                    col += glitter * vec3(1.0, 0.6, 0.9); // Pinkish glitter
+
+                    // Vignette
+                    float vig = length(vUv - 0.5);
+                    col *= smoothstep(0.8, 0.3, vig);
+
+                    fragColor = vec4(col, 1.0);
+                }
+            `
+        });
+
+        const mesh = new THREE.Mesh(geometry, simMaterial);
+        scene.add(mesh);
+
+        // --- INITIAL SEEDING ---
+        // Create a noisy canvas to seed the initial textures
+        const seedCanvas = document.createElement('canvas');
+        seedCanvas.width = SIM_RES;
+        seedCanvas.height = SIM_RES;
+        const sctx = seedCanvas.getContext('2d');
+        
+        // Fill with U=1 (Red channel in texture, mapped to red color here)
+        sctx.fillStyle = 'rgba(255, 0, 0, 255)'; 
+        sctx.fillRect(0, 0, SIM_RES, SIM_RES);
+        
+        // Draw chaotic V seeds (Green channel)
+        sctx.fillStyle = 'rgba(255, 255, 0, 255)'; // R=255 (U=1), G=255 (V=1)
+        for(let i=0; i<50; i++) {
+            sctx.beginPath();
+            sctx.arc(
+                Math.random() * SIM_RES, 
+                Math.random() * SIM_RES, 
+                Math.random() * 15 + 2, 
+                0, Math.PI*2
+            );
+            sctx.fill();
         }
-        return sum;
-      }
+        
+        const seedTexture = new THREE.CanvasTexture(seedCanvas);
+        seedTexture.minFilter = THREE.LinearFilter;
+        seedTexture.magFilter = THREE.LinearFilter;
 
-      // Domain Warp Combinator
-      vec2 domainWarp(vec2 p, float time) {
-        float warp = fbm(vec3(p * 2.0, time * 0.2));
-        float warp2 = fbm(vec3(p * 2.0 + warp, time * 0.3 + 1.2));
-        return p + vec2(warp, warp2) * 0.2;
-      }
+        // Render seed to rtA
+        simMaterial.uniforms.u_state.value = seedTexture;
+        renderer.setRenderTarget(rtA);
+        renderer.render(scene, camera);
+        
+        // Clean up seed texture mapping, replace with rtA for ping-pong
+        mesh.material = simMaterial;
 
-      // Cymatic Vibration Physics: Chladni Resonance Patterns
-      float chladni(vec2 p, float m, float n) {
-        float a = sin(m * PI * p.x) * sin(n * PI * p.y);
-        float b = sin(n * PI * p.x) * sin(m * PI * p.y);
-        // Nodal lines accumulate sand where vibration is zero
-        float resonance = abs(a + b);
-        // We want the nodal lines to glow (invert the distance to 0)
-        return smoothstep(0.4, 0.0, resonance);
-      }
+        canvas.__three = { 
+            renderer, scene, camera, mesh, 
+            simMaterial, displayMaterial, 
+            rtA, rtB, 
+            frame: 0 
+        };
+    }
 
-      // Psychedelic Collage / Lisa Frank Aesthetic: Acid Vibration Palette
-      vec3 hyperpopPalette(float t) {
-        vec3 voidBlack = vec3(0.04, 0.06, 0.08);
-        vec3 neonCyan = vec3(0.0, 1.0, 0.94); // #00FFEE
-        vec3 hotMagenta = vec3(1.0, 0.0, 0.78); // #FF00C8
-        vec3 acidLime = vec3(0.67, 1.0, 0.0); // #AAFF00
-        vec3 electricOrange = vec3(1.0, 0.42, 0.0); // #FF6B00
-        
-        t = fract(t);
-        if (t < 0.2) return mix(voidBlack, neonCyan, t * 5.0);
-        if (t < 0.4) return mix(neonCyan, hotMagenta, (t - 0.2) * 5.0);
-        if (t < 0.6) return mix(hotMagenta, acidLime, (t - 0.4) * 5.0);
-        if (t < 0.8) return mix(acidLime, electricOrange, (t - 0.6) * 5.0);
-        return mix(electricOrange, voidBlack, (t - 0.8) * 5.0);
-      }
+    const t = canvas.__three;
+    if (!t) return;
 
-      void main() {
-        // Normalize coordinates
-        vec2 uv = vUv * 2.0 - 1.0;
-        uv.x *= u_resolution.x / u_resolution.y;
-        
-        // Surveillance Apparition: Mouse as a strange attractor
-        vec2 mouse = u_mouse * 2.0 - 1.0;
-        mouse.x *= u_resolution.x / u_resolution.y;
-        float dMouse = length(uv - mouse);
-        
-        // Tension: Mouse pull (distorts space heavily if close)
-        float pull = (u_isPressed > 0.5 ? 0.3 : 0.05) / (dMouse + 0.1);
-        uv += normalize(uv - mouse) * pull * sin(u_time * 4.0);
+    // --- UPDATE UNIFORMS ---
+    const mx = mouse.x / grid.width;
+    const my = 1.0 - (mouse.y / grid.height); // Flip Y for WebGL
 
-        // Candy-Crash Compression (Glitchcore Macroblocking)
-        float glitchThreshold = u_isPressed > 0.5 ? 0.2 : 0.75;
-        vec2 block = floor(uv * 16.0) / 16.0;
-        float glitchNoise = fbm(vec3(block * 3.0, u_time * 1.5));
-        
-        if (glitchNoise > glitchThreshold) {
-            // Horizontal tearing / Scanline sync loss
-            uv.x += snoise(vec3(block.y * 10.0, u_time, 0.0)) * (u_isPressed > 0.5 ? 0.4 : 0.1);
-            // Vertical jitter
-            uv.y -= snoise(vec3(block.x * 10.0, u_time, 1.0)) * 0.02;
-        }
+    if (t.simMaterial && t.simMaterial.uniforms) {
+        t.simMaterial.uniforms.u_time.value = time;
+        t.simMaterial.uniforms.u_mouse.value.set(mx, my);
+        t.simMaterial.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
+    }
+    
+    if (t.displayMaterial && t.displayMaterial.uniforms) {
+        t.displayMaterial.uniforms.u_time.value = time;
+        t.displayMaterial.uniforms.u_res.value.set(grid.width, grid.height);
+    }
 
-        // Apply Domain Warp to UVs
-        vec2 warpedUv = domainWarp(uv, u_time);
-        
-        // Oscillating Modal Frequencies (Chladni Plate Simulation)
-        float m = 2.0 + 3.0 * abs(sin(u_time * 0.2));
-        float n = 3.0 + 4.0 * abs(cos(u_time * 0.15));
-        
-        // CMYK Misregistration / RGB Phantom (Channel Split)
-        float splitStrength = u_isPressed > 0.5 ? 0.15 : 0.02;
-        float rOffset = splitStrength * snoise(vec3(uv.y * 5.0, u_time, 0.0));
-        float bOffset = -splitStrength * snoise(vec3(uv.y * 6.0, u_time, 1.0));
-        
-        // Calculate Cymatic Resonance for each color channel
-        float chR = chladni(warpedUv + vec2(rOffset, 0.0), m, n);
-        float chG = chladni(warpedUv, m, n);
-        float chB = chladni(warpedUv + vec2(bOffset, 0.0), m, n);
-        
-        // Map to Acid Vibration Palette & Phosphor Bloom
-        vec3 colorR = hyperpopPalette(chR - u_time * 0.3 + 0.0);
-        vec3 colorG = hyperpopPalette(chG - u_time * 0.3 + 0.33);
-        vec3 colorB = hyperpopPalette(chB - u_time * 0.3 + 0.66);
-        
-        vec3 finalColor = vec3(colorR.r, colorG.g, colorB.b);
-        
-        // Damage Aesthetics: CRT Raster & Scanlines
-        float scanline = sin(vUv.y * u_resolution.y * 2.0) * 0.05;
-        finalColor -= scanline;
-        
-        // Damage Aesthetics: Photocopy Noise / Film Grain
-        float grain = fract(sin(dot(vUv * (u_time + 1.0), vec2(12.9898, 78.233))) * 43758.5453);
-        finalColor += (grain - 0.5) * 0.15;
-        
-        // Damage Aesthetics: Vignette / Cathode Tube Edge Burn
-        float vignette = length(vUv - 0.5);
-        finalColor *= smoothstep(0.8, 0.3, vignette);
-        
-        // Overdrive pop on click (Temporal Echo Stutter simulation)
-        if (u_isPressed > 0.5 && sin(u_time * 50.0) > 0.0) {
-            finalColor = 1.0 - finalColor; // Invert flash
-        }
-        
-        fragColor = vec4(finalColor, 1.0);
-      }
-    `;
+    // --- PING-PONG SIMULATION LOOP ---
+    // Multiple steps per frame for faster evolution
+    const steps = 12; 
+    t.mesh.material = t.simMaterial;
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
-        u_isPressed: { value: 0.0 }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
+    for (let i = 0; i < steps; i++) {
+        const readTarget = (t.frame % 2 === 0) ? t.rtA : t.rtB;
+        const writeTarget = (t.frame % 2 === 0) ? t.rtB : t.rtA;
 
-    const geometry = new THREE.PlaneGeometry(2, 2);
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
+        t.simMaterial.uniforms.u_state.value = readTarget.texture;
+        t.renderer.setRenderTarget(writeTarget);
+        t.renderer.render(t.scene, t.camera);
 
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
-    return;
-  }
+        t.frame++;
+    }
+
+    // --- DISPLAY TO SCREEN ---
+    t.mesh.material = t.displayMaterial;
+    // Read from the last written target
+    t.displayMaterial.uniforms.u_state.value = (t.frame % 2 === 0) ? t.rtA.texture : t.rtB.texture;
+    
+    t.renderer.setRenderTarget(null);
+    t.renderer.setSize(grid.width, grid.height, false);
+    t.renderer.render(t.scene, t.camera);
+
+} catch (e) {
+    console.error("Feral Mold System Failure:", e);
+    // Fallback if WebGL fails (e.g. context loss)
+    if (ctx) {
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, grid.width, grid.height);
+        ctx.fillStyle = '#ff00ff';
+        ctx.font = '20px monospace';
+        ctx.fillText('CRITICAL: WEBGL CONTEXT LOST', 20, 40);
+        ctx.fillText('FERAL MOLD CONTAINED.', 20, 70);
+    }
 }
-
-const { renderer, scene, camera, material } = canvas.__three;
-
-if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  
-  // Normalize mouse coordinates [0.0, 1.0] mapping from top-left, inverted Y for GLSL
-  const mx = mouse.x / grid.width;
-  const my = 1.0 - (mouse.y / grid.height);
-  
-  // Smoothly interpolate mouse position for a fluid "strange attractor" feel
-  material.uniforms.u_mouse.value.x += (mx - material.uniforms.u_mouse.value.x) * 0.1;
-  material.uniforms.u_mouse.value.y += (my - material.uniforms.u_mouse.value.y) * 0.1;
-  
-  material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
-}
-
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
