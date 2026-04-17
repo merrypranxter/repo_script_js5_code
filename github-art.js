@@ -1,409 +1,231 @@
-const REPULSION_RADIUS = 25;
-const REST_LENGTH = 6;
-const MAX_EDGE_LENGTH = 14;
-const REPULSION_FORCE = 1.2;
-const SPRING_FORCE = 0.6;
-const DRAG = 0.75;
-const MAX_NODES = 3500;
+try {
+  if (!canvas.__three) {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
-// Fantastic Planet / Roland Topor Palette
-const paper = "#E8DFC8";
-const ink = "#2F2A2A";
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
 
-// Pseudo-random noise for organic writhing
-function fluidNoise(x, y, t) {
-  return Math.sin(x * 0.02 + t) + Math.sin(y * 0.025 - t) + Math.sin((x + y) * 0.015 + t * 0.5);
-}
-
-function createNode(x, y) {
-  return { x, y, vx: 0, vy: 0 };
-}
-
-function createPath(x, y, radius, color) {
-  const nodes = [];
-  const count = 30;
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    nodes.push(createNode(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius));
-  }
-  return { nodes, color };
-}
-
-function createSpore(x, y) {
-  return {
-    x, y,
-    vx: (Math.random() - 0.5) * 2,
-    vy: (Math.random() - 0.5) * 2,
-    r: 1 + Math.random() * 2.5,
-    seed: Math.random() * 100
-  };
-}
-
-function createSpatialHash(cellSize) {
-  return {
-    cellSize,
-    cells: new Map(),
-    insert(node) {
-      const cx = Math.floor(node.x / this.cellSize);
-      const cy = Math.floor(node.y / this.cellSize);
-      const key = cx + ',' + cy;
-      if (!this.cells.has(key)) this.cells.set(key, []);
-      this.cells.get(key).push(node);
-    },
-    getNeighbors(node, radius) {
-      const neighbors = [];
-      const cx = Math.floor(node.x / this.cellSize);
-      const cy = Math.floor(node.y / this.cellSize);
-      const range = Math.ceil(radius / this.cellSize);
-      for (let i = -range; i <= range; i++) {
-        for (let j = -range; j <= range; j++) {
-          const key = (cx + i) + ',' + (cy + j);
-          const cell = this.cells.get(key);
-          if (cell) {
-            for (let k = 0; k < cell.length; k++) {
-              if (cell[k] !== node) neighbors.push(cell[k]);
-            }
-          }
-        }
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
       }
-      return neighbors;
-    }
-  };
-}
+    `;
 
-function updatePathPhysics(path, hash, mouse, grid, time) {
-  const nodes = path.nodes;
-  
-  // Spring forces to maintain edge lengths
-  for (let i = 0; i < nodes.length; i++) {
-    const n1 = nodes[i];
-    const n2 = nodes[(i + 1) % nodes.length];
-    const dx = n2.x - n1.x;
-    const dy = n2.y - n1.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > 0) {
-      const diff = dist - REST_LENGTH;
-      const force = diff * SPRING_FORCE;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      n1.vx += fx; n1.vy += fy;
-      n2.vx -= fx; n2.vy -= fy;
-    }
-  }
-  
-  const cx = grid.width / 2;
-  const cy = grid.height / 2;
-  const maxR = Math.min(cx, cy) * 0.8;
-  
-  for (const n1 of nodes) {
-    // Spatial repulsion (prevents self-intersection and creates wrinkles)
-    const neighbors = hash.getNeighbors(n1, REPULSION_RADIUS);
-    for (const n2 of neighbors) {
-      const dx = n1.x - n2.x;
-      const dy = n1.y - n2.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist > 0 && dist < REPULSION_RADIUS) {
-        const force = (REPULSION_RADIUS - dist) / REPULSION_RADIUS * REPULSION_FORCE;
-        n1.vx += (dx / dist) * force;
-        n1.vy += (dy / dist) * force;
+    const fragmentShader = `
+      precision highp float;
+      in vec2 vUv;
+      out vec4 fragColor;
+
+      uniform float u_time;
+      uniform vec2 u_resolution;
+      uniform vec2 u_mouse;
+
+      // --- Noise Utilities (from noise_fields) ---
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
+      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+      float snoise(vec3 v) {
+        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i  = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - D.yyy;
+        i = mod289(i);
+        vec4 p = permute(permute(permute(
+                   i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                 + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                 + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+        float n_ = 0.142857142857;
+        vec3 ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x = x_ * ns.x + ns.yyyy;
+        vec4 y = y_ * ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4(x.xy, y.xy);
+        vec4 b1 = vec4(x.zw, y.zw);
+        vec4 s0 = floor(b0) * 2.0 + 1.0;
+        vec4 s1 = floor(b1) * 2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+        vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+        vec3 p0 = vec3(a0.xy, h.x);
+        vec3 p1 = vec3(a0.zw, h.y);
+        vec3 p2 = vec3(a1.xy, h.z);
+        vec3 p3 = vec3(a1.zw, h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
       }
-    }
-    
-    // Mouse repulsor field
-    if (mouse.isPressed) {
-      const dx = n1.x - mouse.x;
-      const dy = n1.y - mouse.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 120) {
-        n1.vx += (dx / dist) * 3;
-        n1.vy += (dy / dist) * 3;
+
+      vec3 curlNoise(vec3 p) {
+          float e = 0.1;
+          vec3 dx = vec3(e, 0.0, 0.0);
+          vec3 dy = vec3(0.0, e, 0.0);
+          vec3 dz = vec3(0.0, 0.0, e);
+          
+          float x = snoise(p + dy) - snoise(p - dy) - (snoise(p + dz) - snoise(p - dz));
+          float y = snoise(p + dz) - snoise(p - dz) - (snoise(p + dx) - snoise(p - dx));
+          float z = snoise(p + dx) - snoise(p - dx) - (snoise(p + dy) - snoise(p - dy));
+          
+          return normalize(vec3(x, y, z) + 0.001);
       }
-    }
-    
-    // Gentle boundary containment
-    const cdist = Math.hypot(n1.x - cx, n1.y - cy);
-    if (cdist > maxR) {
-      const force = (cdist - maxR) * 0.05;
-      n1.vx -= (n1.x - cx) / cdist * force;
-      n1.vy -= (n1.y - cy) / cdist * force;
-    }
-    
-    // Organic writhing
-    const angle = fluidNoise(n1.x, n1.y, time * 0.5) * Math.PI;
-    n1.vx += Math.cos(angle) * 0.2;
-    n1.vy += Math.sin(angle) * 0.2;
+
+      // --- G2 Grammar (from g2) ---
+      vec3 g2PhiField(vec3 p) {
+          float a = snoise(p * 2.1 + u_time * 0.25);
+          float b = snoise(p * 2.7 - u_time * 0.11);
+          float c = snoise(p * 3.2 + u_time * 0.32);
+          return normalize(vec3(a + 0.3 * c, b - 0.25 * c, snoise(p * 2.0)));
+      }
+
+      vec3 g2DualField(vec3 p, vec3 phi) {
+          return normalize(vec3(-phi.y, phi.x, cos((p.x - p.y) * 2.4 - u_time * 0.47)));
+      }
+
+      // --- Color Fields (from color_fields) ---
+      vec3 cyberdelicNeon(float t) {
+          vec3 a = vec3(0.04, 0.03, 0.08); 
+          vec3 b = vec3(0.8, 0.5, 0.6);
+          vec3 c = vec3(2.0, 1.0, 1.0);
+          vec3 d = vec3(0.5, 0.2, 0.25);
+          return a + b * cos(6.28318 * (c * t + d));
+      }
+
+      // --- Scene Evaluation ---
+      vec3 evaluateHologram(vec2 uv) {
+          // 1. AdS Geometry / Scale (from holography)
+          // radial depth = scale. UV edge = high freq.
+          float z = max(0.02, 1.0 - uv.y); // Boundary at top (y=1)
+          vec2 p = (uv - 0.5) * 2.0;
+          p.x *= u_resolution.x / u_resolution.y;
+          
+          // Interaction warp
+          p += (u_mouse - 0.5) * 0.8;
+
+          // Project into bulk
+          vec3 bulkP = vec3(p / z, u_time * 0.15);
+
+          // 2. Curl Advection (from noise_fields)
+          vec3 flow = curlNoise(bulkP * 0.4);
+          bulkP += flow * 1.8 * z; // Stronger flow deep in bulk
+
+          // 3. G2 Fields & Torsion
+          vec3 phi = g2PhiField(bulkP);
+          vec3 dual = g2DualField(bulkP, phi);
+          float torsion = abs(dot(phi, dual));
+
+          // 4. Singularity & Resolution Healing
+          float fracture = snoise(bulkP * 6.0 + phi * 3.0);
+          float singularityMask = smoothstep(0.75, 1.0, fracture + torsion);
+          
+          // 5. Light-Sheet Projection (from holography)
+          float lightSheet = step(0.96, fract(bulkP.y * 8.0 - u_time * 1.5));
+          
+          // 6. Color Mapping
+          vec3 baseColor = cyberdelicNeon(torsion + flow.x * 0.3);
+          vec3 scarGlow = vec3(1.0, 0.0, 0.8) * singularityMask * 2.5; 
+          vec3 cyanPulse = vec3(0.0, 1.0, 0.9) * lightSheet * (1.0 - singularityMask);
+          
+          vec3 finalColor = baseColor + scarGlow + cyanPulse;
+          
+          // Fade to void at deep bulk and boundary edge
+          finalColor *= smoothstep(0.0, 0.2, z) * (1.0 - smoothstep(0.7, 1.0, z));
+          
+          return finalColor;
+      }
+
+      void main() {
+          vec2 uv = vUv;
+          
+          // CMYK Misregistration (from psychedelic_collage)
+          float glitch = snoise(vec3(uv * 15.0, u_time)) * 0.015;
+          vec2 rOffset = vec2(0.008 + glitch, 0.0);
+          vec2 gOffset = vec2(-0.004, 0.006 - glitch);
+          vec2 bOffset = vec2(0.0, -0.007 + glitch);
+          
+          float r = evaluateHologram(uv + rOffset).r;
+          float g = evaluateHologram(uv + gOffset).g;
+          float b = evaluateHologram(uv + bOffset).b;
+          
+          vec3 color = vec3(r, g, b);
+
+          // Xerox Noise & Halftone Screen (from psychedelic_collage)
+          float luma = dot(color, vec3(0.299, 0.587, 0.114));
+          
+          // Electrostatic grain & streaks
+          float seed = dot(uv * u_resolution, vec2(12.9898, 78.233)) + u_time;
+          float grain = fract(sin(seed) * 43758.5453);
+          float streak = step(0.995, fract(sin(uv.x * 200.0 + u_time * 0.1) * 43758.5453));
+          
+          color += (grain - 0.5) * mix(0.1, 0.3, 1.0 - luma); // More grain in dark areas
+          color += vec3(0.8, 0.2, 0.5) * streak * 0.5; // Acid xerox streak
+          
+          // Halftone dots (45 degree screen)
+          float angle = 0.785398; 
+          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+          vec2 gridUV = rot * uv * u_resolution.x / 4.0;
+          vec2 cell = fract(gridUV) - 0.5;
+          float dotDist = length(cell);
+          float dotRadius = sqrt(luma) * 0.65;
+          float halftone = smoothstep(dotRadius + 0.15, dotRadius - 0.15, dotDist);
+          
+          // Ink Bleed / Multiply blend
+          color = mix(color * 0.2, color * 1.8, halftone);
+          
+          // Vignette (from color_fields)
+          float vignette = 1.0 - smoothstep(0.4, 1.5, length(uv - 0.5) * 2.0);
+          color *= vignette;
+
+          fragColor = vec4(color, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0, 0) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthTest: false,
+      depthWrite: false
+    });
+
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+
+    canvas.__three = { renderer, scene, camera, material };
   }
+
+  const { renderer, scene, camera, material } = canvas.__three;
   
-  // Integrate velocity
-  for (const n of nodes) {
-    n.vx = Math.max(-6, Math.min(6, n.vx));
-    n.vy = Math.max(-6, Math.min(6, n.vy));
-    n.x += n.vx;
-    n.y += n.vy;
-    n.vx *= DRAG;
-    n.vy *= DRAG;
+  if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    if (material.uniforms.u_mouse) material.uniforms.u_mouse.value.set(mouse.x / grid.width, 1.0 - mouse.y / grid.height);
   }
+
+  renderer.setSize(grid.width, grid.height, false);
+  renderer.render(scene, camera);
+
+} catch (err) {
+  console.error("Feral WebGL Error:", err);
 }
-
-function growPath(path) {
-  const nodes = path.nodes;
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    const n1 = nodes[i];
-    const n2 = nodes[(i + 1) % nodes.length];
-    const dist = Math.hypot(n1.x - n2.x, n1.y - n2.y);
-    if (dist > MAX_EDGE_LENGTH) {
-      nodes.splice(i + 1, 0, createNode((n1.x + n2.x) / 2, (n1.y + n2.y) / 2));
-    }
-  }
-}
-
-function updateSpore(s, hash, grid, time) {
-  s.x += s.vx;
-  s.y += s.vy;
-  
-  const angle = fluidNoise(s.x, s.y, time + s.seed) * Math.PI;
-  s.vx += Math.cos(angle) * 0.15;
-  s.vy += Math.sin(angle) * 0.15;
-  
-  s.vx *= 0.95;
-  s.vy *= 0.95;
-  
-  const neighbors = hash.getNeighbors(s, 30);
-  for (const n of neighbors) {
-    const dx = s.x - n.x;
-    const dy = s.y - n.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 30 && dist > 0) {
-      s.vx += (dx / dist) * 1.5;
-      s.vy += (dy / dist) * 1.5;
-    }
-  }
-  
-  if (s.x < 0) s.x = grid.width;
-  if (s.x > grid.width) s.x = 0;
-  if (s.y < 0) s.y = grid.height;
-  if (s.y > grid.height) s.y = 0;
-}
-
-// ------------------------------------------------------------------
-// Main Execution
-// ------------------------------------------------------------------
-
-if (!canvas.__growthState || canvas.__growthState.w !== grid.width || canvas.__growthState.h !== grid.height) {
-  const state = {
-    w: grid.width,
-    h: grid.height,
-    paths: [],
-    spores: []
-  };
-  
-  // Palette from Topor / La Planète Sauvage orbit
-  const colors = ["#8EA3B0", "#D8C98E", "#C98B8A", "#A45E4D", "#8E9A72", "#8A7C92"];
-  colors.sort(() => Math.random() - 0.5);
-  
-  // Spawn initial biological seeds
-  for (let i = 0; i < 5; i++) {
-    const cx = grid.width / 2 + (Math.random() - 0.5) * 200;
-    const cy = grid.height / 2 + (Math.random() - 0.5) * 200;
-    state.paths.push(createPath(cx, cy, 30, colors[i % colors.length]));
-  }
-  
-  for (let i = 0; i < 120; i++) {
-    state.spores.push(createSpore(
-      Math.random() * grid.width,
-      Math.random() * grid.height
-    ));
-  }
-  
-  // Pre-render the dusty paper background and static ecological stalks
-  const offCanvas = document.createElement('canvas');
-  offCanvas.width = grid.width;
-  offCanvas.height = grid.height;
-  const octx = offCanvas.getContext('2d');
-  
-  octx.fillStyle = paper;
-  octx.fillRect(0, 0, grid.width, grid.height);
-
-  // Print-era paper grain texture
-  octx.fillStyle = "#D8C98E";
-  for(let i=0; i < (grid.width * grid.height / 50); i++) {
-    octx.fillRect(Math.random() * grid.width, Math.random() * grid.height, 1.5, 1.5);
-  }
-  octx.fillStyle = "#C98B8A";
-  for(let i=0; i < (grid.width * grid.height / 200); i++) {
-    octx.fillRect(Math.random() * grid.width, Math.random() * grid.height, 1, 1);
-  }
-  
-  // Surreal stalks/towers
-  octx.strokeStyle = ink;
-  octx.lineWidth = 1.2;
-  octx.fillStyle = paper;
-  for(let i=1; i<=12; i++) {
-    const seed = i * 13.37;
-    const x = grid.width * (0.05 + 0.9 * (seed % 1));
-    const height = grid.height * (0.15 + 0.5 * ((seed * 2.1) % 1));
-    
-    octx.beginPath();
-    octx.moveTo(x, grid.height);
-    for(let y = grid.height; y >= grid.height - height; y -= 5) {
-      octx.lineTo(x + Math.sin(y * 0.03 + i) * 8, y);
-    }
-    octx.stroke();
-    
-    // Seed pods on stalks
-    for(let j=0; j<4; j++) {
-      const py = grid.height - height + j * 40;
-      if (py > grid.height) continue;
-      const px = x + Math.sin(py * 0.03 + i) * 8;
-      octx.beginPath();
-      octx.ellipse(px + (j%2===0?6:-6), py, 4, 10, (j%2===0?0.2:-0.2), 0, Math.PI*2);
-      octx.fill();
-      octx.stroke();
-    }
-  }
-  
-  state.bgPattern = offCanvas;
-  canvas.__growthState = state;
-}
-
-const state = canvas.__growthState;
-
-// 1. Draw Background
-ctx.drawImage(state.bgPattern, 0, 0);
-
-// 2. Physics Integration (2 steps for stability)
-for(let step = 0; step < 2; step++) {
-  const hash = createSpatialHash(REPULSION_RADIUS);
-  for (const p of state.paths) {
-    for (const n of p.nodes) hash.insert(n);
-  }
-  for (const p of state.paths) {
-    updatePathPhysics(p, hash, mouse, grid, time);
-  }
-}
-
-// 3. Differential Growth
-let totalNodes = state.paths.reduce((s, p) => s + p.nodes.length, 0);
-if (totalNodes < MAX_NODES) {
-  for (const p of state.paths) growPath(p);
-}
-
-// 4. Render Biological Masses
-for (const p of state.paths) {
-  const pnodes = p.nodes;
-  if (pnodes.length === 0) continue;
-  
-  // Matte fill
-  ctx.beginPath();
-  ctx.moveTo(pnodes[0].x, pnodes[0].y);
-  for (let i = 0; i < pnodes.length; i++) {
-    const n1 = pnodes[i];
-    const n2 = pnodes[(i + 1) % pnodes.length];
-    ctx.quadraticCurveTo(n1.x, n1.y, (n1.x + n2.x) / 2, (n1.y + n2.y) / 2);
-  }
-  ctx.closePath();
-  ctx.fillStyle = p.color;
-  ctx.fill();
-  
-  // Dry ink contour
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  
-  // Sparse hatching for volume
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  for (let i = 0; i < pnodes.length; i++) {
-    if ((i * 17) % 11 > 4) continue; // irregular pattern
-    
-    const n = pnodes[i];
-    const prev = pnodes[(i - 1 + pnodes.length) % pnodes.length];
-    const next = pnodes[(i + 1) % pnodes.length];
-    
-    const dx1 = n.x - prev.x, dy1 = n.y - prev.y;
-    const dx2 = next.x - n.x, dy2 = next.y - n.y;
-    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
-    
-    if (len1 === 0 || len2 === 0) continue;
-    
-    const dot = (dx1/len1)*(dx2/len2) + (dy1/len1)*(dy2/len2);
-    
-    // Draw hatch marks inward at sharp folds
-    if (dot < 0.8 && dot > -0.8) {
-      const nx = -dy1 / len1;
-      const ny = dx1 / len1;
-      const hatchLen = 4 + (i % 3) * 4;
-      ctx.moveTo(n.x, n.y);
-      ctx.lineTo(n.x - nx * hatchLen, n.y - ny * hatchLen);
-    }
-  }
-  ctx.stroke();
-  
-  // Internal absurd anatomy (mask-like eyes / orifices)
-  ctx.fillStyle = paper;
-  ctx.lineWidth = 1;
-  for (let i = 0; i < pnodes.length; i += 35) {
-    const n = pnodes[i];
-    const prev = pnodes[(i - 1 + pnodes.length) % pnodes.length];
-    const dx = n.x - prev.x, dy = n.y - prev.y;
-    const len = Math.hypot(dx, dy);
-    if (len === 0) continue;
-    
-    const inX = dy / len;
-    const inY = -dx / len;
-    const ex = n.x + inX * 14;
-    const ey = n.y + inY * 14;
-    
-    ctx.beginPath();
-    ctx.arc(ex, ey, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    
-    ctx.fillStyle = ink;
-    ctx.beginPath();
-    ctx.arc(ex + inX, ey + inY, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = paper;
-  }
-}
-
-// 5. Render Floating Spores
-const sporeHash = createSpatialHash(30);
-for (const p of state.paths) {
-  for (const n of p.nodes) sporeHash.insert(n);
-}
-
-for (const s of state.spores) {
-  updateSpore(s, sporeHash, grid, time);
-  
-  ctx.beginPath();
-  ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
-  ctx.fillStyle = ink;
-  ctx.fill();
-  
-  ctx.beginPath();
-  ctx.moveTo(s.x, s.y);
-  ctx.lineTo(s.x - s.vx * 4, s.y - s.vy * 4);
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 0.5;
-  ctx.stroke();
-}
-
-// 6. Scientific Specimen Plate Border
-ctx.strokeStyle = ink;
-ctx.lineWidth = 1.5;
-ctx.strokeRect(20, 20, grid.width - 40, grid.height - 40);
-ctx.strokeRect(24, 24, grid.width - 48, grid.height - 48);
-
-ctx.fillStyle = ink;
-ctx.font = "bold 12px monospace";
-ctx.fillText("FIG. 1: SYMBIOTIC LARVAL MORPHOLOGY", 30, grid.height - 30);
-ctx.fillText("SECTOR: OMEGA-7", grid.width - 140, grid.height - 30);
-
-// Registration marks
-ctx.beginPath();
-ctx.moveTo(grid.width/2, 10); ctx.lineTo(grid.width/2, 30);
-ctx.moveTo(grid.width/2, grid.height-10); ctx.lineTo(grid.width/2, grid.height-30);
-ctx.moveTo(10, grid.height/2); ctx.lineTo(30, grid.height/2);
-ctx.moveTo(grid.width-10, grid.height/2); ctx.lineTo(grid.width-30, grid.height/2);
-ctx.stroke();
