@@ -1,23 +1,11 @@
-try {
-  // --- DEFENSIVE WEBGL2 INITIALIZATION ---
-  if (!canvas.__three) {
-    const gl = canvas.getContext('webgl2', { alpha: true, antialias: false });
-    if (!gl) throw new Error("WebGL 2 not supported or context occupied");
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL context not available");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: false });
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    
-    // Using a simple Orthographic camera for a full-screen shader quad
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 1;
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    // --- THE WEIRD MECHANISM: CYMATIC DITHER-DRIFT ---
-    // This shader fuses all 4 repos:
-    // 1. vibration: Chladni plate modal analysis math (eigenfrequencies).
-    // 2. shoegaze_style: Phase drift, moiré interference, halation, chromatic aberration, dissolving edges.
-    // 3. pixel_voxel: Bayer 4x4 ditherpunk quantization, stable pixel grid lock.
-    // 4. lisa_frank_aesthetic: Hyper-saturated neon color mapping.
-    
     const vertexShader = `
       out vec2 vUv;
       void main() {
@@ -27,165 +15,229 @@ try {
     `;
 
     const fragmentShader = `
-      precision highp float;
       in vec2 vUv;
       out vec4 fragColor;
-      
+
       uniform float u_time;
       uniform vec2 u_resolution;
       uniform vec2 u_mouse;
-      
-      // --- REPO: shoegaze_style (lexicon/tokens) ---
-      // "phase drift ripples", "edges dissolving into haze"
-      vec2 phaseWarp(vec2 uv, float amount) {
-          float wx = sin(uv.y * 12.0 + u_time * 1.5) * amount;
-          float wy = cos(uv.x * 12.0 - u_time * 1.5) * amount;
-          return uv + vec2(wx, wy);
+      uniform float u_pressed;
+
+      #define PI 3.14159265359
+      #define PHI 1.61803398875
+
+      // --- SIMPLEX NOISE 3D (from merrypranxter/noise) ---
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 permute(vec4 x) { return mod289(((x*34.0)+10.0)*x); }
+      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+      float snoise(vec3 v) {
+        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i  = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - 0.5;
+        i = mod289(i);
+        vec4 p = permute(permute(permute(
+                   i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                 + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                 + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+        float n_ = 0.142857142857;
+        vec3 ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x = x_ *ns.x + ns.yyyy;
+        vec4 y = y_ *ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4(x.xy, y.xy);
+        vec4 b1 = vec4(x.zw, y.zw);
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+        vec3 p0 = vec3(a0.xy,h.x);
+        vec3 p1 = vec3(a0.zw,h.y);
+        vec3 p2 = vec3(a1.xy,h.z);
+        vec3 p3 = vec3(a1.zw,h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+        vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
       }
-      
-      // --- REPO: lisa_frank_aesthetic ---
-      // "hyper-saturated, neon, rainbow"
-      vec3 lisaFrankPalette(float v) {
-          v = clamp(v, 0.0, 1.0);
-          vec3 c1 = vec3(0.08, 0.0, 0.15); // Deep Trapper-Keeper Space
-          vec3 c2 = vec3(0.5, 0.0, 0.8);   // Neon Violet
-          vec3 c3 = vec3(1.0, 0.0, 0.6);   // Hot Pink
-          vec3 c4 = vec3(0.0, 1.0, 1.0);   // Cyan
-          vec3 c5 = vec3(1.0, 1.0, 0.0);   // Yellow
-          
-          if (v < 0.25) return mix(c1, c2, v * 4.0);
-          if (v < 0.50) return mix(c2, c3, (v - 0.25) * 4.0);
-          if (v < 0.75) return mix(c3, c4, (v - 0.50) * 4.0);
-          return mix(c4, c5, (v - 0.75) * 4.0);
+
+      // --- COLOR PALETTES (from merrypranxter/color_fields) ---
+      vec3 neonAcidPalette(float t) {
+        vec3 a = vec3(0.5);
+        vec3 b = vec3(0.5, 0.5, 0.33);
+        vec3 c = vec3(2.0, 1.0, 1.0);
+        vec3 d = vec3(0.5, 0.2, 0.25);
+        return a + b * cos(6.2831853 * (c * t + d));
       }
-      
-      // --- REPO: vibration (chladni/modal_analysis.md) ---
-      // Eigenmodes for square plates: sin(m*pi*x)*sin(n*pi*y)
-      float chladni(vec2 uv, float m, float n) {
-          vec2 p = uv * 2.0 - 1.0;
-          float pi = 3.14159265;
-          // Injecting shoegaze temporal echo bands
-          float phase = u_time * 2.5; 
-          float t1 = sin(m * pi * p.x + phase) * sin(n * pi * p.y - phase);
-          float t2 = sin(n * pi * p.x - phase) * sin(m * pi * p.y + phase);
-          return t1 + t2;
+
+      vec3 blackBody(float t) {
+        t = clamp(t, 0.0, 1.0);
+        vec3 c;
+        c.r = smoothstep(0.0, 0.33, t);
+        c.g = smoothstep(0.15, 0.6, t) * 0.85;
+        c.b = smoothstep(0.4, 0.9, t) * 0.6;
+        c *= 0.5 + 2.0 * t * t;
+        return c;
       }
-      
-      // Core signal generator combining vibration and shoegaze interference
-      float getSignal(vec2 uv) {
-          // Autonomous drift if mouse is idle, otherwise driven by user
-          float targetM = 2.0 + (u_mouse.x / u_resolution.x) * 8.0;
-          float targetN = 3.0 + (u_mouse.y / u_resolution.y) * 8.0;
-          float mx = mix(3.0 + 2.0 * sin(u_time * 0.4), targetM, step(0.01, u_mouse.x));
-          float ny = mix(4.0 + 2.0 * cos(u_time * 0.3), targetN, step(0.01, u_mouse.y));
-          
-          // "moire interference shimmer"
-          float moire = sin(uv.x * 120.0 + u_time) * sin(uv.y * 125.0 - u_time) * 0.15;
-          
-          float c = chladni(uv, mx, ny);
-          
-          // Sand collects at nodes (where amplitude is near 0)
-          float node = 1.0 - smoothstep(0.0, 0.35, abs(c + moire));
-          
-          // "film grain clumps"
-          float grain = fract(sin(dot(uv, vec2(12.9898, 78.233)) + u_time) * 43758.5453);
-          
-          return node + grain * 0.15;
+
+      // --- QUASICRYSTAL MATH (from merrypranxter/quasicrystals) ---
+      // 5-fold symmetry wave interference
+      float quasicrystal(vec2 p, float scale) {
+        float val = 0.0;
+        for(float i = 0.0; i < 5.0; i++) {
+          float angle = i * PI / 5.0;
+          vec2 dir = vec2(cos(angle), sin(angle));
+          // Add phase shift based on golden ratio for aperiodic complexity
+          float phase = snoise(vec3(dir * 2.0, u_time * 0.1)) * PHI;
+          val += cos(dot(p, dir) * scale + phase);
+        }
+        return val / 5.0;
+      }
+
+      // --- STRUCTURAL COLOR (from merrypranxter/structural_color) ---
+      vec3 thinFilmInterference(float thickness, float cosTheta) {
+        // Simplified physical model: 2nd cos(theta) = m * lambda
+        float n_film = 1.56; // Chitin/membrane index
+        float pathDiff = 2.0 * n_film * thickness * cosTheta;
+        
+        // Map optical path to a phase in our Lisa Frank neon palette
+        // This simulates the iridescence shifting across the spectrum
+        float phase = fract(pathDiff * 0.002 - u_time * 0.2);
+        return neonAcidPalette(phase);
+      }
+
+      // --- MEMBRANE HEIGHT FIELD ---
+      float mapHeight(vec2 p) {
+        // Domain warp (fungal infection creeping into rigid math)
+        vec2 warpedP = p;
+        float warpStrength = 0.5 + 0.5 * snoise(vec3(p * 0.5, u_time * 0.05));
+        warpedP.x += snoise(vec3(p * 2.0, u_time * 0.1)) * warpStrength;
+        warpedP.y += snoise(vec3(p * 2.0 + 10.0, u_time * 0.1)) * warpStrength;
+
+        // Base quasiperiodic structure
+        float qc = quasicrystal(warpedP, 15.0);
+        
+        // Modulate with macro noise
+        float macro = snoise(vec3(p * 1.5, u_time * 0.02));
+        
+        // Mouse interaction: creates a bulging stress fracture
+        float dMouse = length(p - u_mouse);
+        float mouseBulge = exp(-dMouse * 8.0) * (0.5 + u_pressed * 1.5);
+        mouseBulge *= sin(dMouse * 40.0 - u_time * 10.0) * 0.5 + 0.5; // Newton's rings at touch point
+
+        return (qc * 0.5 + 0.5) * (macro * 0.5 + 0.5) + mouseBulge;
       }
 
       void main() {
-          // --- REPO: pixel_voxel (pipelines/ai_to_pixel_shader.yaml) ---
-          // 1. Stable Pixel Grid Lock
-          vec2 virtualRes = vec2(180.0, 180.0 * (u_resolution.y / u_resolution.x));
-          
-          // 2. Phase Warp (Shoegaze) applied BEFORE grid lock so the pixel grid stays stable
-          // while the underlying physical simulation melts.
-          vec2 warpedUV = phaseWarp(vUv, 0.02);
-          vec2 gridUV = floor(warpedUV * virtualRes) / virtualRes;
-          
-          // 3. Bayer 4x4 Ordered Dithering Matrix
-          const float bayer4[16] = float[16](
-              0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-              12.0/16.0, 4.0/16.0, 14.0/16.0, 6.0/16.0,
-              3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-              15.0/16.0, 7.0/16.0, 13.0/16.0, 5.0/16.0
-          );
-          int bx = int(mod(abs(gridUV.x * virtualRes.x), 4.0));
-          int by = int(mod(abs(gridUV.y * virtualRes.y), 4.0));
-          float dither = bayer4[by * 4 + bx] - 0.5;
-          
-          // Vignette: "edges dissolving into haze"
-          float dist = length(gridUV - 0.5) * 2.0;
-          float vignette = 1.0 - smoothstep(0.3, 1.3, dist);
-          
-          // --- REPO: shoegaze_style (lexicon/camera.json) ---
-          // "subtle chromatic aberration" -> sampling the field 3 times with offsets
-          float ca = 0.012; 
-          float rSig = getSignal(gridUV + vec2(ca, 0.0)) * vignette;
-          float gSig = getSignal(gridUV) * vignette;
-          float bSig = getSignal(gridUV - vec2(ca, 0.0)) * vignette;
-          
-          // 4. Quantize with dither (Ditherpunk)
-          float steps = 5.0;
-          float rQ = floor((rSig + dither * 0.45) * steps) / (steps - 1.0);
-          float gQ = floor((gSig + dither * 0.45) * steps) / (steps - 1.0);
-          float bQ = floor((bSig + dither * 0.45) * steps) / (steps - 1.0);
-          
-          // 5. Map to Lisa Frank Palette
-          vec3 rCol = lisaFrankPalette(rQ);
-          vec3 gCol = lisaFrankPalette(gQ);
-          vec3 bCol = lisaFrankPalette(bQ);
-          
-          // Composite the chromatic bleed
-          vec3 finalColor = vec3(rCol.r, gCol.g, bCol.b);
-          
-          // 6. Halation Bloom: Add back a soft, unquantized bleed over the strict pixel grid
-          vec3 bloom = lisaFrankPalette(gSig) * smoothstep(0.4, 1.0, gSig) * 0.4;
-          finalColor += bloom;
-          
-          fragColor = vec4(finalColor, 1.0);
+        // Normalize coordinates and handle aspect ratio
+        vec2 uv = (vUv - 0.5) * 2.0;
+        uv.x *= u_resolution.x / u_resolution.y;
+        
+        vec2 mouse = (u_mouse - 0.5) * 2.0;
+        mouse.x *= u_resolution.x / u_resolution.y;
+
+        // Central differences to calculate pseudo-normal
+        vec2 e = vec2(0.005, 0.0);
+        float h = mapHeight(uv);
+        float hx = mapHeight(uv + e.xy);
+        float hy = mapHeight(uv + e.yx);
+        
+        vec3 normal = normalize(vec3(h - hx, h - hy, e.x * 2.0));
+        vec3 viewDir = vec3(0.0, 0.0, 1.0);
+        float cosTheta = max(0.0, dot(normal, viewDir));
+
+        // Thickness varies based on height and spatial noise
+        float baseThickness = 400.0; // nm
+        float thickness = baseThickness + h * 800.0 + snoise(vec3(uv * 5.0, u_time)) * 200.0;
+
+        // Calculate structural iridescence
+        vec3 color = thinFilmInterference(thickness, cosTheta);
+
+        // Lighting/Shading
+        vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
+        float diff = max(0.0, dot(normal, lightDir));
+        float spec = pow(max(0.0, dot(reflect(-lightDir, normal), viewDir)), 32.0);
+        
+        // Apply lighting to structural color
+        color = color * (diff * 0.8 + 0.2) + vec3(spec * 0.8);
+
+        // Heat injection from mouse
+        float dMouse = length(uv - mouse);
+        float heat = exp(-dMouse * 10.0) * u_pressed;
+        vec3 lavaGlow = blackBody(heat * 1.2 + h * 0.2);
+        
+        // Blend iridescence with thermal bloom
+        color = mix(color, lavaGlow, heat * 0.8);
+        
+        // Vignette
+        float vignette = 1.0 - smoothstep(0.5, 1.5, length(uv));
+        color *= vignette;
+
+        fragColor = vec4(color, 1.0);
       }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0, 0) }
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+        u_pressed: { value: 0.0 }
       },
-      vertexShader,
-      fragmentShader,
       depthWrite: false,
       depthTest: false
     });
 
-    const geometry = new THREE.PlaneGeometry(2, 2);
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(plane);
 
     canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("Feral WebGL Initialization Failed:", e);
+    return;
   }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  // Safely update uniforms
-  if (material?.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    
-    // Smoothly track mouse or drift autonomously
-    if (mouse.isPressed) {
-      material.uniforms.u_mouse.value.set(mouse.x, mouse.y);
-    } else {
-      // Return to 0,0 slowly to let the autonomous Lissajous curve take over
-      material.uniforms.u_mouse.value.lerp(new THREE.Vector2(0, 0), 0.05);
-    }
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (err) {
-  console.error("Feral generation aborted. The system could not contain the resonance.", err);
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  
+  // Smooth mouse interpolation
+  const targetMouseX = mouse.x / grid.width;
+  const targetMouseY = 1.0 - (mouse.y / grid.height);
+  
+  // Initialize mouse uniform if it's 0,0
+  if (material.uniforms.u_mouse.value.x === 0 && material.uniforms.u_mouse.value.y === 0) {
+    material.uniforms.u_mouse.value.set(0.5, 0.5);
+  }
+
+  // LERP mouse for organic feel
+  material.uniforms.u_mouse.value.x += (targetMouseX - material.uniforms.u_mouse.value.x) * 0.1;
+  material.uniforms.u_mouse.value.y += (targetMouseY - material.uniforms.u_mouse.value.y) * 0.1;
+  
+  // Smooth press state for thermal blooming
+  const targetPress = mouse.isPressed ? 1.0 : 0.0;
+  material.uniforms.u_pressed.value += (targetPress - material.uniforms.u_pressed.value) * 0.1;
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
