@@ -1,243 +1,271 @@
 if (!canvas.__three) {
-  try {
-    if (!ctx) throw new Error("WebGL context not available");
-
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform vec2 u_mouse;
-      uniform float u_pressed;
-
-      #define PI 3.14159265359
-      #define PHI 1.61803398875
-
-      // --- SIMPLEX NOISE 3D (from merrypranxter/noise) ---
-      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec4 permute(vec4 x) { return mod289(((x*34.0)+10.0)*x); }
-      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
-
-      float snoise(vec3 v) {
-        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
-        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-        vec3 i  = floor(v + dot(v, C.yyy));
-        vec3 x0 = v - i + dot(i, C.xxx);
-        vec3 g = step(x0.yzx, x0.xyz);
-        vec3 l = 1.0 - g;
-        vec3 i1 = min(g.xyz, l.zxy);
-        vec3 i2 = max(g.xyz, l.zxy);
-        vec3 x1 = x0 - i1 + C.xxx;
-        vec3 x2 = x0 - i2 + C.yyy;
-        vec3 x3 = x0 - 0.5;
-        i = mod289(i);
-        vec4 p = permute(permute(permute(
-                   i.z + vec4(0.0, i1.z, i2.z, 1.0))
-                 + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-                 + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-        float n_ = 0.142857142857;
-        vec3 ns = n_ * D.wyz - D.xzx;
-        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-        vec4 x_ = floor(j * ns.z);
-        vec4 y_ = floor(j - 7.0 * x_);
-        vec4 x = x_ *ns.x + ns.yyyy;
-        vec4 y = y_ *ns.x + ns.yyyy;
-        vec4 h = 1.0 - abs(x) - abs(y);
-        vec4 b0 = vec4(x.xy, y.xy);
-        vec4 b1 = vec4(x.zw, y.zw);
-        vec4 s0 = floor(b0)*2.0 + 1.0;
-        vec4 s1 = floor(b1)*2.0 + 1.0;
-        vec4 sh = -step(h, vec4(0.0));
-        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
-        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
-        vec3 p0 = vec3(a0.xy,h.x);
-        vec3 p1 = vec3(a0.zw,h.y);
-        vec3 p2 = vec3(a1.xy,h.z);
-        vec3 p3 = vec3(a1.zw,h.w);
-        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-        vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-        m = m * m;
-        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-      }
-
-      // --- COLOR PALETTES (from merrypranxter/color_fields) ---
-      vec3 neonAcidPalette(float t) {
-        vec3 a = vec3(0.5);
-        vec3 b = vec3(0.5, 0.5, 0.33);
-        vec3 c = vec3(2.0, 1.0, 1.0);
-        vec3 d = vec3(0.5, 0.2, 0.25);
-        return a + b * cos(6.2831853 * (c * t + d));
-      }
-
-      vec3 blackBody(float t) {
-        t = clamp(t, 0.0, 1.0);
-        vec3 c;
-        c.r = smoothstep(0.0, 0.33, t);
-        c.g = smoothstep(0.15, 0.6, t) * 0.85;
-        c.b = smoothstep(0.4, 0.9, t) * 0.6;
-        c *= 0.5 + 2.0 * t * t;
-        return c;
-      }
-
-      // --- QUASICRYSTAL MATH (from merrypranxter/quasicrystals) ---
-      // 5-fold symmetry wave interference
-      float quasicrystal(vec2 p, float scale) {
-        float val = 0.0;
-        for(float i = 0.0; i < 5.0; i++) {
-          float angle = i * PI / 5.0;
-          vec2 dir = vec2(cos(angle), sin(angle));
-          // Add phase shift based on golden ratio for aperiodic complexity
-          float phase = snoise(vec3(dir * 2.0, u_time * 0.1)) * PHI;
-          val += cos(dot(p, dir) * scale + phase);
-        }
-        return val / 5.0;
-      }
-
-      // --- STRUCTURAL COLOR (from merrypranxter/structural_color) ---
-      vec3 thinFilmInterference(float thickness, float cosTheta) {
-        // Simplified physical model: 2nd cos(theta) = m * lambda
-        float n_film = 1.56; // Chitin/membrane index
-        float pathDiff = 2.0 * n_film * thickness * cosTheta;
+    try {
+        if (!ctx) throw new Error("WebGL 2 context not available");
         
-        // Map optical path to a phase in our Lisa Frank neon palette
-        // This simulates the iridescence shifting across the spectrum
-        float phase = fract(pathDiff * 0.002 - u_time * 0.2);
-        return neonAcidPalette(phase);
-      }
-
-      // --- MEMBRANE HEIGHT FIELD ---
-      float mapHeight(vec2 p) {
-        // Domain warp (fungal infection creeping into rigid math)
-        vec2 warpedP = p;
-        float warpStrength = 0.5 + 0.5 * snoise(vec3(p * 0.5, u_time * 0.05));
-        warpedP.x += snoise(vec3(p * 2.0, u_time * 0.1)) * warpStrength;
-        warpedP.y += snoise(vec3(p * 2.0 + 10.0, u_time * 0.1)) * warpStrength;
-
-        // Base quasiperiodic structure
-        float qc = quasicrystal(warpedP, 15.0);
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+        renderer.autoClear = false;
         
-        // Modulate with macro noise
-        float macro = snoise(vec3(p * 1.5, u_time * 0.02));
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
-        // Mouse interaction: creates a bulging stress fracture
-        float dMouse = length(p - u_mouse);
-        float mouseBulge = exp(-dMouse * 8.0) * (0.5 + u_pressed * 1.5);
-        mouseBulge *= sin(dMouse * 40.0 - u_time * 10.0) * 0.5 + 0.5; // Newton's rings at touch point
-
-        return (qc * 0.5 + 0.5) * (macro * 0.5 + 0.5) + mouseBulge;
-      }
-
-      void main() {
-        // Normalize coordinates and handle aspect ratio
-        vec2 uv = (vUv - 0.5) * 2.0;
-        uv.x *= u_resolution.x / u_resolution.y;
+        const rtA = new THREE.WebGLRenderTarget(grid.width, grid.height, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat
+        });
+        const rtB = new THREE.WebGLRenderTarget(grid.width, grid.height, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat
+        });
         
-        vec2 mouse = (u_mouse - 0.5) * 2.0;
-        mouse.x *= u_resolution.x / u_resolution.y;
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                u_mouse: { value: new THREE.Vector2() },
+                u_feedback: { value: rtA.texture },
+                u_isPressed: { value: 0 }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                in vec2 vUv;
+                out vec4 fragColor;
+                
+                uniform float u_time;
+                uniform vec2 u_resolution;
+                uniform vec2 u_mouse;
+                uniform sampler2D u_feedback;
+                uniform float u_isPressed;
 
-        // Central differences to calculate pseudo-normal
-        vec2 e = vec2(0.005, 0.0);
-        float h = mapHeight(uv);
-        float hx = mapHeight(uv + e.xy);
-        float hy = mapHeight(uv + e.yx);
+                #define PI 3.14159265359
+
+                // -- Psychedelic Collage: Displacement Warp (Simplex Noise) --
+                vec2 hash(vec2 p) {
+                    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+                    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+                }
+                
+                float simplex(vec2 p) {
+                    const float K1 = 0.366025404;
+                    const float K2 = 0.211324865;
+                    vec2 i = floor(p + (p.x + p.y) * K1);
+                    vec2 a = p - i + (i.x + i.y) * K2;
+                    vec2 o = (a.x > a.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                    vec2 b = a - o + K2;
+                    vec2 c = a - 1.0 + 2.0 * K2;
+                    vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
+                    vec3 n = h * h * h * h * vec3(dot(a, hash(i + 0.0)), dot(b, hash(i + o)), dot(c, hash(i + 1.0)));
+                    return dot(n, vec3(70.0));
+                }
+
+                vec2 displace(vec2 uv, float time) {
+                    float n1 = simplex(uv * 3.0 + time * 0.4);
+                    float n2 = simplex(uv * 3.0 - time * 0.4 + 100.0);
+                    return uv + vec2(n1, n2) * 0.02; 
+                }
+
+                // -- Psychedelic Collage: Kaleidoscope Pattern --
+                vec2 kaleidoscope(vec2 uv, float folds, float time) {
+                    vec2 p = uv * 2.0 - 1.0;
+                    float angle = atan(p.y, p.x);
+                    float radius = length(p);
+                    
+                    angle += time * 0.15; // Rotational drift
+                    
+                    float sector = 2.0 * PI / folds;
+                    angle = mod(angle, sector);
+                    if (angle > sector * 0.5) angle = sector - angle;
+                    
+                    p = vec2(cos(angle), sin(angle)) * radius;
+                    return p * 0.5 + 0.5;
+                }
+
+                // -- Crystalline: SDF Crystal Prisms --
+                float sdHexagon(in vec2 p, in float r) {
+                    const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
+                    p = abs(p);
+                    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+                    p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
+                    return length(p) * sign(p.y);
+                }
+
+                float sdBox(in vec2 p, in vec2 b) {
+                    vec2 d = abs(p) - b;
+                    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+                }
+
+                // -- Psychedelic Collage: Halftone Screen --
+                float halftone(vec2 uv, float freq, float luma) {
+                    float rad = radians(45.0);
+                    mat2 rt = mat2(cos(rad), -sin(rad), sin(rad), cos(rad));
+                    vec2 cell = fract(rt * uv * freq) - 0.5;
+                    float dotRad = sqrt(1.0 - luma) * 0.5;
+                    return smoothstep(dotRad + 0.08, dotRad - 0.08, length(cell));
+                }
+
+                void main() {
+                    vec2 uv = vUv;
+                    
+                    // 1. Kaleidoscope Fold on Feedback
+                    vec2 kUv = kaleidoscope(uv, 8.0, u_time);
+                    
+                    // 2. Displacement Warp
+                    vec2 dUv = displace(kUv, u_time);
+                    
+                    // Zoom IN for fractal feedback dive
+                    dUv = (dUv - 0.5) * 0.985 + 0.5;
+                    
+                    // Glitch / Scan-Bend Global Pulse
+                    float glitchPulse = step(0.97, fract(sin(u_time * 12.0) * 43758.5));
+                    if (glitchPulse > 0.5) {
+                        dUv.x += sin(uv.y * 50.0) * 0.05;
+                    }
+                    
+                    // Mouse Interaction (Glitch Tear)
+                    vec2 m = u_mouse / u_resolution;
+                    vec2 mPos = (m - 0.5) * 5.0;
+                    mPos.x *= u_resolution.x / u_resolution.y;
+                    
+                    vec2 screenP = (uv - 0.5) * 5.0;
+                    screenP.x *= u_resolution.x / u_resolution.y;
+                    float mouseDist = length(screenP - mPos);
+                    
+                    if (u_isPressed > 0.5 && mouseDist < 1.0) {
+                        float tear = smoothstep(1.0, 0.0, mouseDist);
+                        dUv += (screenP - mPos) * 0.08 * tear;
+                    }
+                    
+                    // 3. Chromatic Aberration Feedback Sample
+                    float r = texture(u_feedback, dUv + vec2(0.005, 0.0)).r;
+                    float g = texture(u_feedback, dUv).g;
+                    float b = texture(u_feedback, dUv - vec2(0.005, 0.0)).b;
+                    vec3 feedbackCol = vec3(r, g, b);
+                    
+                    // Databending Hue Shift on Glitch
+                    if (glitchPulse > 0.5) {
+                        feedbackCol = feedbackCol.brg;
+                    }
+                    
+                    // Decay towards Cyberdelic Void Black
+                    vec3 voidBlack = vec3(0.015, 0.023, 0.031);
+                    feedbackCol = mix(feedbackCol, voidBlack, 0.04);
+                    
+                    // Photocopy noise degradation
+                    float noise = fract(sin(dot(uv + u_time, vec2(12.9898, 78.233))) * 43758.5453);
+                    feedbackCol -= noise * 0.03;
+                    
+                    // 4. Inject Crystal Lattice (Crystalline logic)
+                    float scanShift = step(0.95, fract(sin(uv.y * 150.0 + u_time * 5.0) * 43758.5)) * 0.05;
+                    vec2 p = screenP + vec2(scanShift, 0.0);
+                    
+                    // Scroll the grid
+                    p.x += u_time * 0.8; 
+                    p.y += sin(u_time * 0.3) * 1.5;
+                    
+                    vec2 id = floor(p);
+                    vec2 f = fract(p) - 0.5;
+                    
+                    // Rotate individual crystals
+                    float rotTime = u_time * 2.0 + id.x * 0.5 + id.y * 0.5;
+                    mat2 rotMat = mat2(cos(rotTime), -sin(rotTime), sin(rotTime), cos(rotTime));
+                    f *= rotMat;
+                    
+                    // Map Crystalline Data: Hexagonal vs Tetragonal
+                    float isHex = step(0.5, fract(sin(dot(id, vec2(1.0, 2.0))) * 10.0));
+                    float d = 1.0;
+                    
+                    // Sparse injection to allow feedback to breathe
+                    float spawnChance = fract(sin(dot(id, vec2(5.34, 7.12))) * 43758.5);
+                    if (spawnChance > 0.88) {
+                        if (isHex > 0.5) {
+                            // Hexagonal primitive
+                            d = sdHexagon(f, 0.25);
+                        } else {
+                            // Tetragonal Rutile (c/a ratio ~0.644)
+                            d = sdBox(f, vec2(0.25, 0.25 * 0.644));
+                        }
+                    }
+                    
+                    vec3 injectCol = vec3(0.0);
+                    if (d < 0.0) {
+                        // Cyberdelic Neon / Acid Vibration Palette
+                        vec3 colA = vec3(0.0, 1.0, 0.941); // Neon Cyan
+                        vec3 colB = vec3(1.0, 0.0, 0.8);   // Electric Magenta
+                        vec3 colC = vec3(0.69, 1.0, 0.0);  // Acid Lime
+                        
+                        float hueSeed = fract(sin(dot(id, vec2(12.98, 78.23))) * 43758.5);
+                        injectCol = mix(colA, colB, step(0.33, hueSeed));
+                        injectCol = mix(injectCol, colC, step(0.66, hueSeed));
+                        
+                        // Internal d-spacing lattice lines
+                        float dSpacing = fract(d * 25.0 - u_time * 4.0);
+                        injectCol += smoothstep(0.1, 0.0, dSpacing) * vec3(1.0);
+                    }
+                    
+                    // Mouse Interaction Glow
+                    if (u_isPressed > 0.5 && mouseDist < 0.8) {
+                        injectCol = mix(injectCol, vec3(1.0, 1.0, 1.0), smoothstep(0.8, 0.0, mouseDist));
+                    }
+
+                    // 5. Composite (Screen Blend for Neon Glow)
+                    vec3 col = 1.0 - (1.0 - max(feedbackCol, 0.0)) * (1.0 - injectCol);
+                    
+                    // 6. Print Artifacts (Halftone overlay)
+                    float luma = dot(col, vec3(0.299, 0.587, 0.114));
+                    float ht = halftone(uv, 180.0, luma);
+                    col = mix(col, col * ht * 1.5, 0.15);
+                    
+                    // Vignette Burn
+                    float vig = length(uv - 0.5);
+                    col *= smoothstep(0.85, 0.2, vig);
+
+                    fragColor = vec4(col, 1.0);
+                }
+            `
+        });
         
-        vec3 normal = normalize(vec3(h - hx, h - hy, e.x * 2.0));
-        vec3 viewDir = vec3(0.0, 0.0, 1.0);
-        float cosTheta = max(0.0, dot(normal, viewDir));
-
-        // Thickness varies based on height and spatial noise
-        float baseThickness = 400.0; // nm
-        float thickness = baseThickness + h * 800.0 + snoise(vec3(uv * 5.0, u_time)) * 200.0;
-
-        // Calculate structural iridescence
-        vec3 color = thinFilmInterference(thickness, cosTheta);
-
-        // Lighting/Shading
-        vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
-        float diff = max(0.0, dot(normal, lightDir));
-        float spec = pow(max(0.0, dot(reflect(-lightDir, normal), viewDir)), 32.0);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
         
-        // Apply lighting to structural color
-        color = color * (diff * 0.8 + 0.2) + vec3(spec * 0.8);
-
-        // Heat injection from mouse
-        float dMouse = length(uv - mouse);
-        float heat = exp(-dMouse * 10.0) * u_pressed;
-        vec3 lavaGlow = blackBody(heat * 1.2 + h * 0.2);
-        
-        // Blend iridescence with thermal bloom
-        color = mix(color, lavaGlow, heat * 0.8);
-        
-        // Vignette
-        float vignette = 1.0 - smoothstep(0.5, 1.5, length(uv));
-        color *= vignette;
-
-        fragColor = vec4(color, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
-        u_pressed: { value: 0.0 }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(plane);
-
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
-    console.error("Feral WebGL Initialization Failed:", e);
-    return;
-  }
+        canvas.__three = { renderer, scene, camera, material, rtA, rtB, pingpong: 0 };
+    } catch (e) {
+        console.error("WebGL Initialization Failed:", e);
+        return;
+    }
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+const { renderer, scene, camera, material, rtA, rtB } = canvas.__three;
 
-if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  
-  // Smooth mouse interpolation
-  const targetMouseX = mouse.x / grid.width;
-  const targetMouseY = 1.0 - (mouse.y / grid.height);
-  
-  // Initialize mouse uniform if it's 0,0
-  if (material.uniforms.u_mouse.value.x === 0 && material.uniforms.u_mouse.value.y === 0) {
-    material.uniforms.u_mouse.value.set(0.5, 0.5);
-  }
-
-  // LERP mouse for organic feel
-  material.uniforms.u_mouse.value.x += (targetMouseX - material.uniforms.u_mouse.value.x) * 0.1;
-  material.uniforms.u_mouse.value.y += (targetMouseY - material.uniforms.u_mouse.value.y) * 0.1;
-  
-  // Smooth press state for thermal blooming
-  const targetPress = mouse.isPressed ? 1.0 : 0.0;
-  material.uniforms.u_pressed.value += (targetPress - material.uniforms.u_pressed.value) * 0.1;
+if (material?.uniforms?.u_time) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    // Invert Y for WebGL coordinates
+    material.uniforms.u_mouse.value.set(mouse.x, grid.height - mouse.y);
+    material.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
+    
+    // Ping-pong buffer logic for feedback loop
+    const readTarget = canvas.__three.pingpong % 2 === 0 ? rtA : rtB;
+    const writeTarget = canvas.__three.pingpong % 2 === 0 ? rtB : rtA;
+    
+    material.uniforms.u_feedback.value = readTarget.texture;
+    
+    renderer.setSize(grid.width, grid.height, false);
+    
+    // Pass 1: Render shader to the write target
+    renderer.setRenderTarget(writeTarget);
+    renderer.render(scene, camera);
+    
+    // Pass 2: Render identical output to the screen
+    renderer.setRenderTarget(null);
+    renderer.render(scene, camera);
+    
+    canvas.__three.pingpong++;
 }
-
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
