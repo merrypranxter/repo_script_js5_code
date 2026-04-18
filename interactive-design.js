@@ -1,349 +1,285 @@
 if (!canvas.__three) {
-    try {
-        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-        if (!gl) throw new Error("WebGL 2 not supported or context occupied");
-        
-        const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-        camera.position.z = 1;
-        
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position.xy, 0.0, 1.0);
-            }
-        `;
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
-        const fragmentShader = `
-            in vec2 vUv;
-            out vec4 fragColor;
-            
-            uniform float u_time;
-            uniform vec2 u_resolution;
-            
-            #define PI 3.14159265359
-            #define TWO_PI 6.28318530718
-            
-            // --- Noise & Math ---
-            float hash12(vec2 p) {
-                vec3 p3  = fract(vec3(p.xyx) * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.x + p3.y) * p3.z);
-            }
-            
-            vec2 hash22(vec2 p) {
-                vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.xx + p3.yz) * p3.zy);
-            }
-            
-            vec3 permute(vec3 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }
-            
-            float snoise(vec2 v){
-                const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-                vec2 i  = floor(v + dot(v, C.yy) );
-                vec2 x0 = v -   i + dot(i, C.xx);
-                vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-                vec4 x12 = x0.xyxy + C.xxzz;
-                x12.xy -= i1;
-                i = mod(i, 289.0);
-                vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
-                vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-                m = m * m ;
-                m = m * m ;
-                vec3 x = 2.0 * fract(p * C.www) - 1.0;
-                vec3 h = abs(x) - 0.5;
-                vec3 ox = floor(x + 0.5);
-                vec3 a0 = x - ox;
-                m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-                vec3 g;
-                g.x  = a0.x  * x0.x  + h.x  * x0.y;
-                g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-                return 130.0 * dot(m, g);
-            }
-            
-            float fbm(vec2 p) {
-                float f = 0.0;
-                float amp = 0.5;
-                for(int i=0; i<5; i++) {
-                    f += amp * snoise(p);
-                    p *= 2.0;
-                    amp *= 0.5;
-                }
-                return f;
-            }
-            
-            vec2 warp(vec2 p, float t) {
-                vec2 q = vec2(fbm(p + t * 0.1), fbm(p + vec2(5.2, 1.3) - t * 0.15));
-                vec2 r = vec2(fbm(p + 4.0 * q + vec2(1.7, 9.2)), fbm(p + 4.0 * q + vec2(8.3, 2.8)));
-                return p + 2.0 * r;
-            }
-            
-            float worley(vec2 p) {
-                vec2 n = floor(p);
-                vec2 f = fract(p);
-                float dist = 1.0;
-                for(int y = -1; y <= 1; y++) {
-                    for(int x = -1; x <= 1; x++) {
-                        vec2 g = vec2(float(x), float(y));
-                        vec2 o = hash22(n + g);
-                        o = 0.5 + 0.5 * sin(u_time + TWO_PI * o);
-                        vec2 r = g + o - f;
-                        dist = min(dist, dot(r, r));
-                    }
-                }
-                return sqrt(dist);
-            }
-            
-            mat2 rot(float a) {
-                float s = sin(a), c = cos(a);
-                return mat2(c, -s, s, c);
-            }
-            
-            // --- Optics & Structural Color ---
-            vec3 wavelengthToRGB(float W) {
-                vec3 c = vec3(0.0);
-                if (W >= 380.0 && W < 440.0) c = vec3(-(W-440.0)/(440.0-380.0), 0.0, 1.0);
-                else if (W >= 440.0 && W < 490.0) c = vec3(0.0, (W-440.0)/(490.0-440.0), 1.0);
-                else if (W >= 490.0 && W < 510.0) c = vec3(0.0, 1.0, -(W-510.0)/(510.0-490.0));
-                else if (W >= 510.0 && W < 580.0) c = vec3((W-510.0)/(580.0-510.0), 1.0, 0.0);
-                else if (W >= 580.0 && W < 645.0) c = vec3(1.0, -(W-645.0)/(645.0-580.0), 0.0);
-                else if (W >= 645.0 && W <= 780.0) c = vec3(1.0, 0.0, 0.0);
-                return max(c, 0.0);
-            }
-            
-            vec3 thinFilm(float cosTheta, float thickness, float n) {
-                float pathDiff = 2.0 * n * thickness * sqrt(max(0.0, 1.0 - pow(sin(acos(cosTheta))/n, 2.0)));
-                vec3 color = vec3(0.0);
-                for(int i = 0; i < 7; i++) {
-                    float wl = mix(400.0, 700.0, float(i)/6.0);
-                    float phase = (pathDiff / wl) * TWO_PI;
-                    float intensity = 0.5 + 0.5 * cos(phase);
-                    color += wavelengthToRGB(wl) * intensity;
-                }
-                return color / 4.0;
-            }
-            
-            float stochastic_sparkle(vec2 uv, float density, float time, vec2 cell) {
-                float h = hash12(uv * 100.0 + cell);
-                float flicker = sin(time * 10.0 + h * TWO_PI) * 0.5 + 0.5;
-                return smoothstep(1.0 - density, 1.0, h) * flicker;
-            }
-            
-            // --- Diatom SDFs & Patterns ---
-            float boatShape(vec2 p, float halfLength, float maxHalfWidth) {
-                float xn = p.x / halfLength;
-                float hw = maxHalfWidth * cos(clamp(xn, -1.0, 1.0) * 1.5707963);
-                float mask = smoothstep(hw, hw - 0.015, abs(p.y));
-                mask *= step(abs(xn), 1.0);
-                return mask;
-            }
-            
-            float hexPoreField(vec2 p, float scale, float size) {
-                vec2 s = vec2(1.0, 1.7320508);
-                vec2 gp = p * scale;
-                vec2 p1 = mod(gp, s) - s * 0.5;
-                vec2 p2 = mod(gp - s * 0.5, s) - s * 0.5;
-                vec2 pq = dot(p1,p1) < dot(p2,p2) ? p1 : p2;
-                return 1.0 - smoothstep(size, size + 0.05, length(pq));
-            }
-            
-            float centralRosette(vec2 p, float petals, float sharpness, float radius) {
-                float r = length(p);
-                if (r > radius) return 0.0;
-                float a = atan(p.y, p.x);
-                float petal = pow(abs(sin(a * petals * 0.5)), sharpness);
-                return petal * smoothstep(radius, radius * 0.8, r);
-            }
-            
-            // --- Collage Artifacts ---
-            vec2 kaleidoscope(vec2 uv, float folds) {
-                float angle = atan(uv.y, uv.x);
-                float radius = length(uv);
-                float sector = TWO_PI / folds;
-                angle = mod(angle, sector);
-                if (angle > sector * 0.5) angle = sector - angle;
-                angle += u_time * 0.05;
-                return vec2(cos(angle), sin(angle)) * radius;
-            }
-            
-            float sacredGeometry(vec2 uv) {
-                float d = 1.0;
-                for(int i=0; i<6; i++) {
-                    float a = float(i) * 1.0471975; 
-                    vec2 center = vec2(cos(a), sin(a)) * 0.5;
-                    float circle = abs(length(uv - center) - 0.5);
-                    d = min(d, circle);
-                }
-                d = min(d, abs(length(uv) - 0.5));
-                return smoothstep(0.015, 0.005, d);
-            }
-            
-            float halftone(vec2 fragCoord, float freq, float angle, float luma) {
-                float rad = radians(angle);
-                mat2 rotM = mat2(cos(rad), -sin(rad), sin(rad), cos(rad));
-                vec2 uv = rotM * fragCoord * freq / 1000.0;
-                vec2 cell = fract(uv) - 0.5;
-                float dist = length(cell);
-                float dotRadius = sqrt(1.0 - luma) * 0.5;
-                return smoothstep(dotRadius + 0.05, dotRadius - 0.05, dist);
-            }
-            
-            // --- Scene Rendering ---
-            vec3 renderScene(vec2 uv) {
-                vec2 bgUV = kaleidoscope(uv, 12.0);
-                vec2 warpedUV = warp(bgUV * 2.0, u_time);
-                float noiseVal = fbm(warpedUV * 2.5 - u_time * 0.1);
-                
-                vec3 bgAcid1 = vec3(0.02, 0.03, 0.04); 
-                vec3 bgAcid2 = vec3(0.0, 1.0, 0.94); 
-                vec3 bgAcid3 = vec3(1.0, 0.0, 0.8); 
-                
-                float mixVal = smoothstep(0.3, 0.7, noiseVal + snoise(uv * 5.0) * 0.2);
-                vec3 bgCol = mix(bgAcid1, mix(bgAcid2, bgAcid3, fbm(uv * 4.0 + u_time)), mixVal);
-                
-                float sg = sacredGeometry(uv * 1.5 * rot(u_time * 0.05));
-                bgCol = mix(bgCol, vec3(0.8, 0.6, 0.2), sg * 0.4); 
-                
-                vec3 col = bgCol;
-                
-                // Diatom 1: Centric
-                vec2 p1 = uv - vec2(0.3 * sin(u_time * 0.5), 0.2 * cos(u_time * 0.4));
-                float r1 = length(p1);
-                float a1 = atan(p1.y, p1.x);
-                float mask1 = smoothstep(0.45, 0.44, r1);
-                
-                float shadow1 = smoothstep(0.48, 0.44, length(p1 - vec2(0.04, -0.04)));
-                col = mix(col, bgAcid1, shadow1 * 0.7 * (1.0 - mask1));
-            
-                if(mask1 > 0.0) {
-                    float thickness = 300.0 + 200.0 * sin(r1 * 40.0) + 150.0 * fbm(p1 * 8.0);
-                    vec3 irid = thinFilm(0.9 - r1 * 1.5, thickness, 1.5);
-                    float striae = pow(abs(sin(a1 * 60.0)), 2.0) * smoothstep(0.05, 0.4, r1);
-                    float pores = hexPoreField(p1, 60.0, 0.15); 
-                    float rosette = centralRosette(p1, 12.0, 3.0, 0.15); 
-                    
-                    vec3 diatom = irid * (0.5 + 0.5 * striae) * (1.0 - 0.5 * pores) + rosette * vec3(1.0, 0.9, 0.4);
-                    diatom += stochastic_sparkle(p1, 0.02, u_time, vec2(1.0)) * 1.5;
-                    
-                    col = mix(col, diatom, mask1);
-                }
-                
-                // Diatom 2: Pennate Boat
-                vec2 p2 = uv - vec2(-0.4 * cos(u_time * 0.3), -0.2 * sin(u_time * 0.5));
-                p2 *= rot(u_time * 0.2 + 1.0);
-                float boatM = boatShape(p2, 0.6, 0.18);
-                
-                float shadow2 = boatShape(p2 - vec2(0.04, -0.04), 0.6, 0.18);
-                col = mix(col, bgAcid1, shadow2 * 0.7 * (1.0 - boatM));
-            
-                if(boatM > 0.0) {
-                    float thickness = 400.0 + 250.0 * fbm(p2 * 10.0);
-                    vec3 irid = thinFilm(0.8 - abs(p2.y) * 3.0, thickness, 1.4);
-                    float striae = pow(abs(sin(p2.x * 150.0)), 1.5) * smoothstep(0.01, 0.15, abs(p2.y));
-                    float raphe = 1.0 - smoothstep(0.0, 0.015, abs(p2.y));
-                    
-                    vec3 diatom = irid * (0.6 + 0.4 * striae) + raphe * vec3(0.0, 1.0, 0.8);
-                    diatom += stochastic_sparkle(p2, 0.03, u_time, vec2(2.0)) * 1.5;
-                    
-                    col = mix(col, diatom, boatM);
-                }
-            
-                // Diatom 3: Cymbelloid
-                vec2 p3 = uv - vec2(0.4 * sin(u_time * 0.7), -0.4 * cos(u_time * 0.6));
-                p3 *= rot(-u_time * 0.4);
-                float d3_1 = length(p3 - vec2(0.0, 0.8)) - 0.9;
-                float d3_2 = length(p3 - vec2(0.0, 0.5)) - 0.7;
-                float bananaM = smoothstep(0.01, 0.0, d3_1) * smoothstep(0.0, 0.01, d3_2);
-                bananaM *= smoothstep(0.5, 0.48, abs(p3.x));
-                
-                float shadow3_1 = length(p3 - vec2(0.04, 0.76)) - 0.9;
-                float shadow3_2 = length(p3 - vec2(0.04, 0.46)) - 0.7;
-                float shadow3M = smoothstep(0.02, 0.0, shadow3_1) * smoothstep(0.0, 0.02, shadow3_2);
-                shadow3M *= smoothstep(0.5, 0.48, abs(p3.x - 0.04));
-                col = mix(col, bgAcid1, shadow3M * 0.7 * (1.0 - bananaM));
-            
-                if(bananaM > 0.0) {
-                    float thickness = 250.0 + 300.0 * fbm(p3 * 15.0);
-                    vec3 irid = thinFilm(0.7, thickness, 1.6);
-                    float striae = pow(abs(sin(p3.x * 100.0)), 2.0);
-                    vec3 diatom = irid * (0.6 + 0.4 * striae);
-                    diatom += stochastic_sparkle(p3, 0.02, u_time, vec2(3.0));
-                    col = mix(col, diatom, bananaM);
-                }
-                
-                // Spores
-                float spores = worley(uv * 8.0 + u_time * 0.15);
-                float sporeMask = smoothstep(0.12, 0.08, spores);
-                vec3 sporeIrid = thinFilm(0.5, 500.0 + 200.0 * sin(u_time), 1.33);
-                col = mix(col, sporeIrid * 1.5, sporeMask * 0.6);
-            
-                return col;
-            }
-            
-            void main() {
-                vec2 uv = vUv * 2.0 - 1.0;
-                uv.x *= u_resolution.x / u_resolution.y;
-                
-                // Chromatic Aberration (Radial)
-                float caOffset = 0.012;
-                vec2 dir = normalize(uv);
-                
-                float r = renderScene(uv + dir * caOffset).r;
-                float g = renderScene(uv).g;
-                float b = renderScene(uv - dir * caOffset).b;
-                
-                vec3 col = vec3(r, g, b);
-                
-                // Halftone Artifact
-                float luma = dot(col, vec3(0.299, 0.587, 0.114));
-                float ht = halftone(gl_FragCoord.xy, 100.0, 45.0, luma);
-                
-                vec3 htColor = col * ht;
-                col = mix(col, htColor, 0.35); 
-                
-                // Xerox noise / Paper grain
-                float grain = hash12(uv * 1000.0 + fract(u_time));
-                vec3 grainCol = vec3(grain * 0.15);
-                col = 1.0 - (1.0 - col) * (1.0 - grainCol);
-                
-                // Vignette
-                float vignette = smoothstep(1.5, 0.4, length(uv));
-                col *= vignette;
-                
-                fragColor = vec4(col, 1.0);
-            }
-        `;
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+    renderer.autoClear = false;
 
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-            },
-            vertexShader,
-            fragmentShader,
-            transparent: true
-        });
-        
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-        
-        canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
-    }
+    const res = new THREE.Vector2(grid.width, grid.height);
+
+    // HalfFloatType is safer for WebGL2 render targets across different hardware
+    const rtOpts = {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.HalfFloatType,
+      depthBuffer: false,
+      stencilBuffer: false
+    };
+
+    const fboA = new THREE.WebGLRenderTarget(grid.width, grid.height, rtOpts);
+    const fboB = new THREE.WebGLRenderTarget(grid.width, grid.height, rtOpts);
+
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const geo = new THREE.PlaneGeometry(2, 2);
+
+    // --- SIMULATION SHADER: Advected Reaction-Diffusion (G2 Phi Field + CA) ---
+    const simMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_prev: { value: null },
+        u_res: { value: res },
+        u_time: { value: 0 },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+        u_mouse_down: { value: 0.0 }
+      },
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D u_prev;
+        uniform vec2 u_res;
+        uniform float u_time;
+        uniform vec2 u_mouse;
+        uniform float u_mouse_down;
+
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        // Feral Noise
+        float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+
+        // G2 Latent Phi Field (Repo 3)
+        vec2 getPhi(vec2 p, float t) {
+            float a = sin(p.x * 2.1 + t * 0.55);
+            float b = cos(p.y * 2.7 - t * 0.31);
+            float c = sin((p.x + p.y) * 3.2 + t * 0.22);
+            return vec2(a + 0.3 * c, b - 0.25 * c);
+        }
+
+        void main() {
+            vec2 texel = 1.0 / u_res;
+
+            // Advection via Phi Field
+            vec2 phi = getPhi(vUv * 3.0, u_time * 0.2);
+            vec2 jitter = (vec2(hash(vUv + u_time), hash(vUv - u_time)) - 0.5) * 0.002;
+            vec2 uv = vUv - phi * texel * 0.6 + jitter;
+
+            // 9-tap Reaction-Diffusion Sampling
+            vec2 c = texture(u_prev, uv).rg;
+            vec2 n = texture(u_prev, uv + vec2(0.0, texel.y)).rg;
+            vec2 s = texture(u_prev, uv - vec2(0.0, texel.y)).rg;
+            vec2 e = texture(u_prev, uv + vec2(texel.x, 0.0)).rg;
+            vec2 w = texture(u_prev, uv - vec2(texel.x, 0.0)).rg;
+            vec2 ne = texture(u_prev, uv + vec2(texel.x, texel.y)).rg;
+            vec2 nw = texture(u_prev, uv + vec2(-texel.x, texel.y)).rg;
+            vec2 se = texture(u_prev, uv + vec2(texel.x, -texel.y)).rg;
+            vec2 sw = texture(u_prev, uv + vec2(-texel.x, -texel.y)).rg;
+
+            vec2 lap = n + s + e + w + 0.5 * (ne + nw + se + sw) - 6.0 * c;
+
+            // Ecological Map: Spatially variant feed/kill rates
+            float chamber = sin(length(vUv - 0.5) * 8.0 + phi.x * 2.0);
+            float feed = 0.025 + 0.04 * vUv.x + 0.01 * chamber;
+            float kill = 0.045 + 0.02 * vUv.y + 0.005 * phi.y;
+
+            // Gray-Scott CA
+            float a = c.r;
+            float b = c.g;
+            float abb = a * b * b;
+
+            float da = 1.0;
+            float db = 0.4;
+
+            float nextA = a + (da * lap.r - abb + feed * (1.0 - a));
+            float nextB = b + (db * lap.g + abb - (feed + kill) * b);
+
+            // Singularity Injection (Mouse Trauma)
+            float dist = length(vUv - u_mouse);
+            if (u_mouse_down > 0.5 && dist < 0.05) {
+                nextA *= 0.1;
+                nextB = min(nextB + 0.9 * exp(-dist * 200.0), 1.0);
+            }
+
+            // Primordial Seeding
+            if (u_time < 0.2 || (hash(vUv + u_time * 0.1) < 0.0001)) {
+                nextB = max(nextB, 0.8);
+                nextA = 0.1;
+            }
+
+            fragColor = vec4(clamp(nextA, 0.0, 1.0), clamp(nextB, 0.0, 1.0), 0.0, 1.0);
+        }
+      `
+    });
+
+    // --- DISPLAY SHADER: Structural Color Projection & Acid Palette (Repos 2 & 5) ---
+    const dispMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_state: { value: null },
+        u_res: { value: res },
+        u_time: { value: 0 }
+      },
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D u_state;
+        uniform vec2 u_res;
+        uniform float u_time;
+
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        // Wavelength to RGB (Repo 5)
+        vec3 wave2rgb(float W) {
+            vec3 c = vec3(0.0);
+            if (W >= 380.0 && W < 440.0) c = vec3(-(W-440.0)/(440.0-380.0), 0.0, 1.0);
+            else if (W >= 440.0 && W < 490.0) c = vec3(0.0, (W-440.0)/(490.0-440.0), 1.0);
+            else if (W >= 490.0 && W < 510.0) c = vec3(0.0, 1.0, -(W-510.0)/(510.0-490.0));
+            else if (W >= 510.0 && W < 580.0) c = vec3((W-510.0)/(580.0-510.0), 1.0, 0.0);
+            else if (W >= 580.0 && W < 645.0) c = vec3(1.0, -(W-645.0)/(645.0-580.0), 0.0);
+            else if (W >= 645.0 && W <= 780.0) c = vec3(1.0, 0.0, 0.0);
+            
+            float factor = 1.0;
+            if(W >= 380.0 && W < 420.0) factor = 0.3 + 0.7*(W-380.0)/(420.0-380.0);
+            else if(W >= 700.0 && W <= 780.0) factor = 0.3 + 0.7*(780.0-W)/(780.0-700.0);
+            
+            return c * factor;
+        }
+
+        // Thin-Film Interference (Repo 5)
+        vec3 thinFilm(float thickness, float viewAngle, float n_film) {
+            vec3 color = vec3(0.0);
+            for(int i = 0; i < 12; i++) {
+                float fi = float(i);
+                float lambda = mix(380.0, 750.0, fi / 11.0);
+                float pathDiff = 2.0 * n_film * thickness * cos(viewAngle);
+                float phase = (pathDiff / lambda) * 6.28318;
+                float intensity = 0.5 + 0.5 * cos(phase);
+                color += wave2rgb(lambda) * intensity * 1.5;
+            }
+            return color / 12.0;
+        }
+
+        void main() {
+            vec2 texel = 1.0 / u_res;
+            vec2 state = texture(u_state, vUv).rg;
+            float b = state.g;
+
+            // Torsion & Surface Normal
+            float dx = texture(u_state, vUv + vec2(texel.x, 0)).g - texture(u_state, vUv - vec2(texel.x, 0)).g;
+            float dy = texture(u_state, vUv + vec2(0, texel.y)).g - texture(u_state, vUv - vec2(0, texel.y)).g;
+            vec2 grad = vec2(dx, dy);
+            float torsion = length(grad);
+
+            vec3 N = normalize(vec3(-dx * 6.0, -dy * 6.0, 1.0));
+            vec3 V = vec3(0.0, 0.0, 1.0);
+            float viewAngle = acos(max(0.0, dot(N, V)));
+
+            // Structural Color mapped to Infection State
+            float thickness = 200.0 + b * 1800.0 + torsion * 1000.0;
+            
+            // Glitch Scan Bend (Repo 2) - Chromatic Aberration via thickness shifts
+            vec2 shift = vec2(torsion * 15.0 * texel.x, 0.0);
+            float tR = 200.0 + texture(u_state, vUv + shift).g * 1800.0;
+            float tB = 200.0 + texture(u_state, vUv - shift).g * 1800.0;
+            
+            vec3 colR = thinFilm(tR, viewAngle, 1.45);
+            vec3 colG = thinFilm(thickness, viewAngle, 1.45);
+            vec3 colB = thinFilm(tB, viewAngle, 1.45);
+            
+            vec3 filmColor = vec3(colR.r, colG.g, colB.b);
+
+            // Void Background (Cyberdelic Neon)
+            vec3 voidColor = vec3(0.04, 0.02, 0.08);
+            vec3 finalColor = mix(voidColor, filmColor, smoothstep(0.05, 0.8, b));
+
+            // G2 Resolution / Scar Glow (Repo 3)
+            float scarMask = smoothstep(0.03, 0.15, torsion);
+            vec3 scarColor = vec3(1.0, 0.0, 0.8) * scarMask; // Hot Magenta
+            if (torsion > 0.1) scarColor += vec3(1.0, 0.7, 0.1) * (torsion * 5.0); // Alchemical Gold
+            
+            finalColor += scarColor * (0.8 + 0.4 * sin(u_time * 8.0));
+
+            // Print Artifact: Newsprint Grain Overlay
+            float grain = fract(sin(dot(vUv * u_res, vec2(12.9898, 78.233))) * 43758.5453);
+            finalColor += (grain - 0.5) * 0.12;
+            
+            // Vignette
+            float dist = length(vUv - 0.5);
+            finalColor *= smoothstep(0.8, 0.3, dist);
+
+            fragColor = vec4(finalColor, 1.0);
+        }
+      `
+    });
+
+    const simScene = new THREE.Scene();
+    simScene.add(new THREE.Mesh(geo, simMat));
+
+    const dispScene = new THREE.Scene();
+    dispScene.add(new THREE.Mesh(geo, dispMat));
+
+    canvas.__three = {
+      renderer, camera, fboA, fboB, simScene, simMat, dispScene, dispMat, ping: 0
+    };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+const t = canvas.__three;
+if (!t) return;
 
-if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+// Handle dynamic resizing
+const currentSize = t.renderer.getSize(new THREE.Vector2());
+if (currentSize.x !== grid.width || currentSize.y !== grid.height) {
+  t.renderer.setSize(grid.width, grid.height, false);
+  t.fboA.setSize(grid.width, grid.height);
+  t.fboB.setSize(grid.width, grid.height);
+  t.simMat.uniforms.u_res.value.set(grid.width, grid.height);
+  t.dispMat.uniforms.u_res.value.set(grid.width, grid.height);
 }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// Map mouse correctly to shader space
+let mx = mouse.x / grid.width;
+let my = 1.0 - (mouse.y / grid.height);
+t.simMat.uniforms.u_mouse.value.set(mx, my);
+t.simMat.uniforms.u_mouse_down.value = mouse.isPressed ? 1.0 : 0.0;
+t.simMat.uniforms.u_time.value = time;
+
+// Multi-step CA simulation for feral, accelerated growth
+const SIM_STEPS = 4;
+let currSource = t.ping === 0 ? t.fboA : t.fboB;
+let currDest = t.ping === 0 ? t.fboB : t.fboA;
+
+for (let i = 0; i < SIM_STEPS; i++) {
+  t.simMat.uniforms.u_prev.value = currSource.texture;
+  t.renderer.setRenderTarget(currDest);
+  t.renderer.render(t.simScene, t.camera);
+  
+  // Swap buffers
+  let temp = currSource;
+  currSource = currDest;
+  currDest = temp;
+  t.ping = 1 - t.ping;
+}
+
+// Final Projection/Display Pass
+t.dispMat.uniforms.u_state.value = currSource.texture;
+t.dispMat.uniforms.u_time.value = time;
+
+t.renderer.setRenderTarget(null); // Backbuffer
+t.renderer.render(t.dispScene, t.camera);
