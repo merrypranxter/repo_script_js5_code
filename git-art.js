@@ -1,193 +1,161 @@
 if (!canvas.__three) {
   try {
     if (!ctx) throw new Error("WebGL 2 context not available");
-    
+
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
-    
+
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
+
     const fragmentShader = `
-      precision highp float;
+      in vec2 vUv;
+      out vec4 fragColor;
       
       uniform float u_time;
       uniform vec2 u_resolution;
       uniform vec2 u_mouse;
-      uniform float u_pixelScale;
-      
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      // Bayer 4x4 Threshold Matrix (Ditherpunk)
-      const float bayer4x4[16] = float[](
-        0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-       12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-        3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-       15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+      uniform float u_isPressed;
+
+      // pxv.technique.bayer_4x4.v1
+      const float bayer4[16] = float[16](
+         0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+        12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+         3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+        15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
       );
-      
-      // Lisa Frank / Blacklight Acid Palette
-      vec3 palette[16] = vec3[](
-        vec3(0.10, 0.10, 0.18), // Dark Slate
-        vec3(0.05, 0.05, 0.10), // Midnight Blue
-        vec3(1.00, 0.00, 0.50), // Hot Pink
-        vec3(0.00, 1.00, 1.00), // Cyan
-        vec3(0.54, 0.17, 0.89), // Blue Violet
-        vec3(0.00, 0.00, 1.00), // Electric Blue
-        vec3(0.22, 1.00, 0.08), // Neon Green
-        vec3(1.00, 0.00, 1.00), // Magenta
-        vec3(1.00, 1.00, 0.00), // Acid Yellow
-        vec3(1.00, 0.27, 0.00), // Orange Red
-        vec3(1.00, 1.00, 1.00), // White
-        vec3(0.00, 0.00, 0.00), // Black
-        vec3(0.69, 0.89, 1.00), // Ice Blue
-        vec3(1.00, 0.08, 0.58), // Deep Pink
-        vec3(0.49, 0.99, 0.00), // Lawn Green
-        vec3(0.58, 0.00, 0.83)  // Dark Violet
+
+      // Lisa Frank x Voxel Palette
+      const vec3 paletteColors[6] = vec3[6](
+        vec3(0.06, 0.02, 0.15), // Deep Velvet
+        vec3(0.95, 0.05, 0.75), // Hot Magenta
+        vec3(0.05, 0.95, 0.95), // Electric Cyan
+        vec3(0.95, 0.95, 0.05), // Acid Yellow
+        vec3(0.50, 0.05, 0.95), // Ultraviolet
+        vec3(0.95, 0.95, 0.95)  // White
       );
-      
-      // Palette Snapping (YUV-like perceptual distance)
+
+      // pxv.shader.palette_map_nearest.v1
       vec3 nearestPalette(vec3 col) {
-          vec3 best = palette[0];
-          float bestDist = 1000000.0;
-          for (int i = 0; i < 16; i++) {
-              vec3 p = palette[i];
-              vec3 diff = col - p;
-              float d = diff.x*diff.x*0.299 + diff.y*diff.y*0.587 + diff.z*diff.z*0.114;
-              if (d < bestDist) {
-                  bestDist = d;
-                  best = p;
-              }
+        vec3 best = paletteColors[0];
+        float bestDist = 10.0;
+        for(int i = 0; i < 6; i++) {
+          // YUV-ish perceptual weighting
+          vec3 diff = col - paletteColors[i];
+          float d = dot(diff * vec3(0.299, 0.587, 0.114), diff * vec3(0.299, 0.587, 0.114));
+          if(d < bestDist) {
+            bestDist = d;
+            best = paletteColors[i];
           }
-          return best;
+        }
+        return best;
       }
-      
-      // Structural Color - Thin Film Interference Physics
-      vec3 thinFilm(float cosTheta, float thickness, float n) {
-          float sinThetaI2 = 1.0 - cosTheta * cosTheta;
-          float sinThetaT2 = sinThetaI2 / (n * n);
-          float cosThetaT = sqrt(max(0.0, 1.0 - sinThetaT2));
-          float pathDiff = 2.0 * n * thickness * cosThetaT;
-          vec3 phase = vec3(0.0, 0.33, 0.67);
-          return 0.5 + 0.5 * cos(6.28318 * (pathDiff / 500.0 + phase));
+
+      // structural_color: Thin Film Interference Cosine Palette
+      vec3 thinFilmInterference(float t) {
+        vec3 a = vec3(0.5, 0.5, 0.5);
+        vec3 b = vec3(0.5, 0.5, 0.5);
+        vec3 c = vec3(2.0, 2.0, 2.0); // High frequency for iridescence
+        vec3 d = vec3(0.0, 0.33, 0.67);
+        return a + b * cos(6.28318 * (c * t + d));
       }
-      
-      // 5-Fold Quasicrystal Generation
-      float quasicrystal(vec2 p, float time) {
-          float val = 0.0;
-          for(int i = 0; i < 5; i++) {
-              float angle = float(i) * 3.14159 / 5.0;
-              vec2 dir = vec2(cos(angle), sin(angle));
-              val += cos(dot(p, dir) * 15.0 + time);
-          }
-          return val / 5.0;
-      }
-      
-      float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-      }
-      
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-      }
-      
-      float fbm(vec2 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          for(int i = 0; i < 4; i++) {
-              f += amp * noise(p);
-              p *= 2.0;
-              amp *= 0.5;
-          }
-          return f;
-      }
-      
+
       void main() {
-          // Pixel Grid Lock
-          vec2 virtualRes = floor(u_resolution / u_pixelScale);
-          vec2 snappedUV = floor(vUv * virtualRes) / virtualRes;
-          
-          vec2 p = (snappedUV - 0.5) * 2.0;
-          p.x *= u_resolution.x / u_resolution.y;
-          
-          vec2 m = (u_mouse - 0.5) * 2.0;
-          m.x *= u_resolution.x / u_resolution.y;
-          float mouseDist = length(p - m);
-          
-          // Psychedelic Material Contamination Mask
-          float contamNoise = fbm(p * 2.0 + vec2(u_time * 0.1, -u_time * 0.2));
-          float mouseInfluence = smoothstep(1.5, 0.0, mouseDist);
-          float contamination = smoothstep(0.3, 0.7, contamNoise * 0.6 + mouseInfluence * 0.8);
-          
-          // Quasicrystal Space Warping
-          vec2 qcWarp = vec2(
-              quasicrystal(p, u_time * 0.5),
-              quasicrystal(p + vec2(12.34, 56.78), u_time * 0.6)
-          );
-          vec2 warpedP = p + qcWarp * 0.2 * contamination;
-          
-          // Op Art Scaffold: Funnel Tunnel & Zebra Waves
-          float r = length(warpedP) + 0.001;
-          float a = atan(warpedP.y, warpedP.x);
-          
-          float tunnelDepth = 1.0 / (r + 0.1);
-          float spiral = a * 3.0;
-          float freq = 12.0;
-          float speed = 2.0;
-          
-          // Chromatic Interference Op (Prismatic Edge Fringing)
-          float zebraR = sin(tunnelDepth * freq + spiral - u_time * speed);
-          float zebraG = sin(tunnelDepth * (freq + 0.3) + spiral - u_time * speed);
-          float zebraB = sin(tunnelDepth * (freq + 0.6) + spiral - u_time * speed);
-          
-          vec3 prismaticScaffold = vec3(step(0.0, zebraR), step(0.0, zebraG), step(0.0, zebraB));
-          
-          // Structural Color (Chitin/Beetle Iridescence)
-          float thickness = 100.0 + 800.0 * fbm(warpedP * 3.0 + u_time * 0.5);
-          float cosTheta = abs(dot(normalize(p), normalize(p - m + 0.001))); 
-          vec3 iridescence = thinFilm(cosTheta, thickness, 1.56);
-          
-          // Merge rigid Op Art scaffold with fluid iridescent contamination
-          vec3 baseColor = mix(prismaticScaffold, iridescence, contamination);
-          
-          // Ordered Dithering implementation
-          int bx = int(mod(snappedUV.x * virtualRes.x, 4.0));
-          int by = int(mod(snappedUV.y * virtualRes.y, 4.0));
-          float bayerVal = bayer4x4[by * 4 + bx];
-          
-          vec3 dithered = baseColor + (bayerVal - 0.5) * 0.6;
-          
-          // Final Palette Snap
-          vec3 finalColor = nearestPalette(dithered);
-          
-          fragColor = vec4(finalColor, 1.0);
+        // pxv.shader.pixelate_grid_lock.v1
+        vec2 virtualRes = vec2(320.0, 240.0);
+        vec2 pxUv = floor(vUv * virtualRes) / virtualRes;
+
+        vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
+        vec2 p = (pxUv - 0.5) * aspect * 20.0;
+        vec2 m = (u_mouse - 0.5) * aspect * 20.0;
+
+        // Defect injection via interaction
+        float distToMouse = length(p - m);
+        float defect = exp(-distToMouse * 0.5) * sin(distToMouse * 10.0 - u_time * 8.0) * u_isPressed;
+        p += normalize(p - m + 0.001) * defect;
+
+        // quasicrystals: 5-fold Penrose projection field
+        float phi = 1.6180339887;
+        float qc = 0.0;
+        
+        // Base aperiodic field
+        for(int i = 0; i < 5; i++) {
+            float angle = float(i) * 3.14159265 / 5.0;
+            vec2 dir = vec2(cos(angle), sin(angle));
+            qc += cos(dot(p, dir) + u_time * 0.5);
+        }
+
+        // Domain warping using the field to create biological folds
+        vec2 warp = vec2(cos(qc), sin(qc)) * phi;
+        p += warp * 0.5;
+
+        // Second layer of quasicrystal over warped domain
+        float qc2 = 0.0;
+        for(int i = 0; i < 5; i++) {
+            float angle = float(i) * 3.14159265 / 5.0 + (3.14159265 / 10.0);
+            vec2 dir = vec2(cos(angle), sin(angle));
+            qc2 += cos(dot(p, dir) * 0.618033 - u_time * 0.2);
+        }
+
+        // Combine into a "thickness" map for structural color
+        float thickness = (qc + qc2) * 0.1 + 0.5;
+        
+        // Add artificial Bragg reflection bands
+        thickness += sin(thickness * 20.0) * 0.05;
+
+        // Generate raw iridescent color
+        vec3 rawColor = thinFilmInterference(thickness + u_time * 0.1);
+        
+        // Boost saturation for Lisa Frank aesthetic
+        rawColor = pow(rawColor, vec3(0.6));
+
+        // pxv.shader.ordered_dither.v1
+        int bx = int(mod(vUv.x * virtualRes.x, 4.0));
+        int by = int(mod(vUv.y * virtualRes.y, 4.0));
+        float bayer = bayer4[by * 4 + bx];
+
+        // Apply dither spread based on luminance
+        float spread = 0.35;
+        vec3 ditheredColor = rawColor + (bayer - 0.5) * spread;
+
+        // Snap to palette
+        vec3 finalColor = nearestPalette(ditheredColor);
+
+        // pxv.shader.outline_sobel.v1 (approximated via edge detection on thickness)
+        float edge = abs(dFdx(thickness)) + abs(dFdy(thickness));
+        if (edge > 0.03) {
+            finalColor = paletteColors[0]; // Dark velvet outline
+        }
+
+        fragColor = vec4(finalColor, 1.0);
       }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2() },
-        u_mouse: { value: new THREE.Vector2() },
-        u_pixelScale: { value: 3.0 }
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+        u_isPressed: { value: 0.0 }
       },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader
+      depthWrite: false,
+      depthTest: false
     });
-    
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
+
     canvas.__three = { renderer, scene, camera, material };
   } catch (e) {
     console.error("WebGL Initialization Failed:", e);
@@ -196,22 +164,22 @@ if (!canvas.__three) {
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
-if (material?.uniforms?.u_time) {
+
+if (material?.uniforms) {
   material.uniforms.u_time.value = time;
   material.uniforms.u_resolution.value.set(grid.width, grid.height);
   
-  let mx = mouse.x / grid.width;
-  let my = 1.0 - (mouse.y / grid.height);
+  // Normalize mouse to 0.0 - 1.0, flip Y for WebGL
+  const mx = mouse.x / grid.width;
+  const my = 1.0 - (mouse.y / grid.height);
   
-  // Auto-animate mouse target if user is inactive
-  if (!mouse.isPressed && mouse.x === 0 && mouse.y === 0) {
-    mx = 0.5 + Math.sin(time * 0.7) * 0.3;
-    my = 0.5 + Math.cos(time * 0.5) * 0.3;
-  }
+  // Smooth mouse follow
+  material.uniforms.u_mouse.value.x += (mx - material.uniforms.u_mouse.value.x) * 0.1;
+  material.uniforms.u_mouse.value.y += (my - material.uniforms.u_mouse.value.y) * 0.1;
   
-  material.uniforms.u_mouse.value.set(mx, my);
-  // Ensure the pixel art aesthetic remains blocky regardless of screen size
-  material.uniforms.u_pixelScale.value = Math.max(2.0, Math.floor(grid.width / 300));
+  // Smooth click interaction
+  const targetPress = mouse.isPressed ? 1.0 : 0.0;
+  material.uniforms.u_isPressed.value += (targetPress - material.uniforms.u_isPressed.value) * 0.1;
 }
 
 renderer.setSize(grid.width, grid.height, false);
