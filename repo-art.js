@@ -16,181 +16,129 @@ if (!canvas.__three) {
     `;
 
     const fragmentShader = `
-      precision highp float;
       in vec2 vUv;
       out vec4 fragColor;
 
       uniform float u_time;
       uniform vec2 u_resolution;
       uniform vec2 u_mouse;
-      uniform float u_is_pressed;
 
-      // Noise & FBM
-      float hash21(vec2 p) {
-          p = fract(p * vec2(12.9898, 78.233));
-          p += dot(p, p + 34.56);
-          return fract(p.x * p.y);
-      }
-
-      float hash3(vec3 p3) {
-          p3  = fract(p3 * .1031);
-          p3 += dot(p3, p3.zyx + 31.32);
-          return fract((p3.x + p3.y) * p3.z);
-      }
-
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          vec2 u = f*f*(3.0-2.0*f);
-          return mix(mix(hash21(i + vec2(0.0,0.0)), hash21(i + vec2(1.0,0.0)), u.x),
-                     mix(hash21(i + vec2(0.0,1.0)), hash21(i + vec2(1.0,1.0)), u.x), u.y);
-      }
-
-      float fbm(vec2 p) {
-          float v = 0.0; float a = 0.5;
-          for (int i=0; i<4; i++) { v += a * noise(p); p *= 2.0; a *= 0.5; }
-          return v;
-      }
-
-      // Chladni Plate Vibration Modes
-      float chladni(vec2 p, float m, float n) {
-          return sin(n * p.x) * sin(m * p.y) + sin(m * p.x) * sin(n * p.y);
-      }
-
-      // Structural Topography
-      float map(vec2 p) {
-          float mx = mix(0.5, u_mouse.x, 0.5);
-          float my = mix(0.5, u_mouse.y, 0.5);
-          
-          float m1 = floor(mix(1.0, 8.0, mx));
-          float n1 = floor(mix(1.0, 8.0, my));
-          
-          float m2 = floor(mix(1.0, 8.0, my));
-          float n2 = floor(mix(1.0, 8.0, mx));
-          
-          // Shoegaze Phase Drift (Domain Warping)
-          vec2 drift = vec2(fbm(p * 3.0 + u_time * 0.2), fbm(p * 3.0 - u_time * 0.2)) * 0.2;
-          if (u_is_pressed > 0.5) drift *= 4.0; // Overclocked tear
-          p += drift;
-          
-          float c1 = chladni(p * 3.0, m1, n1);
-          float c2 = chladni(p * 3.0, m2, n2);
-          
-          // Temporal crossfade between nodal states
-          float blend = smoothstep(-0.5, 0.5, sin(u_time * 0.3));
-          
-          // Envelope
-          float env = smoothstep(1.5, 0.0, length(p) * 0.4);
-          return mix(c1, c2, blend) * env;
-      }
-
-      // Lisa Frank / CD Iridescent Palette
-      vec3 neonPalette(float t) {
+      // COLOR FIELDS: Neon Acid / Cyberpunk Cosine Palette
+      vec3 paletteNeon(float t) {
           vec3 a = vec3(0.5, 0.5, 0.5);
-          vec3 b = vec3(0.5, 0.5, 0.5);
-          vec3 c = vec3(1.0, 1.0, 1.0);
-          vec3 d = vec3(0.8, 0.0, 0.4); 
-          vec3 col = a + b * cos(6.28318 * (c * t + d));
-          // Brutal saturation boost
-          col = mix(vec3(dot(col, vec3(0.333))), col, 1.8);
-          return clamp(col, 0.0, 1.0);
+          vec3 b = vec3(0.5, 0.5, 0.33);
+          vec3 c = vec3(2.0, 1.0, 1.0);
+          vec3 d = vec3(0.5, 0.2, 0.25);
+          return a + b * cos(6.2831853 * (c * t + d));
       }
 
-      // Thin-Film Interference Optics
-      vec3 getIridescence(vec2 uv, float offset) {
-          vec2 eps = vec2(0.015, 0.0);
-          float h0 = map(uv);
-          float hx = map(uv + eps.xy) - map(uv - eps.xy);
-          float hy = map(uv + eps.yx) - map(uv - eps.yx);
-          
-          vec3 N = normalize(vec3(-hx, -hy, 1.2)); // Z controls harshness of normals
-          vec3 V = normalize(vec3(0.0, 0.0, 1.0));
-          
-          float cosTheta = max(0.0, dot(N, V));
-          
-          // Bragg reflection / Thin film thickness mapping
-          float film_thickness = max(100.0, 400.0 + abs(h0) * 300.0 + offset * 250.0);
-          float n_film = 1.45;
-          
-          // Optical Path Difference
-          float pathDiff = 2.0 * n_film * film_thickness * sqrt(max(0.0, 1.0 - pow(sin(acos(cosTheta))/n_film, 2.0)));
-          
-          float t = pathDiff / 700.0;
-          vec3 color = neonPalette(t);
-          
-          // Fake wet specular hit
-          float spec = pow(max(0.0, dot(N, normalize(vec3(0.5, 0.5, 1.0)))), 24.0);
-          color += spec * 0.7;
-          
-          return color;
+      // NOISE FIELDS: Hash & Cellular (Worley)
+      vec2 hash22(vec2 p) {
+          p = fract(p * vec2(127.1, 311.7));
+          p += dot(p, p.yx + 19.19);
+          return fract(vec2(p.x * p.y, p.x + p.y));
       }
 
-      // 4x4 Bayer Matrix for Ordered Dithering
-      float getBayer(vec2 fc) {
-          int x = int(mod(fc.x, 4.0));
-          int y = int(mod(fc.y, 4.0));
-          if(x==0 && y==0) return 0.0;
-          if(x==1 && y==0) return 0.5;
-          if(x==2 && y==0) return 0.125;
-          if(x==3 && y==0) return 0.625;
-          if(x==0 && y==1) return 0.75;
-          if(x==1 && y==1) return 0.25;
-          if(x==2 && y==1) return 0.875;
-          if(x==3 && y==1) return 0.375;
-          if(x==0 && y==2) return 0.1875;
-          if(x==1 && y==2) return 0.6875;
-          if(x==2 && y==2) return 0.0625;
-          if(x==3 && y==2) return 0.5625;
-          if(x==0 && y==3) return 0.9375;
-          if(x==1 && y==3) return 0.4375;
-          if(x==2 && y==3) return 0.8125;
-          return 0.3125;
+      vec2 worleyF1F2(vec2 p) {
+          vec2 n = floor(p);
+          vec2 f = fract(p);
+          float d1 = 8.0, d2 = 8.0;
+          for (int j = -1; j <= 1; j++) {
+              for (int i = -1; i <= 1; i++) {
+                  vec2 g = vec2(float(i), float(j));
+                  vec2 o = hash22(n + g);
+                  // Animate the feature points (boiling/melting effect)
+                  o = 0.5 + 0.5 * sin(u_time * 0.8 + 6.2831853 * o);
+                  vec2 r = g + o - f;
+                  float d = dot(r, r);
+                  if (d < d1) { d2 = d1; d1 = d; }
+                  else if (d < d2) { d2 = d; }
+              }
+          }
+          return vec2(sqrt(d1), sqrt(d2));
+      }
+
+      // TESSELLATIONS: p6m Symmetry Folding (Hexagonal/Triangular)
+      vec2 foldP6m(vec2 p) {
+          p = abs(p);
+          const float sqrt3 = 1.7320508;
+          if (p.y > p.x * sqrt3) p = vec2(p.x * sqrt3 + p.y, p.x - p.y * sqrt3) / 2.0;
+          p = abs(p);
+          if (p.y > p.x * sqrt3) p = vec2(p.x * sqrt3 + p.y, p.x - p.y * sqrt3) / 2.0;
+          return p;
+      }
+
+      // FERAL MECHANISM: Fungal Lisa Frank Leopard Spots
+      // Combines F2-F1 Worley with a stark threshold
+      float getLeopardMask(vec2 p) {
+          vec2 wf = worleyF1F2(p);
+          float edge = wf.y - wf.x; // F2 minus F1
+          // Hard threshold creates stark black lines (Lisa Frank style)
+          return smoothstep(0.02, 0.08, edge);
+      }
+
+      float getSparkles(vec2 p) {
+          vec2 wf = worleyF1F2(p);
+          // F1 near 0 means we are exactly at a cell center
+          return smoothstep(0.12, 0.0, wf.x);
       }
 
       void main() {
-          vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-          vec2 p = (uv - 0.5) * 2.0;
-          p.x *= u_resolution.x / u_resolution.y;
+          vec2 uv = (vUv - 0.5) * 2.0;
+          uv.x *= u_resolution.x / u_resolution.y;
           
-          // Misregistration Drift (Shoegaze Print Memory)
-          float tear = smoothstep(0.8, 1.0, fbm(vec2(p.y * 10.0, u_time)));
-          float aberration = 0.06 * fbm(p * 5.0 - u_time) + tear * 0.15;
-          if (u_is_pressed > 0.5) aberration += 0.2; // Glitch fracture
+          vec2 mouse = u_mouse * 2.0 - 1.0;
+          if(length(mouse) < 0.01) mouse = vec2(0.5, 0.5);
+
+          // FRACTALS: Hyperbolic-style spatial inversion
+          float r = length(uv);
+          float theta = atan(uv.y, uv.x);
           
-          // Chromatic Aberration sampling
-          vec3 col;
-          col.r = getIridescence(p + vec2(aberration, 0.0), aberration).r;
-          col.g = getIridescence(p, 0.0).g;
-          col.b = getIridescence(p - vec2(aberration, 0.0), -aberration).b;
+          // Spatial rotation
+          float rot = u_time * 0.1;
+          uv *= mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+
+          // Invert space based on distance to create a black hole / infinite zoom effect
+          vec2 inv_uv = uv / dot(uv, uv) * 0.5;
           
-          // Thermal Bloom / Shoegaze Halation
-          vec3 bloom = max(vec3(0.0), col - 0.55);
-          col += bloom * vec3(1.2, 0.4, 0.9) * 2.2;
-          
-          // Xerox Generation Loss / Ditherpunk Quantization
-          float ditherVal = getBayer(gl_FragCoord.xy) - 0.5;
-          float steps = 4.0; // Brutal limitation
-          col = col + ditherVal * 0.5; 
-          col = floor(col * steps + 0.5) / steps;
-          
-          // Dead Pixel Pollen
-          float pollen = step(0.997, hash3(vec3(gl_FragCoord.xy + vec2(u_time * 80.0, u_time * -50.0), floor(u_time * 12.0))));
-          col = mix(col, vec3(0.0, 1.0, 0.8), pollen); // Neon cyan infection
-          
-          // Film Grain Clumps
-          float grain = (hash3(vec3(gl_FragCoord.xy, u_time)) - 0.5) * 0.22;
-          col += grain;
-          
-          // Scanline Haze
-          float scanline = sin(uv.y * u_resolution.y * 0.5) * 0.04;
-          col -= scanline;
-          
-          // Soft Contrast Curve & Vignette
-          col = smoothstep(0.0, 1.0, col);
-          float vig = length(uv - 0.5);
-          col *= smoothstep(1.3, 0.2, vig);
-          
-          fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+          // FUNGAL INFECTION: Mix normal space and inverted space based on mouse
+          float infection = smoothstep(0.0, 1.5, length(mouse));
+          uv = mix(uv * 2.0, inv_uv, infection);
+
+          // TESSELLATIONS: Apply p6m hexagonal symmetry fold
+          // The symmetry gradually breaks down as time progresses (bureaucratic failure)
+          vec2 folded_uv = foldP6m(uv * 1.5);
+          float symmetry_break = smoothstep(0.2, 0.8, sin(u_time * 0.3 + r * 5.0));
+          uv = mix(folded_uv, uv, symmetry_break * 0.5);
+
+          // NOISE FIELDS: Deep Iterative Domain Warp
+          vec2 w1 = worleyF1F2(uv * 2.0 + u_time * 0.15);
+          vec2 w2 = worleyF1F2(uv * 3.0 - w1.x * 2.5 + u_time * 0.25);
+          uv += (w2 - w1) * (0.3 + mouse.x * 0.5);
+
+          // COLOR FIELDS: Map the warped space to the Neon Acid palette
+          float hue = length(uv) * 1.5 - u_time * 0.4 + w1.y;
+          vec3 baseColor = paletteNeon(hue);
+
+          // PAPER MISREGISTRATION: Chromatic aberration on the leopard spots
+          // Simulating cheap 90s sticker printing errors
+          vec2 scale = uv * 6.0;
+          float maskR = getLeopardMask(scale + vec2(0.04, 0.0));
+          float maskG = getLeopardMask(scale);
+          float maskB = getLeopardMask(scale - vec2(0.04, 0.0));
+          vec3 leopardMask = vec3(maskR, maskG, maskB);
+
+          // Apply the mask to the base rainbow color
+          vec3 finalColor = baseColor * leopardMask;
+
+          // Add blinding white starbursts in the cell centers
+          float sparkles = getSparkles(scale);
+          finalColor += vec3(sparkles * 2.5);
+
+          // Vignette / Depth shading
+          finalColor *= 1.0 - smoothstep(1.0, 3.0, r);
+
+          fragColor = vec4(finalColor, 1.0);
       }
     `;
 
@@ -201,37 +149,37 @@ if (!canvas.__three) {
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
-        u_is_pressed: { value: 0 }
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
       }
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
 
-    canvas.__three = { renderer, scene, camera, material };
+    canvas.__three = { renderer, scene, camera, material, mouseLerp: new THREE.Vector2(0.5, 0.5) };
   } catch (e) {
-    console.error("WebGL Init Failed:", e);
+    console.error("WebGL Initialization Failed:", e);
     return;
   }
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+const { renderer, scene, camera, material, mouseLerp } = canvas.__three;
 
 if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  
-  const targetMx = mouse.x / grid.width;
-  const targetMy = 1.0 - (mouse.y / grid.height);
-  
-  if (isNaN(material.uniforms.u_mouse.value.x)) {
-    material.uniforms.u_mouse.value.set(0.5, 0.5);
+  if (material.uniforms.u_time) {
+    material.uniforms.u_time.value = time;
   }
-  
-  material.uniforms.u_mouse.value.x += (targetMx - material.uniforms.u_mouse.value.x) * 0.08;
-  material.uniforms.u_mouse.value.y += (targetMy - material.uniforms.u_mouse.value.y) * 0.08;
-  material.uniforms.u_is_pressed.value = mouse.isPressed ? 1.0 : 0.0;
+  if (material.uniforms.u_resolution) {
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  }
+  if (material.uniforms.u_mouse) {
+    let targetX = mouse.x / grid.width;
+    let targetY = 1.0 - (mouse.y / grid.height);
+    
+    // Smooth the mouse input to feel more organic
+    mouseLerp.lerp(new THREE.Vector2(targetX, targetY), 0.05);
+    material.uniforms.u_mouse.value.copy(mouseLerp);
+  }
 }
 
 renderer.setSize(grid.width, grid.height, false);
