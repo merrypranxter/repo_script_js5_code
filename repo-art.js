@@ -1,149 +1,180 @@
-if (!ctx) return;
+try {
+  if (!canvas.__three) {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
-if (!canvas.__g2_init) {
-    const endesga_hex = [
-        "1a1c2c", "5d275d", "b13e53", "ef7d57", "ffcd75", "a7f070", "38b764", "257179", 
-        "29366f", "3b5dc9", "41a6f6", "73eff7", "f4f4f4", "94b0c2", "566c86", "333c57", 
-        "5d2f0f", "a35324", "e07850", "f4b379", "fde89f", "1a3d2b", "2e6e32", "5aab43", 
-        "8dc23e", "3e2a0e", "7a4a1e", "c48139", "e8c172", "2d2d2d", "7d7d7d"
-    ];
-    const gb_hex = ["9bbc0f", "8bac0f", "306230", "0f380f"];
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      context: ctx,
+      alpha: true,
+      antialias: false,
+    });
 
-    const hexToRGB = (h) => [
-        parseInt(h.substring(0, 2), 16) / 255,
-        parseInt(h.substring(2, 4), 16) / 255,
-        parseInt(h.substring(4, 6), 16) / 255
-    ];
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
 
-    const rgbToYUV = (rgb) => [
-        rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114,
-        rgb[0] * -0.147 + rgb[1] * -0.289 + rgb[2] * 0.436,
-        rgb[0] * 0.615 + rgb[1] * -0.515 + rgb[2] * -0.100
-    ];
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
 
-    canvas.__pal_main = endesga_hex.map(hexToRGB).map(rgb => ({ rgb, yuv: rgbToYUV(rgb) }));
-    canvas.__pal_gb = gb_hex.map(hexToRGB).map(rgb => ({ rgb, yuv: rgbToYUV(rgb) }));
+    const fragmentShader = `
+      uniform float u_time;
+      uniform vec2 u_resolution;
+      uniform vec2 u_mouse;
 
-    canvas.__bayer = [
-        0, 8, 2, 10,
-        12, 4, 14, 6,
-        3, 11, 1, 9,
-        15, 7, 13, 5
-    ];
+      in vec2 vUv;
+      out vec4 fragColor;
 
-    const oc = document.createElement('canvas');
-    oc.width = 160; 
-    oc.height = Math.floor(160 * (grid.height / grid.width));
-    canvas.__offscreen = oc;
-    canvas.__octx = oc.getContext('2d', { willReadFrequently: true });
-    canvas.__imgData = canvas.__octx.createImageData(oc.width, oc.height);
-    canvas.__g2_init = true;
+      // 4x4 Bayer Dither Matrix for Ditherpunk aesthetic
+      const float bayer[16] = float[16](
+         0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+        12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+         3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+        15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+      );
+
+      // Game Boy DMG 4-shade Green Palette
+      const vec3 gb0 = vec3(0.059, 0.220, 0.059);
+      const vec3 gb1 = vec3(0.188, 0.384, 0.188);
+      const vec3 gb2 = vec3(0.545, 0.675, 0.059);
+      const vec3 gb3 = vec3(0.608, 0.737, 0.059);
+
+      // Lisa Frank Neon Palette (Iridescent Thin-Film Approximation)
+      vec3 structuralNeon(float thickness) {
+          vec3 a = vec3(0.5, 0.5, 0.5);
+          vec3 b = vec3(0.5, 0.5, 0.5);
+          vec3 c = vec3(2.0, 1.5, 1.0); // High frequency diffraction
+          vec3 d = vec3(0.0, 0.33, 0.67);
+          vec3 col = a + b * cos(6.2831853 * (c * thickness + d));
+          // Hyper-saturate for Lisa Frank aesthetic
+          float luma = dot(col, vec3(0.299, 0.587, 0.114));
+          return clamp(mix(vec3(luma), col, 2.5), 0.0, 1.0);
+      }
+
+      // Ammann-Beenker 8-fold Quasicrystal Field
+      float quasicrystal(vec2 p, float t, vec2 phason) {
+          float sum = 0.0;
+          for(int i = 0; i < 4; i++) {
+              float angle = float(i) * 3.14159265359 / 4.0;
+              vec2 dir = vec2(cos(angle), sin(angle));
+              // Phason strain injected via mouse interaction
+              float phase = dot(p, dir) + t + dot(phason, vec2(sin(angle), -cos(angle)));
+              sum += cos(phase * 3.14159265359);
+          }
+          return sum;
+      }
+
+      void main() {
+          vec2 uv = vUv;
+          vec2 p = (uv - 0.5) * (u_resolution / u_resolution.y);
+          
+          vec2 phason = u_mouse * 5.0;
+
+          // Compute raw quasicrystal field to determine spatial infection
+          float rawQc = quasicrystal(p * 10.0, u_time * 0.2, phason);
+          
+          // The "tearing" threshold: where the rigid DMG grid yields to feral Lisa Frank neon
+          float tear = smoothstep(0.0, 2.0, abs(rawQc));
+
+          // Dynamic Pixel Grid Lock (Pixel/Voxel Pipeline)
+          // Dense quasicrystal areas force chunky 8-bit pixels; sparse areas allow high-res
+          float pixelSize = mix(12.0, 2.0, tear);
+          vec2 gridCoords = floor(uv * u_resolution / pixelSize);
+          vec2 gridUv = gridCoords * pixelSize / u_resolution;
+          vec2 gridP = (gridUv - 0.5) * (u_resolution / u_resolution.y);
+
+          // Re-evaluate QC on the locked grid
+          float q = quasicrystal(gridP * 10.0, u_time * 0.2, phason);
+
+          // Thin-film interference thickness
+          float thickness = (q * 0.15) + (u_time * 0.1) + length(gridP);
+          vec3 baseColor = structuralNeon(thickness);
+
+          // Ordered Dithering Setup (Screen-Space)
+          int bx = int(mod(gridCoords.x, 4.0));
+          int by = int(mod(gridCoords.y, 4.0));
+          float bayerVal = bayer[by * 4 + bx];
+
+          float luma = dot(baseColor, vec3(0.299, 0.587, 0.114));
+          float ditheredLuma = luma + (bayerVal - 0.5) * 0.8;
+
+          vec3 finalColor;
+
+          if (tear < 0.5) {
+              // HOST: Game Boy DMG Monochrome (Aperiodic Ditherpunk)
+              int gbIndex = int(clamp(ditheredLuma * 4.0, 0.0, 3.0));
+              if(gbIndex == 0) finalColor = gb0;
+              else if(gbIndex == 1) finalColor = gb1;
+              else if(gbIndex == 2) finalColor = gb2;
+              else finalColor = gb3;
+              
+              // Subtle grid outline for blocky voxel feel
+              vec2 fractGrid = fract(uv * u_resolution / pixelSize);
+              if(fractGrid.x < 0.1 || fractGrid.y < 0.1) {
+                  finalColor *= 0.7;
+              }
+          } else {
+              // PARASITE: Lisa Frank Iridescent Quasicrystal
+              // Quantize the structural color via dither thresholding
+              vec3 ditheredColor = baseColor + (bayerVal - 0.5) * 0.5;
+              finalColor = floor(ditheredColor * 3.0 + 0.5) / 3.0;
+              
+              // Outline Sobel / Edge-Detect Fake (Neon highlights)
+              float edge = fract(q * 4.0 - u_time);
+              if (edge > 0.85) {
+                  finalColor = mix(finalColor, vec3(1.0, 0.0, 0.8), 0.8); // Hot pink injection
+              }
+          }
+
+          // Visual accident: Machine hesitation at the boundary
+          if (abs(tear - 0.5) < 0.02) {
+              finalColor = vec3(1.0, 1.0, 0.0); // Toxic yellow seam
+          }
+
+          fragColor = vec4(finalColor, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0, 0) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
+    });
+
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(plane);
+
+    canvas.__three = { renderer, scene, camera, material };
+  }
+
+  const { renderer, scene, camera, material } = canvas.__three;
+
+  if (material && material.uniforms) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    
+    // Smooth mouse interpolation for phason strain
+    const targetMouseX = (mouse.x / grid.width) * 2 - 1;
+    const targetMouseY = -(mouse.y / grid.height) * 2 + 1;
+    
+    material.uniforms.u_mouse.value.x += (targetMouseX - material.uniforms.u_mouse.value.x) * 0.05;
+    material.uniforms.u_mouse.value.y += (targetMouseY - material.uniforms.u_mouse.value.y) * 0.05;
+  }
+
+  renderer.setSize(grid.width, grid.height, false);
+  renderer.render(scene, camera);
+
+} catch (err) {
+  console.error("Feral Quasicrystal Initialization Error:", err);
 }
-
-const oc = canvas.__offscreen;
-const octx = canvas.__octx;
-const imgData = canvas.__imgData;
-const data = imgData.data;
-const vw = oc.width;
-const vh = oc.height;
-const aspect = vw / vh;
-const t = time * 0.5;
-
-const mX = (mouse.x / grid.width - 0.5) * 2.0 * aspect;
-const mY = (mouse.y / grid.height - 0.5) * 2.0;
-const isPressed = mouse.isPressed;
-
-let idx = 0;
-for (let y = 0; y < vh; y++) {
-    for (let x = 0; x < vw; x++) {
-        let pX = (x / vw - 0.5) * 2.0 * aspect;
-        let pY = (y / vh - 0.5) * 2.0;
-
-        let distToMouse = Math.hypot(pX - mX, pY - mY);
-        let sing = Math.exp(-distToMouse * 6.0) * (isPressed ? 3.0 : 1.0);
-
-        pX += Math.sin(pY * 4.0 + t) * sing * 0.2;
-        pY += Math.cos(pX * 4.0 - t) * sing * 0.2;
-
-        let sx = Math.sin(pX * 1.3 + t * 0.7);
-        let cy = Math.cos(pY * 1.7 - t * 0.4);
-        let swirl = Math.sin((pX + pY) * 2.4 + t * 0.3);
-
-        let px = sx + 0.35 * swirl;
-        let py = cy - 0.2 * swirl;
-        let pz = Math.sin(pX * pY * 0.7 + t * 0.25);
-        let plen = Math.hypot(px, py, pz) || 1;
-        px /= plen; py /= plen; pz /= plen;
-
-        let dx = -py;
-        let dy = px;
-        let dz = Math.cos((pX - pY) * 1.1 - t * 0.2);
-        let dlen = Math.hypot(dx, dy, dz) || 1;
-        dx /= dlen; dy /= dlen; dz /= dlen;
-
-        let torsion = Math.abs(px * dx + py * dy + pz * dz);
-
-        let pRadial = Math.hypot(pX, pY);
-        let fracture = Math.sin(pRadial * 18.0 - torsion * 6.0 + pz * 4.0) * 0.5 + 0.5;
-        let axisStress = Math.abs(px - dy);
-        let singularityMask = fracture + axisStress * 0.35 + torsion * 0.4 + sing * 1.5;
-        let isWound = singularityMask > 1.2;
-
-        let thickness = 150 + 700 * (torsion + pz * 0.5 + 0.5);
-        let n_film = 1.33 + sing * 0.2; 
-        let pathDiff = 2.0 * n_film * thickness;
-
-        let r = 0.5 + 0.5 * Math.cos((pathDiff / 650.0) * Math.PI * 2.0);
-        let g = 0.5 + 0.5 * Math.cos((pathDiff / 550.0) * Math.PI * 2.0);
-        let b = 0.5 + 0.5 * Math.cos((pathDiff / 450.0) * Math.PI * 2.0);
-
-        if (singularityMask > 0.9 && !isWound) {
-            let seam = (singularityMask - 0.9) * 3.0;
-            r += seam * 1.0;
-            g += seam * 0.5;
-            b += seam * 0.1;
-        }
-
-        let bidx = (x % 4) + (y % 4) * 4;
-        let bval = canvas.__bayer[bidx] / 16.0;
-        let spread = isWound ? 0.6 : 0.25;
-
-        r += (bval - 0.5) * spread;
-        g += (bval - 0.5) * spread;
-        b += (bval - 0.5) * spread;
-
-        let y_px = r * 0.299 + g * 0.587 + b * 0.114;
-        let u_px = r * -0.147 + g * -0.289 + b * 0.436;
-        let v_px = r * 0.615 + g * -0.515 + b * -0.100;
-
-        let activePal = isWound ? canvas.__pal_gb : canvas.__pal_main;
-        let bestDist = Infinity;
-        let bestRGB = activePal[0].rgb;
-
-        for (let i = 0; i < activePal.length; i++) {
-            let pYUV = activePal[i].yuv;
-            let dY = y_px - pYUV[0];
-            let dU = u_px - pYUV[1];
-            let dV = v_px - pYUV[2];
-            let dist = dY * dY + dU * dU + dV * dV;
-            
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestRGB = activePal[i].rgb;
-            }
-        }
-
-        data[idx++] = bestRGB[0] * 255;
-        data[idx++] = bestRGB[1] * 255;
-        data[idx++] = bestRGB[2] * 255;
-        data[idx++] = 255;
-    }
-}
-
-octx.putImageData(imgData, 0, 0);
-
-ctx.fillStyle = '#050505';
-ctx.fillRect(0, 0, grid.width, grid.height);
-
-ctx.imageSmoothingEnabled = false;
-ctx.drawImage(oc, 0, 0, grid.width, grid.height);
