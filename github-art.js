@@ -1,192 +1,276 @@
-// [GENOME: alien_language | little_green_men | crop_circles | g2 | color_fields | noise | pixel_voxel]
-// THE STRANGE MECHANISM: Torsional Dither-Glyph Infection
-// A biological, corrupted interface where "Oraphine" alien glyphs are grown and mutated 
-// by a "G2 Torsion Field". The field creates strain/fractures (singularities) which leak 
-// "Neon Acid" and "Little Green Men" radioactive green. The entire system is rendered 
-// through a "Ditherpunk" lens, mapping continuous organic forces into a strict 4-color 
-// pixelated palette using a Bayer 4x4 threshold matrix and temporal smearing.
-
-const TARGET_PIXELS = 60000; // Optimize for 60fps JavaScript execution
-const pixelSize = Math.max(2, Math.ceil(Math.sqrt((grid.width * grid.height) / TARGET_PIXELS)));
-const vw = Math.floor(grid.width / pixelSize);
-const vh = Math.floor(grid.height / pixelSize);
-
-// Initialize virtual buffer and temporal energy field
-if (!ctx.vCanvas || ctx.vCanvas.width !== vw || ctx.vCanvas.height !== vh) {
-    ctx.vCanvas = document.createElement('canvas');
-    ctx.vCanvas.width = vw;
-    ctx.vCanvas.height = vh;
-    ctx.vCtx = ctx.vCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
-    ctx.imgData = ctx.vCtx.createImageData(vw, vh);
-    ctx.buf = new Uint32Array(ctx.imgData.data.buffer);
-    ctx.energyBuf = new Float32Array(vw * vh);
-}
-
-// Bayer 4x4 Dither Matrix (Normalized 0-15)
-const bayer = [
-    [ 0,  8,  2, 10],
-    [12,  4, 14,  6],
-    [ 3, 11,  1,  9],
-    [15,  7, 13,  5]
-];
-
-// Palette: ABGR Little Endian Format
-const PALETTE = [
-    0xFF0A050A, // Void Black (Very dark cosmic purple/green)
-    0xFF691B2D, // Cosmic Void Purple (#2d1b69)
-    0xFFFF00FF, // Neon Acid Magenta (#ff00ff)
-    0xFF14FF39  // Alien Green (#39FF14)
-];
-
-// Fast pseudo-random hash
-function hash(n) {
-    return (Math.sin(n) * 43758.5453123) % 1.0;
-}
-
-// Fast 2D Value Noise
-function vnoise(x, y) {
-    let ix = Math.floor(x), iy = Math.floor(y);
-    let fx = x - ix, fy = y - iy;
-    let u = fx * fx * (3.0 - 2.0 * fx);
-    let v = fy * fy * (3.0 - 2.0 * fy);
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
     
-    let n00 = hash(ix + iy * 57.0);
-    let n10 = hash(ix + 1.0 + iy * 57.0);
-    let n01 = hash(ix + (iy + 1.0) * 57.0);
-    let n11 = hash(ix + 1.0 + (iy + 1.0) * 57.0);
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    renderer.autoClear = false;
     
-    let nx0 = n00 + (n10 - n00) * u;
-    let nx1 = n01 + (n11 - n01) * u;
-    return nx0 + (nx1 - nx0) * v;
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }
+    `;
+    
+    const fragmentShader = `
+      precision highp float;
+      out vec4 fragColor;
+      in vec2 vUv;
+      uniform float u_time;
+      uniform vec2 u_resolution;
+      uniform vec2 u_mouse;
+      uniform float u_mouse_pressed;
+
+      // ---- Noise & Hash Functions ----
+      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 permute(vec4 x) { return mod289(((x*34.0)+10.0)*x); }
+
+      float snoise(vec3 v) {
+        const vec2  C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i  = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - D.yyy;
+        i = mod289(i);
+        vec4 p = permute(permute(permute(
+                   i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                 + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                 + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+        float n_ = 0.142857142857;
+        vec3  ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x = x_ *ns.x + ns.yyyy;
+        vec4 y = y_ *ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4(x.xy, y.xy);
+        vec4 b1 = vec4(x.zw, y.zw);
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+        vec3 p0 = vec3(a0.xy,h.x);
+        vec3 p1 = vec3(a0.zw,h.y);
+        vec3 p2 = vec3(a1.xy,h.z);
+        vec3 p3 = vec3(a1.zw,h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+        p0 *= norm.x;
+        p1 *= norm.y;
+        p2 *= norm.z;
+        p3 *= norm.w;
+        vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 105.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+      }
+
+      float fbm(vec3 p) {
+          float f = 0.0;
+          float amp = 0.5;
+          for(int i = 0; i < 4; i++) {
+              f += amp * snoise(p);
+              p *= 2.0;
+              amp *= 0.5;
+          }
+          return f;
+      }
+
+      vec2 curlNoise(vec2 p, float t) {
+          float eps = 0.05;
+          float n1 = snoise(vec3(p.x, p.y + eps, t));
+          float n2 = snoise(vec3(p.x, p.y - eps, t));
+          float n3 = snoise(vec3(p.x + eps, p.y, t));
+          float n4 = snoise(vec3(p.x - eps, p.y, t));
+          float a = (n1 - n2) / (2.0 * eps);
+          float b = (n3 - n4) / (2.0 * eps);
+          return vec2(a, -b);
+      }
+
+      // ---- Physics & Geometry ----
+      float chladni(vec2 p, float m, float n) {
+          float pi = 3.14159265;
+          return sin(n * pi * p.x) * sin(m * pi * p.y) + sin(m * pi * p.x) * sin(n * pi * p.y);
+      }
+
+      vec3 palette(float t) {
+          // Neon Acid / Ultraviolet Dream
+          vec3 a = vec3(0.5, 0.5, 0.5);
+          vec3 b = vec3(0.5, 0.5, 0.33);
+          vec3 c = vec3(2.0, 1.0, 1.0);
+          vec3 d = vec3(0.5, 0.2, 0.25);
+          return a + b * cos(6.28318 * (c * t + d));
+      }
+
+      // ---- Core Render Pass ----
+      vec3 renderPass(vec2 uv, vec2 offset) {
+          vec2 mouse = u_mouse * 2.0 - 1.0;
+          mouse.x *= u_resolution.x / u_resolution.y;
+          
+          vec2 p = uv + offset;
+          vec2 pCenter = p - mouse * 0.3 * u_mouse_pressed;
+          float r = length(pCenter);
+          
+          // AdS Holographic Depth (boundary at r=1.0)
+          float z = max(0.01, 1.0 - r * r); 
+          float scale = 1.0 / z; 
+          
+          // Black Hole / Stretched Horizon at r=0.15
+          float horizonDist = r - 0.15;
+          float shell = exp(-abs(horizonDist) * 25.0);
+          
+          // Machine hesitation time
+          float stTime = u_time * 0.15 + fbm(vec3(p, u_time * 0.1)) * 0.2;
+          
+          // Infall melt (information scrambled as it crosses horizon)
+          float melt = smoothstep(0.2, -0.05, horizonDist);
+          vec2 pWarped = pCenter * scale;
+          pWarped += melt * curlNoise(pWarped * 4.0, stTime) * 0.6;
+          
+          // Domain Warp
+          vec2 warp = curlNoise(pWarped * 0.6, stTime) * 0.4;
+          pWarped += warp;
+          
+          // Host: Chladni Resonant Plate
+          float m = floor(2.0 + 3.0 * sin(stTime * 0.5));
+          float n = floor(4.0 + 3.0 * cos(stTime * 0.3));
+          float ch = chladni(pWarped, m, n);
+          float nodeDist = abs(ch);
+          
+          // Parasite: Entanglement Filaments / Fungal Growth
+          float parasite = fbm(vec3(pWarped * 2.5, stTime * 1.5));
+          float curlMag = length(curlNoise(pWarped * 3.0, stTime));
+          
+          // Infection thrives on nodes, but is fully scrambled near horizon
+          float infection = smoothstep(0.5, 0.0, nodeDist) * smoothstep(0.2, 0.8, parasite);
+          infection = mix(infection, parasite, melt * 0.8); 
+          
+          // Colors (Blacklight velvet void)
+          vec3 voidColor = vec3(0.01, 0.0, 0.03);
+          vec3 hostColor = vec3(0.05, 0.15, 0.3) * smoothstep(0.3, 0.0, nodeDist);
+          
+          // Structural Color on Parasite
+          float thickness = infection + curlMag * 0.4 - stTime * 0.3;
+          vec3 parasiteColor = palette(thickness);
+          
+          // Blacklight Bloom / Aura
+          float bloom = exp(-nodeDist * (3.0 + 6.0 * parasite)) * 0.7;
+          vec3 glow = palette(bloom - stTime * 0.1) * bloom * 2.0;
+          
+          // Horizon Shell Glow (Hawking radiation / Glyphfire)
+          vec3 shellGlow = palette(shell * 1.5 + stTime) * shell * 1.8;
+          
+          // Compositing
+          vec3 col = mix(voidColor, hostColor, 0.5);
+          col = mix(col, parasiteColor, infection);
+          col += glow * infection;
+          col += shellGlow;
+          
+          // Horizon Void
+          col *= smoothstep(-0.02, 0.05, horizonDist);
+          
+          // AdS Edge Saturation (Fade to black velvet at boundary)
+          col *= smoothstep(0.0, 0.15, z);
+          
+          return col;
+      }
+
+      void main() {
+          vec2 uv = vUv * 2.0 - 1.0;
+          uv.x *= u_resolution.x / u_resolution.y;
+          
+          // CMYK Misregistration + Glitch
+          float glitch = fbm(vec3(uv * 4.0, u_time * 0.5)) * (1.0 + u_mouse_pressed * 3.0);
+          vec2 dir = normalize(uv + vec2(0.001)); 
+          float shiftMag = 0.015 * glitch;
+          
+          vec2 rOffset = dir * shiftMag;
+          vec2 gOffset = dir * -shiftMag * 0.5 + vec2(shiftMag * 0.5);
+          vec2 bOffset = dir * -shiftMag;
+          
+          float r = renderPass(uv, rOffset).r;
+          float g = renderPass(uv, gOffset).g;
+          float b = renderPass(uv, bOffset).b;
+          
+          vec3 color = vec3(r, g, b);
+          
+          // Photocopy Noise / Paper Grain
+          float grain = fract(sin(dot(vUv * 1000.0 + u_time, vec2(12.9898, 78.233))) * 43758.5453);
+          color += (grain - 0.5) * 0.1;
+          
+          // Xerox Streak Artifacts
+          float streak = snoise(vec3(vUv.x * 80.0, 0.0, u_time * 0.2)) * 0.5 + 0.5;
+          streak = smoothstep(0.85, 1.0, streak) * 0.15;
+          color += streak * vec3(0.6, 0.1, 0.8);
+          
+          // Halftone Dot Screen
+          float freq = 180.0;
+          float angle = 0.785398; // 45 degrees
+          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+          vec2 cellUv = rot * vUv * freq;
+          vec2 cell = fract(cellUv) - 0.5;
+          float dist = length(cell);
+          float luma = dot(color, vec3(0.299, 0.587, 0.114));
+          float dotRadius = sqrt(luma) * 0.55;
+          float halftone = smoothstep(dotRadius + 0.15, dotRadius - 0.15, dist);
+          
+          color = mix(color * halftone, color, 0.6);
+          
+          // ACES Tonemapping
+          color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
+          
+          fragColor = vec4(color, 1.0);
+      }
+    `;
+    
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+        u_mouse_pressed: { value: 0.0 }
+      },
+      depthWrite: false,
+      depthTest: false
+    });
+    
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+    
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
-// Fractal Brownian Motion
-function fbm(x, y, t) {
-    let v = 0.0;
-    let a = 0.5;
-    let shift = vec2(100.0, 100.0);
-    for (let i = 0; i < 3; i++) {
-        v += a * vnoise(x + t, y - t);
-        x = x * 2.0 + shift.x;
-        y = y * 2.0 + shift.y;
-        a *= 0.5;
-    }
-    return v;
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  
+  const mx = mouse.x / grid.width;
+  const my = 1.0 - (mouse.y / grid.height);
+  material.uniforms.u_mouse.value.set(mx, my);
+  material.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
 }
 
-function vec2(x, y) { return {x, y}; }
-
-let t = time * 0.4;
-let idx = 0;
-
-let mx = (mouse.x / grid.width) * 2.0 - 1.0;
-let my = (mouse.y / grid.height) * 2.0 - 1.0;
-mx *= vw / vh;
-
-for (let y = 0; y < vh; y++) {
-    for (let x = 0; x < vw; x++) {
-        let nx = (x / vw) * 2.0 - 1.0;
-        let ny = (y / vh) * 2.0 - 1.0;
-        nx *= vw / vh;
-
-        // --- G2 DOMAIN WARP & PHI FIELD ---
-        // Iterative domain warp creating psychedelic turbulent flow
-        let qx = fbm(nx * 2.0, ny * 2.0, t * 0.2);
-        let qy = fbm(nx * 2.0 + 5.2, ny * 2.0 + 1.3, -t * 0.2);
-        
-        let rx = fbm(nx * 4.0 + 4.0 * qx, ny * 4.0 + 4.0 * qy, t);
-        
-        let wx = nx + qx * 0.4;
-        let wy = ny + qy * 0.4;
-
-        // --- POLAR MAPPING (CROP CIRCLES) ---
-        let r = Math.sqrt(wx * wx + wy * wy);
-        let a = Math.atan2(wy, wx);
-
-        // --- G2 TORSION & FRACTURE ---
-        // Strain where the field misaligns
-        let torsion = Math.abs(Math.sin(r * 12.0 - a * 5.0 + t * 2.0));
-        let fracture = Math.pow(Math.max(0, Math.sin(r * 25.0 + qy * 10.0 - t * 5.0)), 16.0);
-
-        // --- ORAPHINE GLYPHIC STRUCTURE ---
-        // Radial bands and angular sectors
-        let ring = Math.floor(r * 7.0 - t * 0.5);
-        let sector = Math.floor((a + rx * 0.5) * 10.0 / Math.PI);
-        
-        let cell_hash = hash(ring * 113.0 + sector * 57.0);
-        
-        let r_fract = (r * 7.0 - t * 0.5) - ring;
-        let a_fract = ((a + rx * 0.5) * 10.0 / Math.PI) - sector;
-
-        let struct_energy = 0.0;
-
-        if (r < 0.3) {
-            // Central Eye Seal
-            let eye = Math.pow(Math.sin(r * Math.PI * 3.0 - t * 2.0), 2.0) * Math.pow(Math.sin(a * 4.0), 2.0);
-            struct_energy += eye > 0.6 ? 2.0 : 0.0;
-        } else {
-            if (cell_hash < 0.3) {
-                // Stem (Vertical/Radial support)
-                struct_energy += Math.pow(1.0 - Math.abs(a_fract - 0.5) * 2.0, 6.0) * Math.sin(r_fract * Math.PI);
-            } else if (cell_hash < 0.6) {
-                // Eye Chamber (Containment)
-                let eye = Math.pow(Math.sin(r_fract * Math.PI), 2.0) * Math.pow(Math.sin(a_fract * Math.PI), 2.0);
-                struct_energy += eye > 0.4 ? 1.2 : 0.0;
-                // Central Node Accent
-                if (eye > 0.85) struct_energy += 1.5;
-            } else if (cell_hash < 0.8) {
-                // Crescent / Fork
-                let crescent = Math.abs(r_fract - a_fract) < 0.15 ? 1.0 : 0.0;
-                struct_energy += crescent;
-            }
-            
-            // Thin Slash (Corruption modifier)
-            if (hash(cell_hash * 3.14) > 0.8 && Math.abs(r_fract + a_fract - 1.0) < 0.1) {
-                struct_energy += 1.5;
-            }
-        }
-
-        // --- COMBINE ENERGIES ---
-        let raw_energy = (struct_energy * 0.8) + (fracture * 2.5) + (torsion * 0.3) + (rx * 0.4);
-
-        // Singularity Injection (Mouse interaction)
-        if (mouse.isPressed) {
-            let dx = nx - mx;
-            let dy = ny - my;
-            let d = Math.sqrt(dx * dx + dy * dy);
-            raw_energy += Math.pow(Math.max(0, 0.4 - d) * 2.5, 2.0) * 3.0;
-        }
-
-        // --- TEMPORAL SMEARING (REACTION/DECAY) ---
-        // Creates a biological trailing effect
-        let smoothed = raw_energy * 0.25 + ctx.energyBuf[idx] * 0.75;
-        ctx.energyBuf[idx] = smoothed;
-
-        // --- DITHERPUNK THRESHOLDING ---
-        // Map continuous energy to discrete 4-color palette using Bayer matrix
-        let bayer_val = bayer[y % 4][x % 4] / 16.0;
-        
-        // Scale energy to fit 0..3 palette range with dither spread
-        let dither_step = smoothed * 1.8 + bayer_val * 1.2 - 0.2;
-        let quantized = Math.floor(dither_step);
-        
-        // Clamp to palette bounds
-        quantized = Math.max(0, Math.min(3, quantized));
-
-        // Write to pixel buffer
-        ctx.buf[idx++] = PALETTE[quantized];
-    }
-}
-
-// Render virtual buffer to offscreen canvas
-ctx.vCtx.putImageData(ctx.imgData, 0, 0);
-
-// Draw scaled-up to main canvas (Nearest Neighbor for crisp pixels)
-ctx.imageSmoothingEnabled = false;
-ctx.drawImage(ctx.vCanvas, 0, 0, grid.width, grid.height);
-
-// Overlay scanlines for retro CRT / Biotech interface feel
-ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
-for (let y = 0; y < grid.height; y += pixelSize * 2) {
-    ctx.fillRect(0, y, grid.width, pixelSize);
-}
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
