@@ -1,224 +1,226 @@
 if (!canvas.__three) {
-    try {
-        if (!ctx) throw new Error("WebGL 2 context not available");
-        
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-        camera.position.z = 1;
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
+    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
+    
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
 
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
+      // --- THE FERAL ENGINE: NOISE & VIBRATION ---
+      
+      // Hash for cellular noise
+      vec2 hash22(vec2 p) {
+          p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+          return fract(sin(p) * 43758.5453);
+      }
 
-        const fragmentShader = `
-            precision highp float;
-            in vec2 vUv;
-            out vec4 fragColor;
-            
-            uniform float u_time;
-            uniform vec2 u_resolution;
-            
-            vec2 hash2(vec2 p) {
-                p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-                return fract(sin(p) * 43758.5453);
-            }
-            
-            float hash(vec2 p) {
-                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-            }
-            
-            float noise(vec2 p) {
-                vec2 i = floor(p); 
-                vec2 f = fract(p);
-                vec2 u = f*f*(3.0-2.0*f);
-                return mix( mix( hash( i + vec2(0.0,0.0) ), hash( i + vec2(1.0,0.0) ), u.x),
-                            mix( hash( i + vec2(0.0,1.0) ), hash( i + vec2(1.0,1.0) ), u.x), u.y);
-            }
-            
-            float fbm(vec2 p) {
-                float f = 0.0; float w = 0.5;
-                for(int i=0; i<4; i++) { 
-                    f += w * noise(p); 
-                    p *= 2.0; 
-                    w *= 0.5; 
-                }
-                return f;
-            }
-            
-            float worley(vec2 uv) {
-                vec2 n = floor(uv);
-                vec2 f = fract(uv);
-                float res = 8.0;
-                for(int j=-1; j<=1; j++) {
-                    for(int i=-1; i<=1; i++) {
-                        vec2 g = vec2(float(i), float(j));
-                        vec2 o = hash2(n + g);
-                        o = 0.5 + 0.5 * sin(u_time * 0.5 + 6.2831853 * o);
-                        vec2 r = g + o - f;
-                        float d = max(abs(r.x), abs(r.y));
-                        res = min(res, d);
-                    }
-                }
-                return res;
-            }
-            
-            float worleyF2F1(vec2 uv) {
-                vec2 n = floor(uv);
-                vec2 f = fract(uv);
-                float d1 = 8.0, d2 = 8.0;
-                for(int j=-1; j<=1; j++) {
-                    for(int i=-1; i<=1; i++) {
-                        vec2 g = vec2(float(i), float(j));
-                        vec2 o = hash2(n + g);
-                        o = 0.5 + 0.5 * sin(u_time * 1.5 + 6.2831853 * o);
-                        vec2 r = g + o - f;
-                        float d = dot(r, r);
-                        if(d < d1) { d2 = d1; d1 = d; }
-                        else if(d < d2) { d2 = d; }
-                    }
-                }
-                return sqrt(d2) - sqrt(d1);
-            }
-            
-            mat2 rot(float a) {
-                float s = sin(a), c = cos(a);
-                return mat2(c, -s, s, c);
-            }
-            
-            vec2 kal(vec2 uv, float folds) {
-                float angle = atan(uv.y, uv.x);
-                float radius = length(uv);
-                float sector = 6.2831853 / folds;
-                angle = mod(angle, sector);
-                angle = abs(angle - sector / 2.0);
-                return vec2(cos(angle), sin(angle)) * radius;
-            }
-            
-            vec3 neonPalette(float t) {
-                vec3 a = vec3(0.5);
-                vec3 b = vec3(0.5, 0.5, 0.33);
-                vec3 c = vec3(2.0, 1.0, 1.0);
-                vec3 d = vec3(0.5, 0.2, 0.25);
-                return a + b * cos(6.2831853 * (c * t + d));
-            }
-            
-            float halftone(vec2 fragCoord, float freq, float angle, float luma) {
-                float rad = radians(angle);
-                mat2 r = mat2(cos(rad), -sin(rad), sin(rad), cos(rad));
-                vec2 uv_ht = r * (fragCoord / u_resolution.y) * freq;
-                vec2 cell = fract(uv_ht) - 0.5;
-                float dist = length(cell);
-                float dotRadius = sqrt(clamp(1.0 - luma, 0.0, 1.0)) * 0.5;
-                return smoothstep(dotRadius + 0.1, dotRadius - 0.1, dist);
-            }
-            
-            vec3 scene(vec2 uv) {
-                vec2 origUv = uv;
-                uv *= rot(u_time * 0.05);
-                uv = kal(uv, 8.0);
-                uv *= rot(-u_time * 0.1);
-                
-                vec2 warp = vec2(fbm(uv * 3.0 + u_time), fbm(uv * 3.0 - u_time));
-                vec2 warpedUv = uv + warp * 0.15;
-                
-                float val = fbm(warpedUv * 2.0 - u_time * 0.5) + length(origUv) * 0.5;
-                vec3 col = neonPalette(val);
-                
-                float f2f1 = worleyF2F1(warpedUv * 6.0);
-                float leopard = smoothstep(0.15, 0.25, f2f1) - smoothstep(0.4, 0.5, f2f1);
-                col = mix(col, vec3(0.9, 0.0, 0.8), leopard * 0.9);
-                
-                float facet = worley(warpedUv * 3.0);
-                float qFacet = step(0.5, fract(facet * 5.0));
-                col *= 0.7 + 0.5 * qFacet; 
-                
-                float m = 3.0;
-                float n = 5.0;
-                float ch = sin(m * 3.1415 * warpedUv.x) * sin(n * 3.1415 * warpedUv.y) 
-                         + sin(n * 3.1415 * warpedUv.x) * sin(m * 3.1415 * warpedUv.y);
-                float lines = smoothstep(0.05, 0.0, abs(ch));
-                col = mix(col, vec3(0.0, 1.0, 0.9), lines);
-                
-                return col;
-            }
-            
-            void main() {
-                vec2 screenUv = vUv * 2.0 - 1.0;
-                screenUv.x *= u_resolution.x / u_resolution.y;
-                
-                vec2 uv = rot(u_time * 0.02) * screenUv;
-                
-                float glitchTrigger = step(0.98, hash(vec2(floor(u_time * 15.0), floor(screenUv.y * 20.0))));
-                float offset = hash(vec2(floor(u_time), 1.0)) * 0.1 * glitchTrigger;
-                
-                vec2 dir = normalize(uv + 0.001) * 0.015;
-                
-                float r = scene(uv + dir + vec2(offset, 0.0)).r;
-                float g = scene(uv).g;
-                float b = scene(uv - dir - vec2(offset, 0.0)).b;
-                vec3 col = vec3(r, g, b);
-                
-                if (glitchTrigger > 0.0) {
-                    col += vec3(0.2);
-                }
-                
-                float luma = dot(col, vec3(0.299, 0.587, 0.114));
-                float ht = halftone(gl_FragCoord.xy, 150.0, 45.0, luma);
-                col *= mix(1.0, ht, 0.25);
-                
-                vec2 starUv = screenUv * 15.0; 
-                vec2 cell = fract(starUv) - 0.5;
-                vec2 id = floor(starUv);
-                float starHash = hash(id);
-                if(starHash > 0.95) {
-                    float star = smoothstep(0.05, 0.0, abs(cell.x)) * smoothstep(0.4, 0.0, abs(cell.y)) +
-                                 smoothstep(0.05, 0.0, abs(cell.y)) * smoothstep(0.4, 0.0, abs(cell.x));
-                    star *= smoothstep(0.0, 0.5, sin(u_time * 5.0 + starHash * 100.0) * 0.5 + 0.5);
-                    col += star * vec3(1.0, 0.9, 1.0) * 2.0;
-                }
-                
-                float grain = hash(uv * u_resolution.y + u_time);
-                col = mix(col, col * grain, 0.15);
-                
-                col *= smoothstep(1.8, 0.4, length(screenUv));
-                
-                fragColor = vec4(col, 1.0);
-            }
-        `;
+      // Worley Cellular Noise (F2-F1)
+      float worley(vec2 p) {
+          vec2 n = floor(p);
+          vec2 f = fract(p);
+          float d1 = 8.0, d2 = 8.0;
+          for (int j = -1; j <= 1; j++) {
+              for (int i = -1; i <= 1; i++) {
+                  vec2 g = vec2(float(i), float(j));
+                  vec2 o = hash22(n + g);
+                  o = 0.5 + 0.5 * sin(u_time * 0.8 + 6.28318 * o); // Cellular mutation
+                  vec2 r = g + o - f;
+                  float d = dot(r, r);
+                  if (d < d1) { d2 = d1; d1 = d; }
+                  else if (d < d2) { d2 = d; }
+              }
+          }
+          return sqrt(d2) - sqrt(d1);
+      }
 
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-            },
-            vertexShader,
-            fragmentShader,
-            depthWrite: false,
-            depthTest: false
-        });
+      // Simplex Noise 2D
+      vec3 permute(vec3 x) { return mod(((x*34.0)+10.0)*x, 289.0); }
+      float snoise(vec2 v){
+        const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+        vec2 i  = floor(v + dot(v, C.yy) );
+        vec2 x0 = v -   i + dot(i, C.xx);
+        vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+        vec4 x12 = x0.xyxy + C.xxzz;
+        x12.xy -= i1;
+        i = mod(i, 289.0);
+        vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ) );
+        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+        m = m*m; m = m*m;
+        vec3 x = 2.0 * fract(p * C.www) - 1.0;
+        vec3 h = abs(x) - 0.5;
+        vec3 ox = floor(x + 0.5);
+        vec3 a0 = x - ox;
+        m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+        vec3 g;
+        g.x  = a0.x  * x0.x  + h.x  * x0.y;
+        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+        return 130.0 * dot(m, g);
+      }
 
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-        canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
-    }
+      // FBM for Domain Warping
+      float fbm(vec2 p) {
+          float sum = 0.0;
+          float amp = 0.5;
+          for(int i=0; i<4; i++) {
+              sum += amp * snoise(p);
+              p *= 2.0;
+              amp *= 0.5;
+          }
+          return sum;
+      }
+
+      // Psychedelic Collage: Kaleidoscope Fold
+      vec2 kaleidoscope(vec2 uv, float folds) {
+          float angle = atan(uv.y, uv.x);
+          float radius = length(uv);
+          float sector = 6.2831853 / folds;
+          angle = mod(angle, sector);
+          if (angle > sector * 0.5) angle = sector - angle;
+          return vec2(cos(angle), sin(angle)) * radius;
+      }
+
+      // --- COLOR, OPTICS & PRINT ARTIFACTS ---
+      
+      // Cyberdelic Neon / Toxic Aurora Palette
+      vec3 palette(float t) {
+          vec3 a = vec3(0.5, 0.5, 0.5);
+          vec3 b = vec3(0.5, 0.5, 0.5);
+          vec3 c = vec3(2.0, 1.0, 1.0);
+          vec3 d = vec3(0.5, 0.2, 0.25);
+          return a + b * cos(6.2831853 * (c * t + d));
+      }
+
+      // Structural Color: Thin-film Interference
+      vec3 thinFilm(float thickness) {
+          float pathDiff = 2.0 * 1.56 * thickness; // n=1.56 (chitin/crystal)
+          vec3 phase = vec3(0.0, 0.33, 0.67);
+          return 0.5 + 0.5 * cos(6.2831853 * (pathDiff + phase));
+      }
+
+      void main() {
+          // Normalize and center UVs
+          vec2 uv = vUv * 2.0 - 1.0;
+          uv.x *= u_resolution.x / u_resolution.y;
+          vec2 uv0 = uv;
+
+          // Rotation
+          float t = u_time * 0.15;
+          float s = sin(t), c = cos(t);
+          uv = mat2(c, -s, s, c) * uv;
+
+          // Blacklight Poster: Velvet Void Base
+          vec3 col = vec3(0.01, 0.005, 0.02);
+
+          // 1. Kaleidoscope Mirror Fold
+          vec2 k_uv = kaleidoscope(uv, 8.0);
+          
+          // 2. Domain Warp (Infected/Overclocked space)
+          vec2 warp = vec2(fbm(k_uv * 3.0 + t), fbm(k_uv * 3.0 - t + 42.0));
+          vec2 w_uv = k_uv + warp * 0.5;
+
+          // 3. Cymatic Crystal Growth: Chladni Nodes masking Worley Cells
+          float w = worley(w_uv * 5.0 - t * 2.0);
+          // Chladni plate equation
+          float chladni = cos(3.0 * w_uv.x) * cos(5.0 * w_uv.y) - cos(5.0 * w_uv.x) * cos(3.0 * w_uv.y);
+          
+          // The strange mechanism: cellular growth is forced into resonant nodal lines
+          float mask = smoothstep(0.0, 0.4, abs(chladni));
+          float membrane = mix(w, fbm(w_uv * 12.0), mask);
+
+          // 4. Structural Color & Fluorescence
+          // Calculate pseudo-curvature for thin-film iridescence
+          float eps = 0.01;
+          float dx = worley(w_uv * 5.0 - t * 2.0 + vec2(eps, 0.0)) - w;
+          float dy = worley(w_uv * 5.0 - t * 2.0 + vec2(0.0, eps)) - w;
+          float curvature = length(vec2(dx, dy)) / eps;
+          
+          vec3 iridescence = thinFilm(curvature * 0.08 + u_time * 0.1);
+          
+          // Blacklight Glow Hierarchy (Core -> Rim -> Bloom)
+          float core = exp(-membrane * 12.0);
+          float rim = exp(-membrane * 4.0);
+          float bloom = exp(-membrane * 1.5);
+          
+          vec3 fluor_color = palette(membrane * 1.5 - t);
+          
+          col += fluor_color * core * 2.0;    // Hot core
+          col += fluor_color * rim * 1.2;     // Neon rim
+          col += fluor_color * bloom * 0.5;   // Soft aura
+          col += iridescence * rim * 0.8;     // Crystal facets catching light
+
+          // 5. Psychedelic Collage Print Artifacts
+          // Halftone Newsprint Overlay in the shadows/mids
+          float luma = dot(clamp(col, 0.0, 1.0), vec3(0.299, 0.587, 0.114));
+          vec2 ht_uv = mat2(0.707, -0.707, 0.707, 0.707) * gl_FragCoord.xy * (150.0 / u_resolution.y);
+          float ht_dot = length(fract(ht_uv) - 0.5);
+          float halftone = smoothstep(0.35, 0.5, ht_dot + luma * 0.7);
+          
+          // Multiply blend halftone, preserving extreme emissive highlights
+          col *= mix(0.15, 1.0, halftone + core); 
+
+          // CMYK Misregistration / Chromatic Aberration Glitch
+          float r_shift = fbm(w_uv * 10.0 + vec2(0.1, 0.0));
+          float b_shift = fbm(w_uv * 10.0 - vec2(0.1, 0.0));
+          col.r += r_shift * 0.25 * bloom;
+          col.b += b_shift * 0.25 * bloom;
+
+          // Xerox Dust / Scratches
+          float dust = snoise(uv0 * 100.0 + t);
+          col += max(0.0, dust - 0.8) * 0.5 * fluor_color;
+
+          // Blacklight Vignette (Velvet void framing)
+          float vig = 1.0 - smoothstep(0.4, 1.8, length(uv0));
+          col *= vig;
+
+          // ACES Filmic Tonemapping
+          col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);
+
+          fragColor = vec4(col, 1.0);
+      }
+    `;
+    
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
+    });
+    
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
 
-if (material?.uniforms?.u_time) {
-    material.uniforms.u_time.value = time;
-}
-if (material?.uniforms?.u_resolution) {
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+if (material && material.uniforms) {
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
 }
 
 renderer.setSize(grid.width, grid.height, false);
