@@ -1,214 +1,161 @@
 if (!canvas.__three) {
   try {
     if (!ctx) throw new Error("WebGL 2 context not available");
-    
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
-    
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
 
-      // --- THE FERAL ENGINE: NOISE & VIBRATION ---
-      
-      // Hash for cellular noise
-      vec2 hash22(vec2 p) {
-          p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-          return fract(sin(p) * 43758.5453);
-      }
-
-      // Worley Cellular Noise (F2-F1)
-      float worley(vec2 p) {
-          vec2 n = floor(p);
-          vec2 f = fract(p);
-          float d1 = 8.0, d2 = 8.0;
-          for (int j = -1; j <= 1; j++) {
-              for (int i = -1; i <= 1; i++) {
-                  vec2 g = vec2(float(i), float(j));
-                  vec2 o = hash22(n + g);
-                  o = 0.5 + 0.5 * sin(u_time * 0.8 + 6.28318 * o); // Cellular mutation
-                  vec2 r = g + o - f;
-                  float d = dot(r, r);
-                  if (d < d1) { d2 = d1; d1 = d; }
-                  else if (d < d2) { d2 = d; }
-              }
-          }
-          return sqrt(d2) - sqrt(d1);
-      }
-
-      // Simplex Noise 2D
-      vec3 permute(vec3 x) { return mod(((x*34.0)+10.0)*x, 289.0); }
-      float snoise(vec2 v){
-        const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-        vec2 i  = floor(v + dot(v, C.yy) );
-        vec2 x0 = v -   i + dot(i, C.xx);
-        vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-        vec4 x12 = x0.xyxy + C.xxzz;
-        x12.xy -= i1;
-        i = mod(i, 289.0);
-        vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ) );
-        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-        m = m*m; m = m*m;
-        vec3 x = 2.0 * fract(p * C.www) - 1.0;
-        vec3 h = abs(x) - 0.5;
-        vec3 ox = floor(x + 0.5);
-        vec3 a0 = x - ox;
-        m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-        vec3 g;
-        g.x  = a0.x  * x0.x  + h.x  * x0.y;
-        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-        return 130.0 * dot(m, g);
-      }
-
-      // FBM for Domain Warping
-      float fbm(vec2 p) {
-          float sum = 0.0;
-          float amp = 0.5;
-          for(int i=0; i<4; i++) {
-              sum += amp * snoise(p);
-              p *= 2.0;
-              amp *= 0.5;
-          }
-          return sum;
-      }
-
-      // Psychedelic Collage: Kaleidoscope Fold
-      vec2 kaleidoscope(vec2 uv, float folds) {
-          float angle = atan(uv.y, uv.x);
-          float radius = length(uv);
-          float sector = 6.2831853 / folds;
-          angle = mod(angle, sector);
-          if (angle > sector * 0.5) angle = sector - angle;
-          return vec2(cos(angle), sin(angle)) * radius;
-      }
-
-      // --- COLOR, OPTICS & PRINT ARTIFACTS ---
-      
-      // Cyberdelic Neon / Toxic Aurora Palette
-      vec3 palette(float t) {
-          vec3 a = vec3(0.5, 0.5, 0.5);
-          vec3 b = vec3(0.5, 0.5, 0.5);
-          vec3 c = vec3(2.0, 1.0, 1.0);
-          vec3 d = vec3(0.5, 0.2, 0.25);
-          return a + b * cos(6.2831853 * (c * t + d));
-      }
-
-      // Structural Color: Thin-film Interference
-      vec3 thinFilm(float thickness) {
-          float pathDiff = 2.0 * 1.56 * thickness; // n=1.56 (chitin/crystal)
-          vec3 phase = vec3(0.0, 0.33, 0.67);
-          return 0.5 + 0.5 * cos(6.2831853 * (pathDiff + phase));
-      }
-
-      void main() {
-          // Normalize and center UVs
-          vec2 uv = vUv * 2.0 - 1.0;
-          uv.x *= u_resolution.x / u_resolution.y;
-          vec2 uv0 = uv;
-
-          // Rotation
-          float t = u_time * 0.15;
-          float s = sin(t), c = cos(t);
-          uv = mat2(c, -s, s, c) * uv;
-
-          // Blacklight Poster: Velvet Void Base
-          vec3 col = vec3(0.01, 0.005, 0.02);
-
-          // 1. Kaleidoscope Mirror Fold
-          vec2 k_uv = kaleidoscope(uv, 8.0);
-          
-          // 2. Domain Warp (Infected/Overclocked space)
-          vec2 warp = vec2(fbm(k_uv * 3.0 + t), fbm(k_uv * 3.0 - t + 42.0));
-          vec2 w_uv = k_uv + warp * 0.5;
-
-          // 3. Cymatic Crystal Growth: Chladni Nodes masking Worley Cells
-          float w = worley(w_uv * 5.0 - t * 2.0);
-          // Chladni plate equation
-          float chladni = cos(3.0 * w_uv.x) * cos(5.0 * w_uv.y) - cos(5.0 * w_uv.x) * cos(3.0 * w_uv.y);
-          
-          // The strange mechanism: cellular growth is forced into resonant nodal lines
-          float mask = smoothstep(0.0, 0.4, abs(chladni));
-          float membrane = mix(w, fbm(w_uv * 12.0), mask);
-
-          // 4. Structural Color & Fluorescence
-          // Calculate pseudo-curvature for thin-film iridescence
-          float eps = 0.01;
-          float dx = worley(w_uv * 5.0 - t * 2.0 + vec2(eps, 0.0)) - w;
-          float dy = worley(w_uv * 5.0 - t * 2.0 + vec2(0.0, eps)) - w;
-          float curvature = length(vec2(dx, dy)) / eps;
-          
-          vec3 iridescence = thinFilm(curvature * 0.08 + u_time * 0.1);
-          
-          // Blacklight Glow Hierarchy (Core -> Rim -> Bloom)
-          float core = exp(-membrane * 12.0);
-          float rim = exp(-membrane * 4.0);
-          float bloom = exp(-membrane * 1.5);
-          
-          vec3 fluor_color = palette(membrane * 1.5 - t);
-          
-          col += fluor_color * core * 2.0;    // Hot core
-          col += fluor_color * rim * 1.2;     // Neon rim
-          col += fluor_color * bloom * 0.5;   // Soft aura
-          col += iridescence * rim * 0.8;     // Crystal facets catching light
-
-          // 5. Psychedelic Collage Print Artifacts
-          // Halftone Newsprint Overlay in the shadows/mids
-          float luma = dot(clamp(col, 0.0, 1.0), vec3(0.299, 0.587, 0.114));
-          vec2 ht_uv = mat2(0.707, -0.707, 0.707, 0.707) * gl_FragCoord.xy * (150.0 / u_resolution.y);
-          float ht_dot = length(fract(ht_uv) - 0.5);
-          float halftone = smoothstep(0.35, 0.5, ht_dot + luma * 0.7);
-          
-          // Multiply blend halftone, preserving extreme emissive highlights
-          col *= mix(0.15, 1.0, halftone + core); 
-
-          // CMYK Misregistration / Chromatic Aberration Glitch
-          float r_shift = fbm(w_uv * 10.0 + vec2(0.1, 0.0));
-          float b_shift = fbm(w_uv * 10.0 - vec2(0.1, 0.0));
-          col.r += r_shift * 0.25 * bloom;
-          col.b += b_shift * 0.25 * bloom;
-
-          // Xerox Dust / Scratches
-          float dust = snoise(uv0 * 100.0 + t);
-          col += max(0.0, dust - 0.8) * 0.5 * fluor_color;
-
-          // Blacklight Vignette (Velvet void framing)
-          float vig = 1.0 - smoothstep(0.4, 1.8, length(uv0));
-          col *= vig;
-
-          // ACES Filmic Tonemapping
-          col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);
-
-          fragColor = vec4(col, 1.0);
-      }
-    `;
-    
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
         u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
       },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        in vec2 vUv;
+        out vec4 fragColor;
+        
+        uniform float u_time;
+        uniform vec2 u_resolution;
+        uniform vec2 u_mouse;
+
+        #define MAX_STEPS 14
+
+        // Wavelength to RGB (Structural Color / Thin Film)
+        vec3 w2rgb(float W) {
+            vec3 c = vec3(0.0);
+            if (W >= 380.0 && W < 440.0) c = vec3(-(W-440.0)/(440.0-380.0), 0.0, 1.0);
+            else if (W >= 440.0 && W < 490.0) c = vec3(0.0, (W-440.0)/(490.0-440.0), 1.0);
+            else if (W >= 490.0 && W < 510.0) c = vec3(0.0, 1.0, -(W-510.0)/(510.0-490.0));
+            else if (W >= 510.0 && W < 580.0) c = vec3((W-510.0)/(580.0-510.0), 1.0, 0.0);
+            else if (W >= 580.0 && W < 645.0) c = vec3(1.0, -(W-645.0)/(645.0-580.0), 0.0);
+            else if (W >= 645.0 && W <= 780.0) c = vec3(1.0, 0.0, 0.0);
+            
+            float i = 1.0;
+            if (W < 420.0) i = 0.3 + 0.7*(W-380.0)/(420.0-380.0);
+            else if (W > 700.0) i = 0.3 + 0.7*(780.0-W)/(780.0-700.0);
+            return c * i;
+        }
+
+        // Thin Film Interference
+        vec3 thinFilm(float thickness) {
+            float n = 1.45; // Refractive index
+            float pathDiff = 2.0 * n * thickness;
+            vec3 color = vec3(0.0);
+            for(int i = 0; i < 8; i++) {
+                float lambda = mix(400.0, 700.0, float(i)/7.0);
+                float phase = (pathDiff / lambda) * 6.2831853;
+                float intensity = 0.5 + 0.5 * cos(phase);
+                color += w2rgb(lambda) * intensity;
+            }
+            return color / 8.0;
+        }
+
+        void main() {
+            vec2 p = (vUv - 0.5) * 2.0;
+            p.x *= u_resolution.x / max(u_resolution.y, 1.0);
+
+            vec2 mouseOff = (u_mouse - 0.5) * 2.0;
+
+            // Bureaucratic Grid (Pixel Voxel constraint)
+            // The grid warps under "textile tension"
+            float tension = sin(p.y * 5.0 + u_time) * cos(p.x * 5.0 - u_time);
+            float gridRes = 90.0 + 30.0 * tension;
+            vec2 snappedP = floor(p * gridRes) / gridRes;
+
+            // G2 Torsion Field / Julia Fold
+            vec2 z = snappedP;
+            float torsion = 0.0;
+            
+            for(int i = 0; i < MAX_STEPS; i++) {
+                z = abs(z) - vec2(0.4, 0.3) * sin(u_time * 0.15);
+                float r2 = dot(z, z);
+                float k = max(0.4 / r2, 0.05);
+                z *= k;
+                z += vec2(0.1, -0.15) * cos(u_time * 0.2) + mouseOff * 0.05;
+                torsion += abs(z.x - z.y);
+            }
+
+            // Singularity Mask: Where the strain breaks the pixel grid
+            float singularity = smoothstep(12.0, 22.0, torsion);
+
+            // Re-evaluate on smooth, unquantized space if the grid is fractured
+            if (singularity > 0.01) {
+                vec2 smoothZ = mix(snappedP, p, singularity);
+                float smoothTorsion = 0.0;
+                for(int i = 0; i < MAX_STEPS; i++) {
+                    smoothZ = abs(smoothZ) - vec2(0.4, 0.3) * sin(u_time * 0.15);
+                    float r2 = dot(smoothZ, smoothZ);
+                    float k = max(0.4 / r2, 0.05);
+                    smoothZ *= k;
+                    smoothZ += vec2(0.1, -0.15) * cos(u_time * 0.2) + mouseOff * 0.05;
+                    smoothTorsion += abs(smoothZ.x - smoothZ.y);
+                }
+                torsion = mix(torsion, smoothTorsion, singularity);
+            }
+
+            // Map torsion to film thickness (nanometers)
+            float thickness = 150.0 + 850.0 * fract(torsion * 0.12 - u_time * 0.4);
+            vec3 spectralColor = thinFilm(thickness);
+
+            // Ordered Dither (Bayer 4x4)
+            int bayer[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+            int bx = int(gl_FragCoord.x) % 4;
+            int by = int(gl_FragCoord.y) % 4;
+            float bayerVal = float(bayer[by * 4 + bx]) / 16.0;
+
+            // Apply dither spread
+            vec3 dithered = spectralColor + (bayerVal - 0.5) * 0.45;
+
+            // Palette (Bone & Rust + Neon Acid)
+            vec3 pal[6] = vec3[6](
+                vec3(0.04, 0.04, 0.08), // Void
+                vec3(0.18, 0.10, 0.00), // Rust
+                vec3(0.83, 0.64, 0.45), // Bone
+                vec3(0.00, 1.00, 0.40), // Acid Green
+                vec3(1.00, 0.00, 1.00), // Neon Magenta
+                vec3(0.00, 1.00, 1.00)  // Cyan
+            );
+
+            // Nearest palette match (YUV perceptual distance approximation)
+            vec3 snappedColor = pal[0];
+            float bestDist = 100.0;
+            for(int i = 0; i < 6; i++) {
+                vec3 diff = dithered - pal[i];
+                // Weighting for rough perceptual match
+                float d = dot(diff * vec3(0.3, 0.59, 0.11), diff * vec3(0.3, 0.59, 0.11));
+                if(d < bestDist) {
+                    bestDist = d;
+                    snappedColor = pal[i];
+                }
+            }
+
+            // The "Healing Seam": Raw, unquantized spectral light bleeds through the fractures
+            vec3 rawGlow = spectralColor * 1.8 + vec3(0.1, 0.3, 0.8) * singularity;
+            vec3 finalColor = mix(snappedColor, rawGlow, pow(singularity, 1.5));
+
+            // Vignette to ground the chaos
+            float vignette = 1.0 - smoothstep(0.5, 1.5, length(p));
+            finalColor *= vignette;
+
+            fragColor = vec4(finalColor, 1.0);
+        }
+      `
     });
-    
+
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
-    
+
     canvas.__three = { renderer, scene, camera, material };
   } catch (e) {
     console.error("WebGL Initialization Failed:", e);
@@ -218,9 +165,10 @@ if (!canvas.__three) {
 
 const { renderer, scene, camera, material } = canvas.__three;
 
-if (material && material.uniforms) {
-  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+if (material?.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  material.uniforms.u_mouse.value.set(mouse.x, mouse.y);
 }
 
 renderer.setSize(grid.width, grid.height, false);
