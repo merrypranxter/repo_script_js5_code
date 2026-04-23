@@ -2,275 +2,384 @@ if (!canvas.__three) {
   try {
     if (!ctx) throw new Error("WebGL 2 context not available");
     
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
     renderer.autoClear = false;
     
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const SIM_RES = 512;
+    const N = SIM_RES * SIM_RES;
     
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `;
+    const rtOpts = {
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.FloatType,
+      depthBuffer: false,
+      stencilBuffer: false,
+    };
     
-    const fragmentShader = `
-      precision highp float;
-      out vec4 fragColor;
-      in vec2 vUv;
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform vec2 u_mouse;
-      uniform float u_mouse_pressed;
-
-      // ---- Noise & Hash Functions ----
-      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
-      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec4 permute(vec4 x) { return mod289(((x*34.0)+10.0)*x); }
-
-      float snoise(vec3 v) {
-        const vec2  C = vec2(1.0/6.0, 1.0/3.0);
-        const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-        vec3 i  = floor(v + dot(v, C.yyy));
-        vec3 x0 = v - i + dot(i, C.xxx);
-        vec3 g = step(x0.yzx, x0.xyz);
-        vec3 l = 1.0 - g;
-        vec3 i1 = min(g.xyz, l.zxy);
-        vec3 i2 = max(g.xyz, l.zxy);
-        vec3 x1 = x0 - i1 + C.xxx;
-        vec3 x2 = x0 - i2 + C.yyy;
-        vec3 x3 = x0 - D.yyy;
-        i = mod289(i);
-        vec4 p = permute(permute(permute(
-                   i.z + vec4(0.0, i1.z, i2.z, 1.0))
-                 + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-                 + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-        float n_ = 0.142857142857;
-        vec3  ns = n_ * D.wyz - D.xzx;
-        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-        vec4 x_ = floor(j * ns.z);
-        vec4 y_ = floor(j - 7.0 * x_);
-        vec4 x = x_ *ns.x + ns.yyyy;
-        vec4 y = y_ *ns.x + ns.yyyy;
-        vec4 h = 1.0 - abs(x) - abs(y);
-        vec4 b0 = vec4(x.xy, y.xy);
-        vec4 b1 = vec4(x.zw, y.zw);
-        vec4 s0 = floor(b0)*2.0 + 1.0;
-        vec4 s1 = floor(b1)*2.0 + 1.0;
-        vec4 sh = -step(h, vec4(0.0));
-        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
-        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
-        vec3 p0 = vec3(a0.xy,h.x);
-        vec3 p1 = vec3(a0.zw,h.y);
-        vec3 p2 = vec3(a1.xy,h.z);
-        vec3 p3 = vec3(a1.zw,h.w);
-        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-        p0 *= norm.x;
-        p1 *= norm.y;
-        p2 *= norm.z;
-        p3 *= norm.w;
-        vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-        m = m * m;
-        return 105.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-      }
-
-      float fbm(vec3 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          for(int i = 0; i < 4; i++) {
-              f += amp * snoise(p);
-              p *= 2.0;
-              amp *= 0.5;
-          }
-          return f;
-      }
-
-      vec2 curlNoise(vec2 p, float t) {
-          float eps = 0.05;
-          float n1 = snoise(vec3(p.x, p.y + eps, t));
-          float n2 = snoise(vec3(p.x, p.y - eps, t));
-          float n3 = snoise(vec3(p.x + eps, p.y, t));
-          float n4 = snoise(vec3(p.x - eps, p.y, t));
-          float a = (n1 - n2) / (2.0 * eps);
-          float b = (n3 - n4) / (2.0 * eps);
-          return vec2(a, -b);
-      }
-
-      // ---- Physics & Geometry ----
-      float chladni(vec2 p, float m, float n) {
-          float pi = 3.14159265;
-          return sin(n * pi * p.x) * sin(m * pi * p.y) + sin(m * pi * p.x) * sin(n * pi * p.y);
-      }
-
-      vec3 palette(float t) {
-          // Neon Acid / Ultraviolet Dream
-          vec3 a = vec3(0.5, 0.5, 0.5);
-          vec3 b = vec3(0.5, 0.5, 0.33);
-          vec3 c = vec3(2.0, 1.0, 1.0);
-          vec3 d = vec3(0.5, 0.2, 0.25);
-          return a + b * cos(6.28318 * (c * t + d));
-      }
-
-      // ---- Core Render Pass ----
-      vec3 renderPass(vec2 uv, vec2 offset) {
-          vec2 mouse = u_mouse * 2.0 - 1.0;
-          mouse.x *= u_resolution.x / u_resolution.y;
-          
-          vec2 p = uv + offset;
-          vec2 pCenter = p - mouse * 0.3 * u_mouse_pressed;
-          float r = length(pCenter);
-          
-          // AdS Holographic Depth (boundary at r=1.0)
-          float z = max(0.01, 1.0 - r * r); 
-          float scale = 1.0 / z; 
-          
-          // Black Hole / Stretched Horizon at r=0.15
-          float horizonDist = r - 0.15;
-          float shell = exp(-abs(horizonDist) * 25.0);
-          
-          // Machine hesitation time
-          float stTime = u_time * 0.15 + fbm(vec3(p, u_time * 0.1)) * 0.2;
-          
-          // Infall melt (information scrambled as it crosses horizon)
-          float melt = smoothstep(0.2, -0.05, horizonDist);
-          vec2 pWarped = pCenter * scale;
-          pWarped += melt * curlNoise(pWarped * 4.0, stTime) * 0.6;
-          
-          // Domain Warp
-          vec2 warp = curlNoise(pWarped * 0.6, stTime) * 0.4;
-          pWarped += warp;
-          
-          // Host: Chladni Resonant Plate
-          float m = floor(2.0 + 3.0 * sin(stTime * 0.5));
-          float n = floor(4.0 + 3.0 * cos(stTime * 0.3));
-          float ch = chladni(pWarped, m, n);
-          float nodeDist = abs(ch);
-          
-          // Parasite: Entanglement Filaments / Fungal Growth
-          float parasite = fbm(vec3(pWarped * 2.5, stTime * 1.5));
-          float curlMag = length(curlNoise(pWarped * 3.0, stTime));
-          
-          // Infection thrives on nodes, but is fully scrambled near horizon
-          float infection = smoothstep(0.5, 0.0, nodeDist) * smoothstep(0.2, 0.8, parasite);
-          infection = mix(infection, parasite, melt * 0.8); 
-          
-          // Colors (Blacklight velvet void)
-          vec3 voidColor = vec3(0.01, 0.0, 0.03);
-          vec3 hostColor = vec3(0.05, 0.15, 0.3) * smoothstep(0.3, 0.0, nodeDist);
-          
-          // Structural Color on Parasite
-          float thickness = infection + curlMag * 0.4 - stTime * 0.3;
-          vec3 parasiteColor = palette(thickness);
-          
-          // Blacklight Bloom / Aura
-          float bloom = exp(-nodeDist * (3.0 + 6.0 * parasite)) * 0.7;
-          vec3 glow = palette(bloom - stTime * 0.1) * bloom * 2.0;
-          
-          // Horizon Shell Glow (Hawking radiation / Glyphfire)
-          vec3 shellGlow = palette(shell * 1.5 + stTime) * shell * 1.8;
-          
-          // Compositing
-          vec3 col = mix(voidColor, hostColor, 0.5);
-          col = mix(col, parasiteColor, infection);
-          col += glow * infection;
-          col += shellGlow;
-          
-          // Horizon Void
-          col *= smoothstep(-0.02, 0.05, horizonDist);
-          
-          // AdS Edge Saturation (Fade to black velvet at boundary)
-          col *= smoothstep(0.0, 0.15, z);
-          
-          return col;
-      }
-
-      void main() {
-          vec2 uv = vUv * 2.0 - 1.0;
-          uv.x *= u_resolution.x / u_resolution.y;
-          
-          // CMYK Misregistration + Glitch
-          float glitch = fbm(vec3(uv * 4.0, u_time * 0.5)) * (1.0 + u_mouse_pressed * 3.0);
-          vec2 dir = normalize(uv + vec2(0.001)); 
-          float shiftMag = 0.015 * glitch;
-          
-          vec2 rOffset = dir * shiftMag;
-          vec2 gOffset = dir * -shiftMag * 0.5 + vec2(shiftMag * 0.5);
-          vec2 bOffset = dir * -shiftMag;
-          
-          float r = renderPass(uv, rOffset).r;
-          float g = renderPass(uv, gOffset).g;
-          float b = renderPass(uv, bOffset).b;
-          
-          vec3 color = vec3(r, g, b);
-          
-          // Photocopy Noise / Paper Grain
-          float grain = fract(sin(dot(vUv * 1000.0 + u_time, vec2(12.9898, 78.233))) * 43758.5453);
-          color += (grain - 0.5) * 0.1;
-          
-          // Xerox Streak Artifacts
-          float streak = snoise(vec3(vUv.x * 80.0, 0.0, u_time * 0.2)) * 0.5 + 0.5;
-          streak = smoothstep(0.85, 1.0, streak) * 0.15;
-          color += streak * vec3(0.6, 0.1, 0.8);
-          
-          // Halftone Dot Screen
-          float freq = 180.0;
-          float angle = 0.785398; // 45 degrees
-          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-          vec2 cellUv = rot * vUv * freq;
-          vec2 cell = fract(cellUv) - 0.5;
-          float dist = length(cell);
-          float luma = dot(color, vec3(0.299, 0.587, 0.114));
-          float dotRadius = sqrt(luma) * 0.55;
-          float halftone = smoothstep(dotRadius + 0.15, dotRadius - 0.15, dist);
-          
-          color = mix(color * halftone, color, 0.6);
-          
-          // ACES Tonemapping
-          color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
-          
-          fragColor = vec4(color, 1.0);
-      }
-    `;
+    const posFBOs = [
+      new THREE.WebGLRenderTarget(SIM_RES, SIM_RES, rtOpts),
+      new THREE.WebGLRenderTarget(SIM_RES, SIM_RES, rtOpts)
+    ];
     
-    const material = new THREE.ShaderMaterial({
+    const drawFBOOpts = {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.FloatType,
+      depthBuffer: false,
+      stencilBuffer: false,
+    };
+    
+    const drawFBOs = [
+      new THREE.WebGLRenderTarget(grid.width, grid.height, drawFBOOpts),
+      new THREE.WebGLRenderTarget(grid.width, grid.height, drawFBOOpts)
+    ];
+    
+    const quadGeo = new THREE.PlaneGeometry(2, 2);
+    const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const partCam = new THREE.PerspectiveCamera(60, grid.width / grid.height, 0.1, 100);
+    partCam.position.z = 3.5;
+    
+    // Seed initial positions
+    const posData = new Float32Array(N * 4);
+    for(let i = 0; i < N; i++) {
+      posData[i*4+0] = (Math.random() - 0.5) * 4.0;
+      posData[i*4+1] = (Math.random() - 0.5) * 4.0;
+      posData[i*4+2] = 0;
+      posData[i*4+3] = 0;
+    }
+    const initPosTex = new THREE.DataTexture(posData, SIM_RES, SIM_RES, THREE.RGBAFormat, THREE.FloatType);
+    initPosTex.needsUpdate = true;
+    
+    const initMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
+      uniforms: { u_tex: { value: initPosTex } },
+      vertexShader: `out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+      fragmentShader: `precision highp float; in vec2 vUv; uniform sampler2D u_tex; out vec4 fragColor; void main() { fragColor = texture(u_tex, vUv); }`
+    });
+    const initScene = new THREE.Scene();
+    initScene.add(new THREE.Mesh(quadGeo, initMat));
+    
+    renderer.setRenderTarget(posFBOs[0]);
+    renderer.render(initScene, quadCam);
+    renderer.setRenderTarget(posFBOs[1]);
+    renderer.render(initScene, quadCam);
+    
+    initPosTex.dispose();
+    initMat.dispose();
+    
+    // ── Update Pass (Strange Attractor + Fluid Dynamics + Tessellation) ──
+    const updateMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
       uniforms: {
+        u_pos: { value: null },
         u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
-        u_mouse_pressed: { value: 0.0 }
+        u_mouse: { value: new THREE.Vector2(0, 0) },
+        u_mouse_pressed: { value: 0 }
       },
+      vertexShader: `out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+      fragmentShader: `
+        precision highp float;
+        in vec2 vUv;
+        uniform sampler2D u_pos;
+        uniform float u_time;
+        uniform vec2 u_mouse;
+        uniform float u_mouse_pressed;
+        out vec4 fragColor;
+
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec3 permute(vec3 x) { return mod289(((x*34.0)+10.0)*x); }
+
+        float snoise(vec2 v) {
+            const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+            vec2 i  = floor(v + dot(v, C.yy) );
+            vec2 x0 = v -   i + dot(i, C.xx);
+            vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+            vec4 x12 = x0.xyxy + C.xxzz;
+            x12.xy -= i1;
+            i = mod289(i);
+            vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+            vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+            m = m*m;
+            m = m*m;
+            vec3 x = 2.0 * fract(p * C.www) - 1.0;
+            vec3 h = abs(x) - 0.5;
+            vec3 ox = floor(x + 0.5);
+            vec3 a0 = x - ox;
+            m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+            vec3 g;
+            g.x  = a0.x  * x0.x  + h.x  * x0.y;
+            g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+            return 130.0 * dot(m, g);
+        }
+
+        vec2 curlNoise(vec2 p) {
+            const float e = 0.01;
+            float n1 = snoise(p + vec2(e, 0.0));
+            float n2 = snoise(p - vec2(e, 0.0));
+            float n3 = snoise(p + vec2(0.0, e));
+            float n4 = snoise(p - vec2(0.0, e));
+            return vec2(n3 - n4, n2 - n1) / (2.0 * e);
+        }
+
+        vec2 foldP6m(vec2 p) {
+            const float sqrt3 = 1.732050807568877;
+            p = abs(p);
+            if (p.y > p.x * sqrt3) p = vec2(p.x * sqrt3 + p.y, p.x - p.y * sqrt3) / 2.0;
+            p = abs(p);
+            if (p.y > p.x * sqrt3) p = vec2(p.x * sqrt3 + p.y, p.x - p.y * sqrt3) / 2.0;
+            return abs(p);
+        }
+
+        void main() {
+            vec4 data = texture(u_pos, vUv);
+            vec2 pos = data.xy;
+            vec2 vel = data.zw;
+            
+            // Domain Warping via p6m Tessellation Fold
+            float foldMix = smoothstep(-1.0, 1.0, sin(u_time * 0.3));
+            vec2 symPos = mix(pos, foldP6m(pos * 1.2) * 0.833, foldMix);
+            
+            // Peter de Jong Attractor Force
+            float a = 1.4 + sin(u_time * 0.11) * 0.3;
+            float b = -2.3 + cos(u_time * 0.13) * 0.3;
+            float c = 2.4 + sin(u_time * 0.17) * 0.2;
+            float d = -2.1 + cos(u_time * 0.19) * 0.2;
+            
+            vec2 pdj = vec2(
+                sin(a * symPos.y) - cos(b * symPos.x),
+                sin(c * symPos.x) - cos(d * symPos.y)
+            );
+            
+            // Fluid Dynamics: Curl Noise Turbulence
+            vec2 curl = curlNoise(pos * 1.5 + u_time * 0.15);
+            
+            vec2 force = pdj * 0.8 + curl * 0.6;
+            
+            // Interaction
+            if (u_mouse_pressed > 0.5) {
+                float dMouse = length(pos - u_mouse);
+                if (dMouse < 1.5) {
+                    force += normalize(pos - u_mouse + 0.0001) * 4.0 * (1.5 - dMouse);
+                }
+            }
+            
+            vel = vel * 0.93 + force * 0.012;
+            pos += vel;
+            
+            // Containment
+            if (length(pos) > 5.0) pos *= 0.9;
+            
+            fragColor = vec4(pos, vel);
+        }
+      `
+    });
+    const updateScene = new THREE.Scene();
+    updateScene.add(new THREE.Mesh(quadGeo, updateMat));
+    
+    // ── Render Pass (Particles) ──
+    const partGeo = new THREE.BufferGeometry();
+    const partUvs = new Float32Array(N * 3);
+    for(let i = 0; i < N; i++) {
+      partUvs[i*3+0] = ((i % SIM_RES) + 0.5) / SIM_RES;
+      partUvs[i*3+1] = (Math.floor(i / SIM_RES) + 0.5) / SIM_RES;
+      partUvs[i*3+2] = 0;
+    }
+    partGeo.setAttribute('position', new THREE.BufferAttribute(partUvs, 3));
+    
+    const renderMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_pos: { value: null },
+        u_time: { value: 0 }
+      },
+      vertexShader: `
+        precision highp float;
+        uniform sampler2D u_pos;
+        uniform float u_time;
+        out vec2 vVel;
+        out vec2 vPos;
+
+        void main() {
+            vec4 data = texture(u_pos, position.xy);
+            vVel = data.zw;
+            vec2 pos = data.xy;
+            vPos = pos;
+            
+            float z = length(vVel) * 3.0;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, z, 1.0);
+            gl_PointSize = 2.0;
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+        in vec2 vVel;
+        in vec2 vPos;
+        out vec4 fragColor;
+
+        // Lisa Frank / Electric Acid Palette
+        vec3 cosinePalette(float t) {
+            vec3 a = vec3(0.5, 0.5, 0.5);
+            vec3 b = vec3(0.5, 0.5, 0.5);
+            vec3 c = vec3(1.0, 1.0, 0.5);
+            vec3 d = vec3(0.80, 0.90, 0.30);
+            return a + b * cos(6.2831853 * (c * t + d));
+        }
+
+        void main() {
+            float speed = length(vVel) * 15.0;
+            float spatial = length(vPos) * 0.2;
+            vec3 col = cosinePalette(speed * 0.7 + spatial - 0.2);
+            
+            vec2 pc = gl_PointCoord - 0.5;
+            float dist = length(pc);
+            float alpha = smoothstep(0.5, 0.1, dist) * 0.12;
+            
+            fragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
       depthTest: false
     });
+    const renderScene = new THREE.Scene();
+    renderScene.add(new THREE.Points(partGeo, renderMat));
     
-    const geometry = new THREE.PlaneGeometry(2, 2);
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
+    // ── Decay Pass (Shoegaze Smear & Chromatic Aberration) ──
+    const decayMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_tex: { value: null },
+        u_time: { value: 0 }
+      },
+      vertexShader: `out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+      fragmentShader: `
+        precision highp float;
+        in vec2 vUv;
+        uniform sampler2D u_tex;
+        uniform float u_time;
+        out vec4 fragColor;
+
+        void main() {
+            vec2 dir = vUv - 0.5;
+            float dist = length(dir);
+            
+            float angle = 0.015 * smoothstep(0.5, 0.0, dist) * sin(u_time * 0.5);
+            mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+            vec2 uvRot = dir * rot + 0.5;
+            
+            vec2 offset = dir * 0.004;
+            
+            float r = texture(u_tex, uvRot + offset).r;
+            float g = texture(u_tex, uvRot).g;
+            float b = texture(u_tex, uvRot - offset).b;
+            
+            vec3 col = vec3(r, g, b);
+            col *= 0.95;
+            col = max(col - 0.002, 0.0);
+            
+            fragColor = vec4(col, 1.0);
+        }
+      `,
+      depthWrite: false
+    });
+    const decayScene = new THREE.Scene();
+    decayScene.add(new THREE.Mesh(quadGeo, decayMat));
     
-    canvas.__three = { renderer, scene, camera, material };
+    // ── Output Pass (Tonemapping & Vignette) ──
+    const outputMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: { u_tex: { value: null } },
+      vertexShader: `out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+      fragmentShader: `
+        precision highp float;
+        in vec2 vUv;
+        uniform sampler2D u_tex;
+        out vec4 fragColor;
+        
+        void main() {
+            vec4 col = texture(u_tex, vUv);
+            col.rgb = col.rgb / (1.0 + col.rgb * 0.5); // Soft Reinhard
+            float d = length(vUv - 0.5) * 2.0;
+            col.rgb *= 1.0 - smoothstep(0.8, 1.5, d);
+            fragColor = vec4(col.rgb, 1.0);
+        }
+      `
+    });
+    const outputScene = new THREE.Scene();
+    outputScene.add(new THREE.Mesh(quadGeo, outputMat));
+
+    canvas.__three = { 
+      renderer, posFBOs, drawFBOs, 
+      updateScene, updateMat, 
+      renderScene, renderMat, 
+      decayScene, decayMat,
+      outputScene, outputMat,
+      partCam, quadCam,
+      pingPong: 0,
+      width: grid.width,
+      height: grid.height
+    };
   } catch (e) {
     console.error("WebGL Initialization Failed:", e);
     return;
   }
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+const sys = canvas.__three;
+if (!sys) return;
 
-if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  
-  const mx = mouse.x / grid.width;
-  const my = 1.0 - (mouse.y / grid.height);
-  material.uniforms.u_mouse.value.set(mx, my);
-  material.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
+if (sys.width !== grid.width || sys.height !== grid.height) {
+  sys.width = grid.width;
+  sys.height = grid.height;
+  sys.renderer.setSize(grid.width, grid.height, false);
+  sys.partCam.aspect = grid.width / grid.height;
+  sys.partCam.updateProjectionMatrix();
+  sys.drawFBOs[0].setSize(grid.width, grid.height);
+  sys.drawFBOs[1].setSize(grid.width, grid.height);
 }
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// Map mouse to world coordinates
+const aspect = grid.width / grid.height;
+const vFov = 60 * Math.PI / 180;
+const hHeight = Math.tan(vFov / 2) * 3.5;
+const hWidth = hHeight * aspect;
+
+const mx = ((mouse.x / grid.width) * 2 - 1) * hWidth;
+const my = (-(mouse.y / grid.height) * 2 + 1) * hHeight;
+
+sys.updateMat.uniforms.u_time.value = time;
+sys.updateMat.uniforms.u_mouse.value.set(mx, my);
+sys.updateMat.uniforms.u_mouse_pressed.value = mouse.isPressed ? 1.0 : 0.0;
+
+sys.renderMat.uniforms.u_time.value = time;
+sys.decayMat.uniforms.u_time.value = time;
+
+let pp = sys.pingPong;
+let nextPP = 1 - pp;
+
+// 1. Update Positions
+sys.updateMat.uniforms.u_pos.value = sys.posFBOs[pp].texture;
+sys.renderer.setRenderTarget(sys.posFBOs[nextPP]);
+sys.renderer.render(sys.updateScene, sys.quadCam);
+
+// 2. Decay previous draw
+sys.decayMat.uniforms.u_tex.value = sys.drawFBOs[pp].texture;
+sys.renderer.setRenderTarget(sys.drawFBOs[nextPP]);
+sys.renderer.render(sys.decayScene, sys.quadCam);
+
+// 3. Render Particles
+sys.renderMat.uniforms.u_pos.value = sys.posFBOs[nextPP].texture;
+sys.renderer.setRenderTarget(sys.drawFBOs[nextPP]);
+sys.renderer.render(sys.renderScene, sys.partCam);
+
+// 4. Output to screen
+sys.outputMat.uniforms.u_tex.value = sys.drawFBOs[nextPP].texture;
+sys.renderer.setRenderTarget(null);
+sys.renderer.clear();
+sys.renderer.render(sys.outputScene, sys.quadCam);
+
+sys.pingPong = nextPP;
