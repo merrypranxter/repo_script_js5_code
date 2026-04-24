@@ -1,16 +1,11 @@
 try {
+  // Ensure WebGL renderer is initialized only once per canvas
   if (!canvas.__three) {
     if (!ctx) throw new Error("WebGL 2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      context: ctx,
-      alpha: true,
-      antialias: true,
-      powerPreference: "high-performance"
-    });
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
+    
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
@@ -19,169 +14,186 @@ try {
       out vec2 vUv;
       void main() {
         vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_Position = vec4(position, 1.0);
       }
     `;
 
+    // Feral Design Brain: Anamorphic Quasicrystal Moiré with Structural Color Thin-Film Interference
     const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
+      precision highp float;
 
       uniform float u_time;
       uniform vec2 u_resolution;
       uniform vec2 u_mouse;
+      uniform float u_pressed;
 
-      // --------------------------------------------------------
-      // REPO 2: COLOR FIELDS & TONEMAPPING
-      // --------------------------------------------------------
-      vec3 blackBodyGradient(float t) {
+      in vec2 vUv;
+      out vec4 fragColor;
+
+      #define PI 3.14159265359
+
+      // --- COLOR FIELDS: IQ Cosine Palette (Neon Acid / Iridescent) ---
+      // From merrypranxter/color_fields
+      vec3 cosinePalette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+          return a + b * cos(2.0 * PI * (c * t + d));
+      }
+
+      // --- STRUCTURAL COLOR: Black Body Radiation ---
+      // From merrypranxter/color_fields & structural_color
+      vec3 blackBody(float t) {
           t = clamp(t, 0.0, 1.0);
           vec3 c;
           c.r = smoothstep(0.0, 0.33, t);
           c.g = smoothstep(0.15, 0.6, t) * 0.85;
           c.b = smoothstep(0.4, 0.9, t) * 0.6;
-          c *= 0.5 + 2.0 * t * t;
-          return c;
+          return c * (0.5 + 2.0 * t * t);
       }
 
-      vec3 tonemapAgX(vec3 c) {
-          vec3 x = max(vec3(0.0), c);
-          vec3 a = x * (x + 0.0245786) - 0.000090537;
-          vec3 b = x * (0.983729 * x + 0.4329510) + 0.238081;
-          return a / b;
+      // --- NOISE: Domain Warping & Biological Growth ---
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
       }
 
-      // --------------------------------------------------------
-      // REPO 3: STRUCTURAL COLOR (Thin-Film Interference)
-      // --------------------------------------------------------
-      vec3 thinFilmInterference(float thickness, float viewAngle) {
-          float n_film = 1.45; // biological chitin/keratin approx
-          // 2nd cos(θ) = mλ
-          float pathDiff = 2.0 * n_film * thickness * cos(viewAngle);
-          // Oklch-based perceptual phase shift approximation
-          vec3 phase = vec3(0.0, 0.33, 0.67); 
-          return 0.5 + 0.5 * cos(6.2831853 * (pathDiff + phase));
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
       }
 
-      // Gyroid Signed Distance Function (Biological Mimicry)
-      float gyroidSDF(vec3 p) {
-          return dot(sin(p), cos(p.yzx));
+      float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          mat2 rot = mat2(0.866, -0.5, 0.5, 0.866);
+          for(int i = 0; i < 4; i++) {
+              v += a * noise(p);
+              p = rot * p * 2.0;
+              a *= 0.5;
+          }
+          return v;
       }
 
-      // --------------------------------------------------------
-      // REPO 1: MOIRÉ DYNAMICS
-      // --------------------------------------------------------
-
-      // Technique 10: Anamorphic Distortion (Moiré as Secret)
-      vec2 anamorphicDistort(vec2 uv, vec2 eyePos, float strength) {
-          vec2 offset = (uv - eyePos) * strength;
-          float dist = length(offset);
-          // Introduce a swirling topological defect
-          float angle = atan(offset.y, offset.x) + dist * 3.0 * sin(u_time * 0.5);
-          return uv + vec2(cos(angle), sin(angle)) * dist * strength;
-      }
-
-      // Technique 04: Wave/Sinusoidal Moiré (Soft Interference)
-      float waveGrating(vec2 uv, float freq, float angle, float phaseDefect) {
-          float c = cos(angle), s = sin(angle);
-          vec2 rotUV = vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
-          // Add phase dislocation (Technique 02/03 variation)
-          return 0.5 + 0.5 * sin(rotUV.x * freq + phaseDefect);
+      // --- MOIRÉ: 5-Fold Quasicrystal Grating ---
+      // From merrypranxter/moire (Geometric Topological)
+      float quasi(vec2 uv, float scale, float phase, float angleOffset) {
+          float v = 0.0;
+          for(int i = 0; i < 5; i++) {
+              float angle = float(i) * PI / 5.0 + angleOffset;
+              vec2 dir = vec2(cos(angle), sin(angle));
+              v += cos(dot(uv, dir) * scale + phase);
+          }
+          return v / 5.0; // Normalize to approx -1.0 to 1.0
       }
 
       void main() {
           vec2 uv = (vUv - 0.5) * 2.0;
           uv.x *= u_resolution.x / u_resolution.y;
 
-          // Normalize mouse
-          vec2 mouse = (u_mouse / u_resolution) * 2.0 - 1.0;
-          mouse.x *= u_resolution.x / u_resolution.y;
-          if(length(u_mouse) < 0.01) mouse = vec2(sin(u_time*0.5)*0.5, cos(u_time*0.3)*0.5);
-
-          // 1. ANAMORPHIC OBSERVER DEPENDENCY
-          vec2 distortedUV = anamorphicDistort(uv, mouse, 0.4);
-
-          // 2. BIOLOGICAL TOPOLOGY (Gyroid Slice)
-          // Evaluate a 2D slice of a 3D moving gyroid structure
-          vec3 p3 = vec3(distortedUV * 4.0, u_time * 0.1);
-          float topoHeight = gyroidSDF(p3) * 0.5 + 
-                             gyroidSDF(p3 * 2.0 + u_time * 0.15) * 0.25 + 
-                             gyroidSDF(p3 * 4.0 - u_time * 0.05) * 0.125;
-
-          // 3. STRUCTURAL COLOR
-          // Map topography to thin-film thickness (400nm to 1000nm range)
-          float thickness = mix(0.4, 1.0, topoHeight * 0.5 + 0.5);
-          // Simulate view angle based on local gradient (bump mapping)
-          vec2 eps = vec2(0.01, 0.0);
-          float dx = gyroidSDF(p3 + eps.xyy) - gyroidSDF(p3 - eps.xyy);
-          float dy = gyroidSDF(p3 + eps.yxy) - gyroidSDF(p3 - eps.yxy);
-          vec3 normal = normalize(vec3(dx, dy, 1.0));
-          vec3 viewDir = normalize(vec3(0.0, 0.0, 1.0));
-          float vAngle = acos(max(0.0, dot(normal, viewDir)));
+          // Mouse coordinates for Anamorphic Secret
+          vec2 mousePos = (u_mouse / u_resolution - 0.5) * 2.0;
+          mousePos.x *= u_resolution.x / u_resolution.y;
           
-          vec3 iridescence = thinFilmInterference(thickness * 5.0, vAngle);
-
-          // 4. PROJECTION MOIRÉ (Scanner) + CHROMATIC SEPARATION
-          // Project a grid onto the surface, view through reference grid
-          float lightAngle = 0.6 + sin(u_time * 0.3) * 0.2;
-          vec2 lightUV = distortedUV + vec2(topoHeight * tan(lightAngle));
-
-          // Base spatial frequency
-          float baseFreq = 80.0 + sin(u_time * 0.1) * 20.0;
+          float distToMouse = length(uv - mousePos);
           
-          // Phase Dislocation Defect (Topological anomaly)
-          float defect = smoothstep(0.4, 0.1, length(uv - mouse)) * 3.14159 * 2.0;
-
-          // Red Channel Moiré
-          float rRef = waveGrating(distortedUV, baseFreq * 1.0, 0.0, u_time + defect);
-          float rProj = waveGrating(lightUV, baseFreq * 1.01, 0.05, u_time + defect);
-          float mR = rRef * rProj;
-
-          // Green Channel Moiré
-          float gRef = waveGrating(distortedUV, baseFreq * 1.02, 1.047, -u_time - defect);
-          float gProj = waveGrating(lightUV, baseFreq * 1.03, 1.097, -u_time - defect);
-          float mG = gRef * gProj;
-
-          // Blue Channel Moiré
-          float bRef = waveGrating(distortedUV, baseFreq * 0.98, 2.094, u_time * 0.5 + defect);
-          float bProj = waveGrating(lightUV, baseFreq * 0.99, 2.144, u_time * 0.5 + defect);
-          float mB = bRef * bProj;
-
-          // Combine Chromatic Moiré
-          vec3 moireInterference = vec3(mR, mG, mB);
+          // Anamorphic Mask: The moiré registration error resolves to 0 at the mouse cursor
+          // Creating a "moiré singularity" where the hidden structure is revealed
+          float anamorphicMask = smoothstep(0.0, 1.5, distToMouse);
           
-          // Extract difference frequency (contrast push)
-          moireInterference = pow(moireInterference, vec3(0.7));
+          // Biological/Fluid surface topology (Temporal Feedback Moiré feel)
+          vec2 warpUV = uv * 2.0 + u_time * 0.1;
+          float h = fbm(warpUV + vec2(cos(u_time * 0.2), sin(u_time * 0.2)));
+          
+          // The "infection" vector field
+          vec2 distortion = vec2(fbm(warpUV + h), fbm(warpUV - h)) * 0.2;
+          
+          // Apply distortion, but cancel it out near the observer (mouse)
+          vec2 uvA = uv + distortion * anamorphicMask;
+          vec2 uvB = uv - distortion * anamorphicMask * (1.0 + u_pressed * 2.0); // Shockwave on click
 
-          // 5. THERMAL INFECTION (Black Body)
-          // The topological defect heats up the structure
-          float heat = smoothstep(0.3, 0.0, length(uv - mouse)) * (0.5 + 0.5 * sin(u_time * 5.0));
-          vec3 thermalGlow = blackBodyGradient(heat * topoHeight);
+          // Base scale is extremely high to create spatial aliasing & interference
+          float baseScale = 120.0 + sin(u_time * 0.1) * 20.0;
+          
+          // Chromatic Offset (CMYK / RGB separation moiré)
+          // The angles are slightly offset to simulate the "Rosette Pattern" of print ghosts
+          float rOff = 0.0;
+          float gOff = 0.05;
+          float bOff = 0.10;
 
-          // 6. SYNTHESIS
-          // Iridescence modulated by spatial moiré interference, infected by thermal glow
-          vec3 color = iridescence * moireInterference * 2.5 + thermalGlow;
+          // Reference Grids (Grid A)
+          float refR = quasi(uvA, baseScale, u_time * 0.5, rOff);
+          float refG = quasi(uvA, baseScale * 1.01, u_time * 0.6, gOff);
+          float refB = quasi(uvA, baseScale * 1.02, u_time * 0.7, bOff);
 
-          // 7. TONEMAPPING
-          color = tonemapAgX(color);
+          // Projected Grids (Grid B) - scale diverges from reference based on distance from mouse
+          float projScaleR = baseScale + anamorphicMask * 2.0;
+          float projScaleG = baseScale * 1.01 + anamorphicMask * 2.5;
+          float projScaleB = baseScale * 1.02 + anamorphicMask * 3.0;
 
-          // Vignette
-          float vignette = 1.0 - dot(vUv - 0.5, vUv - 0.5) * 1.2;
-          color *= smoothstep(0.0, 0.6, vignette);
+          float projR = quasi(uvB, projScaleR, -u_time * 0.5, rOff);
+          float projG = quasi(uvB, projScaleG, -u_time * 0.6, gOff);
+          float projB = quasi(uvB, projScaleB, -u_time * 0.7, bOff);
 
-          fragColor = vec4(color, 1.0);
+          // Multiplicative interference (Natural Wave Interference)
+          float moireR = refR * projR;
+          float moireG = refG * projG;
+          float moireB = refB * projB;
+
+          // Extract the difference frequency
+          vec3 moire = vec3(moireR, moireG, moireB);
+          
+          // Aggressive contrast push for sharp, visceral fringes
+          vec3 fringes = pow(clamp(abs(moire) * 3.0, 0.0, 1.0), vec3(2.0));
+
+          // --- STRUCTURAL COLOR MAPPING ---
+          // Use the moiré interference pattern as a "thickness map" for thin-film iridescence
+          // thickness ranges from ~200nm to ~800nm
+          float thickness = mix(200.0, 800.0, (fringes.r + fringes.g + fringes.b) / 3.0);
+          
+          // Calculate perceptual color based on structural thickness
+          vec3 iridescence = cosinePalette(
+              thickness / 1000.0 - u_time * 0.05,
+              vec3(0.5), 
+              vec3(0.5, 0.5, 0.33), 
+              vec3(2.0, 1.0, 1.0), 
+              vec3(0.5, 0.2, 0.25)
+          );
+
+          // Cosmic Void background (from color_fields)
+          vec3 voidColor = vec3(0.04, 0.0, 0.08);
+          
+          // Blend iridescence over the void based on fringe strength
+          vec3 finalColor = mix(voidColor, iridescence, length(fringes) * 0.7);
+
+          // Lava Emission at points of perfect constructive interference
+          float alignment = fringes.r * fringes.g * fringes.b;
+          vec3 emissive = blackBody(alignment * 2.5);
+          finalColor += emissive * 0.8;
+
+          // Film grain for texture
+          float grain = hash(uv * u_time) * 0.05;
+          finalColor += grain;
+
+          // ACES Filmic Tonemapping
+          finalColor = clamp((finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14), 0.0, 1.0);
+
+          fragColor = vec4(finalColor, 1.0);
       }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(mouse.x, mouse.y) }
+        u_mouse: { value: new THREE.Vector2(grid.width / 2, grid.height / 2) },
+        u_pressed: { value: 0.0 }
       },
-      vertexShader,
-      fragmentShader,
       depthWrite: false,
       depthTest: false
     });
@@ -194,14 +206,24 @@ try {
 
   const { renderer, scene, camera, material } = canvas.__three;
 
+  // Update Uniforms safely
   if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
     
-    // Smooth mouse interpolation
-    if (mouse.isPressed || time < 2.0) {
-      material.uniforms.u_mouse.value.x += (mouse.x - material.uniforms.u_mouse.value.x) * 0.1;
-      material.uniforms.u_mouse.value.y += ((grid.height - mouse.y) - material.uniforms.u_mouse.value.y) * 0.1;
+    if (material.uniforms.u_resolution) {
+      material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+    
+    if (material.uniforms.u_mouse) {
+      // Smoothly interpolate mouse to avoid jerky moire shifts
+      const targetX = mouse.x;
+      const targetY = grid.height - mouse.y; // Flip Y for WebGL
+      material.uniforms.u_mouse.value.x += (targetX - material.uniforms.u_mouse.value.x) * 0.1;
+      material.uniforms.u_mouse.value.y += (targetY - material.uniforms.u_mouse.value.y) * 0.1;
+    }
+
+    if (material.uniforms.u_pressed) {
+      material.uniforms.u_pressed.value = mouse.isPressed ? 1.0 : 0.0;
     }
   }
 
@@ -209,5 +231,13 @@ try {
   renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("Feral Moiré System Initialization Failed:", e);
+  console.error("Feral WebGL Initialization Failed:", e);
+  // Fallback to a visceral 2D noise pattern if WebGL fails
+  if (ctx && !canvas.__three) {
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, grid.width, grid.height);
+    ctx.fillStyle = "#ff00ff";
+    ctx.font = "20px monospace";
+    ctx.fillText("CRITICAL SYSTEM FAILURE: WebGL REQUIRED FOR STRUCTURAL COLOR", 20, 50);
+  }
 }
