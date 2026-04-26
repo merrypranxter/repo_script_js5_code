@@ -2,34 +2,17 @@ if (!canvas.__three) {
     try {
         if (!ctx) throw new Error("WebGL 2 context not available");
         
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
-        
-        const rtA = new THREE.WebGLRenderTarget(grid.width, grid.height, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
-            type: THREE.HalfFloatType
-        });
-        const rtB = new THREE.WebGLRenderTarget(grid.width, grid.height, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
-            type: THREE.HalfFloatType
-        });
-        
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
         const scene = new THREE.Scene();
-        const finalScene = new THREE.Scene();
-        const geometry = new THREE.PlaneGeometry(2, 2);
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
         
         const material = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
             uniforms: {
                 u_time: { value: 0 },
                 u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_target: { value: new THREE.Vector2(0.5, 0.5) },
-                u_feedback: { value: null },
-                u_decay: { value: 0.94 }
+                u_mouse: { value: new THREE.Vector2(0, 0) }
             },
             vertexShader: `
                 out vec2 vUv;
@@ -44,177 +27,165 @@ if (!canvas.__three) {
                 
                 uniform float u_time;
                 uniform vec2 u_resolution;
-                uniform vec2 u_target;
-                uniform sampler2D u_feedback;
-                uniform float u_decay;
+                uniform vec2 u_mouse;
                 
-                float hash(vec2 p) {
-                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                #define PI 3.14159265359
+                
+                // Procedural paper grain / xerox noise
+                float grain(vec2 uv, float seed) {
+                    return fract(sin(dot(uv * 1000.0 + seed, vec2(12.9898, 78.233))) * 43758.5453);
                 }
                 
-                vec2 getAspectUV(vec2 uv) {
-                    vec2 p = uv * 2.0 - 1.0;
-                    p.x *= u_resolution.x / u_resolution.y;
-                    return p;
+                // Occult Mandala / Kaleidoscope Fold
+                vec2 kaleidoscope(vec2 uv, float folds, float rotation) {
+                    float angle = atan(uv.y, uv.x) + rotation;
+                    float radius = length(uv);
+                    float sector = 2.0 * PI / folds;
+                    angle = mod(angle, sector);
+                    if (angle > sector * 0.5) angle = sector - angle;
+                    return vec2(cos(angle), sin(angle)) * radius;
                 }
                 
-                float spiral(vec2 p, float tightness, float speed, float arms) {
-                    float r = length(p);
-                    float angle = atan(p.y, p.x);
-                    float defect = (r < 0.2) ? 3.14159 : 0.0;
-                    float phase = angle + log(r + 0.001) * tightness + speed + defect;
-                    return smoothstep(0.2, 0.8, sin(phase * arms) * 0.5 + 0.5);
+                // Print Artifact: Halftone Dot Screen
+                float halftoneDot(vec2 uv, float scale, float angle, vec2 offset) {
+                    float c = cos(angle);
+                    float s = sin(angle);
+                    vec2 rotUV = vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
+                    vec2 st = rotUV * scale + offset;
+                    vec2 grid = abs(fract(st) - 0.5);
+                    float dist = length(grid);
+                    return smoothstep(0.45, 0.1, dist);
                 }
                 
-                float wave(vec2 p, float freq, float angle, float speed) {
-                    vec2 dir = vec2(cos(angle), sin(angle));
-                    return smoothstep(0.3, 0.7, sin(dot(p, dir) * freq + speed) * 0.5 + 0.5);
+                // Print Artifact: Halftone Line Screen (Op-Art)
+                float halftoneLine(vec2 uv, float scale, float angle, vec2 offset) {
+                    float c = cos(angle);
+                    float s = sin(angle);
+                    vec2 rotUV = vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
+                    vec2 st = rotUV * scale + offset;
+                    float line = abs(fract(st.x) - 0.5);
+                    return smoothstep(0.4, 0.1, line);
+                }
+                
+                // Core Moiré Generation System
+                vec3 getMoire(vec2 uv, float t) {
+                    vec2 kalUV = kaleidoscope(uv, 10.0, t * 0.04);
+                    
+                    // Spiral Phantom Displacement (Moiré as secret/structure)
+                    float r = length(kalUV);
+                    float a = atan(kalUV.y, kalUV.x);
+                    float spiralPhase = a * 5.0 + log(r + 0.001) * 12.0 - t * 1.5;
+                    vec2 dispUV = kalUV + vec2(cos(spiralPhase), sin(spiralPhase)) * 0.03;
+                    
+                    // Scale Chirp (Doppler shift in visual space)
+                    float baseScale = 30.0 + pow(r, 1.2) * 80.0;
+                    
+                    // CMYK Misregistration & Separation Angles
+                    float angleC = radians(15.0 + sin(t * 0.11) * 8.0);
+                    float angleM = radians(75.0 + cos(t * 0.13) * 8.0);
+                    float angleY = radians(0.0 + sin(t * 0.07) * 5.0);
+                    float angleK = radians(45.0 + cos(t * 0.17) * 6.0);
+                    
+                    // Deliberate scale misalignment to amplify Rosette Moiré
+                    float scaleC = baseScale;
+                    float scaleM = baseScale * 1.025;
+                    float scaleY = baseScale * 1.05;
+                    float scaleK = baseScale * 0.975;
+                    
+                    // Offset drift
+                    vec2 offC = vec2(sin(t * 0.2) * 0.3, cos(t * 0.16) * 0.2);
+                    vec2 offM = vec2(cos(t * 0.24) * 0.3, sin(t * 0.18) * 0.2);
+                    vec2 offY = vec2(sin(t * 0.3) * 0.2, cos(t * 0.22) * 0.3);
+                    vec2 offK = vec2(cos(t * 0.14) * 0.2, sin(t * 0.26) * 0.3);
+                    
+                    // Mix lines and dots for "textile weave tension"
+                    float c = halftoneLine(dispUV, scaleC, angleC, offC);
+                    float m = halftoneDot(dispUV, scaleM, angleM, offM);
+                    float y = halftoneLine(dispUV, scaleY, angleY, offY);
+                    float k = halftoneDot(dispUV, scaleK, angleK, offK);
+                    
+                    // Psychedelic Collage: Acid Vibration Palette
+                    vec3 elecOrange = vec3(1.0, 0.42, 0.0);
+                    vec3 cobaltBlue = vec3(0.0, 0.28, 1.0);
+                    vec3 hotMagenta = vec3(1.0, 0.0, 0.78);
+                    vec3 acidLime = vec3(0.67, 1.0, 0.0);
+                    
+                    vec3 color = vec3(0.0);
+                    
+                    // Screen-like additive blend (Cyberdelic Neon glow)
+                    color += elecOrange * c * 0.9;
+                    color += cobaltBlue * m * 0.9;
+                    color += hotMagenta * y * 0.8;
+                    color += acidLime * k * 0.8;
+                    
+                    // Multiply-like subtractive overprint (Physical ink density simulation)
+                    color -= (elecOrange * c * cobaltBlue * m) * 0.8;
+                    color -= (hotMagenta * y * acidLime * k) * 0.7;
+                    color -= (cobaltBlue * m * hotMagenta * y) * 0.6;
+                    
+                    return color;
                 }
                 
                 void main() {
-                    vec2 p = getAspectUV(vUv);
-                    vec2 targetP = getAspectUV(u_target);
+                    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
                     
-                    float jerk = step(0.95, fract(sin(u_time * 15.0) * 43758.5453));
-                    vec2 pOffset = vec2(
-                        (hash(vec2(floor(u_time * 15.0), 1.0)) - 0.5) * 0.05,
-                        (hash(vec2(floor(u_time * 15.0), 2.0)) - 0.5) * 0.05
-                    ) * jerk;
-                    p += pOffset;
+                    // Normalize mouse for WebGL space
+                    vec2 mouseNorm = (u_mouse / u_resolution.xy) - 0.5;
+                    mouseNorm.x *= u_resolution.x / u_resolution.y;
+                    mouseNorm.y *= -1.0; 
                     
-                    vec2 misalign = p - targetP;
-                    float dist = length(misalign);
-                    float warp = smoothstep(0.0, 2.5, dist); 
+                    // Anamorphic / Observer-Dependent Distortion
+                    float distToMouse = length(uv - mouseNorm);
+                    vec2 offsetUV = uv + (uv - mouseNorm) * smoothstep(1.0, 0.0, distToMouse) * 0.3;
                     
-                    vec2 pR = p + misalign * warp * 0.15;
-                    vec2 pG = p - misalign * warp * 0.2;
-                    vec2 pB = p + vec2(-misalign.y, misalign.x) * warp * 0.1;
+                    // Temporal Feedback Moiré (Current frame)
+                    vec3 colorNow = getMoire(offsetUV, u_time);
                     
-                    float t = u_time * 0.3;
+                    // Temporal Feedback Moiré (Ghost trail / Memory)
+                    // With chromatic hue shift (.gbr swizzle) as described in the repo
+                    vec3 colorPast = getMoire(offsetUV, u_time - 0.15).gbr * 0.65;
                     
-                    float r = spiral(pR, 25.0, t * 1.0, 10.0) * wave(pR, 60.0, 0.0, t * 2.0);
-                    float g = spiral(pG, 25.5, -t * 1.2, 10.0) * wave(pG, 62.0, 1.047, -t * 2.5);
-                    float b = spiral(pB, 24.5, t * 0.8, 10.0) * wave(pB, 58.0, 2.094, t * 1.5);
+                    vec3 voidBlack = vec3(0.04, 0.02, 0.08);
+                    vec3 finalColor = voidBlack + max(colorNow, colorPast);
                     
-                    vec3 current = vec3(r, g, b);
-                    current = smoothstep(0.05, 0.95, current);
-                    current += (hash(p + u_time) - 0.5) * 0.15;
+                    // Glitch Scanline (Photocopy Artifact)
+                    float scan = step(0.15, fract(gl_FragCoord.y * 0.25 + u_time * 5.0));
+                    finalColor *= mix(0.8, 1.0, scan);
                     
-                    vec2 fbUV = vUv;
-                    vec2 toCenter = vUv - 0.5;
-                    fbUV += toCenter * 0.003; 
+                    // Analog Zine: Paper Grain
+                    finalColor += (grain(uv, u_time) - 0.5) * 0.18;
                     
-                    float angle = 0.001;
-                    float s = sin(angle);
-                    float c = cos(angle);
-                    fbUV -= 0.5;
-                    fbUV = vec2(fbUV.x * c - fbUV.y * s, fbUV.x * s + fbUV.y * c);
-                    fbUV += 0.5;
+                    // Vignette depth
+                    float vig = 1.0 - length(uv) * 1.1;
+                    finalColor *= smoothstep(-0.2, 0.8, vig);
                     
-                    vec3 prev = texture(u_feedback, fbUV).rgb;
-                    prev = mix(prev, prev.brg, 0.04); 
-                    
-                    float localDecay = clamp(u_decay + sin(u_time * 0.5) * 0.02, 0.8, 0.99);
-                    vec3 moire = mix(current, prev, localDecay);
-                    
-                    fragColor = vec4(moire, 1.0);
+                    fragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
                 }
             `
         });
         
-        const mesh = new THREE.Mesh(geometry, material);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(mesh);
         
-        const finalMaterial = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_texture: { value: null }
-            },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                in vec2 vUv;
-                out vec4 fragColor;
-                uniform sampler2D u_texture;
-                void main() {
-                    vec3 col = texture(u_texture, vUv).rgb;
-                    
-                    float r = texture(u_texture, vUv + vec2(0.002, 0.0)).r;
-                    float b = texture(u_texture, vUv - vec2(0.002, 0.0)).b;
-                    col = vec3(r, col.g, b);
-                    
-                    vec2 toCenter = vUv - 0.5;
-                    float vignette = 1.0 - dot(toCenter, toCenter) * 1.5;
-                    col *= smoothstep(0.0, 0.5, vignette);
-                    
-                    col = pow(col, vec3(1.3));
-                    fragColor = vec4(col, 1.0);
-                }
-            `
-        });
-        
-        const finalMesh = new THREE.Mesh(geometry, finalMaterial);
-        finalScene.add(finalMesh);
-        
-        canvas.__three = { 
-            renderer, scene, finalScene, camera, 
-            material, finalMaterial, rtA, rtB,
-            targetX: 0.5, targetY: 0.5, pingPong: true
-        };
+        canvas.__three = { renderer, scene, camera, material };
     } catch (e) {
-        console.error("WebGL Init Failed:", e);
+        console.error("WebGL Initialization Failed:", e);
         return;
     }
 }
 
-const env = canvas.__three;
-if (!env) return;
+const { renderer, scene, camera, material } = canvas.__three;
 
-if (env.rtA.width !== grid.width || env.rtA.height !== grid.height) {
-    env.renderer.setSize(grid.width, grid.height, false);
-    env.rtA.setSize(grid.width, grid.height);
-    env.rtB.setSize(grid.width, grid.height);
-    if (env.material?.uniforms?.u_resolution) {
-        env.material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    }
+if (material?.uniforms?.u_time) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    
+    // Simulate interaction or autonomous wandering if mouse is idle
+    const mx = mouse.isPressed ? mouse.x : grid.width / 2 + Math.sin(time * 0.5) * grid.width * 0.3;
+    const my = mouse.isPressed ? mouse.y : grid.height / 2 + Math.cos(time * 0.37) * grid.height * 0.3;
+    
+    material.uniforms.u_mouse.value.set(mx, my);
 }
 
-if (mouse.isPressed) {
-    env.targetX += (mouse.x / grid.width - env.targetX) * 0.1;
-    env.targetY += (1.0 - mouse.y / grid.height - env.targetY) * 0.1;
-} else {
-    const wx = 0.5 + Math.sin(time * 0.4) * 0.3;
-    const wy = 0.5 + Math.cos(time * 0.3) * 0.3;
-    env.targetX += (wx - env.targetX) * 0.02;
-    env.targetY += (wy - env.targetY) * 0.02;
-}
-
-if (env.material?.uniforms) {
-    env.material.uniforms.u_time.value = time;
-    if (env.material.uniforms.u_target) {
-        env.material.uniforms.u_target.value.set(env.targetX, env.targetY);
-    }
-}
-
-const readBuffer = env.pingPong ? env.rtA : env.rtB;
-const writeBuffer = env.pingPong ? env.rtB : env.rtA;
-
-if (env.material?.uniforms?.u_feedback) {
-    env.material.uniforms.u_feedback.value = readBuffer.texture;
-}
-
-env.renderer.setRenderTarget(writeBuffer);
-env.renderer.render(env.scene, env.camera);
-
-if (env.finalMaterial?.uniforms?.u_texture) {
-    env.finalMaterial.uniforms.u_texture.value = writeBuffer.texture;
-}
-env.renderer.setRenderTarget(null);
-env.renderer.render(env.finalScene, env.camera);
-
-env.pingPong = !env.pingPong;
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
