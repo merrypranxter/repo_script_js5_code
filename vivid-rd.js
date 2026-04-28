@@ -1,264 +1,258 @@
 if (!canvas.__three) {
     try {
         if (!ctx) throw new Error("WebGL 2 context not available");
-
+        
         const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
         
         const size = 512;
-        
-        const rtOptions = {
+        const rtOpts = {
+            width: size,
+            height: size,
+            type: THREE.FloatType,
+            format: THREE.RGBAFormat,
             minFilter: THREE.NearestFilter,
             magFilter: THREE.NearestFilter,
-            format: THREE.RGBAFormat,
-            type: THREE.FloatType,
-            wrapS: THREE.RepeatWrapping,
-            wrapT: THREE.RepeatWrapping,
             depthBuffer: false,
-            stencilBuffer: false
+            stencilBuffer: false,
+            wrapS: THREE.RepeatWrapping,
+            wrapT: THREE.RepeatWrapping
         };
+        const rtA = new THREE.WebGLRenderTarget(size, size, rtOpts);
+        const rtB = new THREE.WebGLRenderTarget(size, size, rtOpts);
         
-        const rtA = new THREE.WebGLRenderTarget(size, size, rtOptions);
-        const rtB = new THREE.WebGLRenderTarget(size, size, rtOptions);
-        
-        const seedData = new Float32Array(size * size * 4);
-        for (let i = 0; i < size * size; i++) {
-            seedData[i * 4] = 1.0;
-            seedData[i * 4 + 1] = 0.0;
-            seedData[i * 4 + 2] = 0.0;
-            seedData[i * 4 + 3] = 1.0;
-            
-            const x = i % size;
-            const y = Math.floor(i / size);
-            
-            const nx = (x / size) * 15.0;
-            const ny = (y / size) * 15.0;
-            
-            if (Math.sin(nx) * Math.cos(ny) > 0.5 && Math.random() > 0.5) {
-                seedData[i * 4] = 0.5 + Math.random() * 0.2;
-                seedData[i * 4 + 1] = 0.25 + Math.random() * 0.2;
+        const data = new Float32Array(size * size * 4);
+        for(let i = 0; i < size; i++) {
+            for(let j = 0; j < size; j++) {
+                const idx = (i * size + j) * 4;
+                data[idx] = 1.0;     // U
+                data[idx+1] = 0.0;   // V
+                data[idx+2] = 0.0;
+                data[idx+3] = 1.0;
+                
+                const dx = i - size / 2;
+                const dy = j - size / 2;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                // Seed rings and chaotic noise
+                if (dist < 30 || (dist > 60 && dist < 80 && Math.random() > 0.5) || (dist > 120 && dist < 130)) {
+                    data[idx+1] = 0.5 + Math.random() * 0.5;
+                }
+                if (Math.random() < 0.01) {
+                    data[idx+1] = 1.0;
+                }
             }
         }
+        const initTex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
+        initTex.wrapS = THREE.RepeatWrapping;
+        initTex.wrapT = THREE.RepeatWrapping;
+        initTex.needsUpdate = true;
         
-        const seedTex = new THREE.DataTexture(seedData, size, size, THREE.RGBAFormat, THREE.FloatType);
-        seedTex.wrapS = THREE.RepeatWrapping;
-        seedTex.wrapT = THREE.RepeatWrapping;
-        seedTex.needsUpdate = true;
-        
-        const simMat = new THREE.ShaderMaterial({
+        const simMaterial = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
             uniforms: {
-                uState: { value: seedTex },
-                uResolution: { value: new THREE.Vector2(size, size) },
-                uFeedRate: { value: 0.035 },
-                uKillRate: { value: 0.060 },
-                uDiffusionU: { value: 1.0 },
-                uDiffusionV: { value: 0.5 },
-                uDeltaT: { value: 1.0 },
-                uTime: { value: 0.0 },
-                uMouse: { value: new THREE.Vector2(0.5, 0.5) },
-                uMousePressed: { value: 0.0 }
+                u_state: { value: null },
+                u_res: { value: new THREE.Vector2(size, size) },
+                u_time: { value: 0.0 },
+                u_dt: { value: 1.0 },
+                u_mouse: { value: new THREE.Vector2(-1.0, -1.0) }
             },
             vertexShader: `
                 out vec2 vUv;
                 void main() {
                     vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = vec4(position, 1.0);
                 }
             `,
             fragmentShader: `
-                uniform sampler2D uState;
-                uniform vec2 uResolution;
-                uniform float uFeedRate;
-                uniform float uKillRate;
-                uniform float uDiffusionU;
-                uniform float uDiffusionV;
-                uniform float uDeltaT;
-                uniform float uTime;
-                uniform vec2 uMouse;
-                uniform float uMousePressed;
-                
+                precision highp float;
+                uniform sampler2D u_state;
+                uniform vec2 u_res;
+                uniform float u_time;
+                uniform float u_dt;
+                uniform vec2 u_mouse;
                 in vec2 vUv;
                 out vec4 fragColor;
                 
                 vec2 laplacian(sampler2D tex, vec2 uv, vec2 texel) {
                     vec2 sum = vec2(0.0);
-                    sum += texture(tex, uv + vec2(-1.0, 0.0) * texel).rg * 0.2;
-                    sum += texture(tex, uv + vec2( 1.0, 0.0) * texel).rg * 0.2;
+                    sum += texture(tex, uv + vec2(-1.0,  0.0) * texel).rg * 0.2;
+                    sum += texture(tex, uv + vec2( 1.0,  0.0) * texel).rg * 0.2;
                     sum += texture(tex, uv + vec2( 0.0, -1.0) * texel).rg * 0.2;
                     sum += texture(tex, uv + vec2( 0.0,  1.0) * texel).rg * 0.2;
-                    
                     sum += texture(tex, uv + vec2(-1.0, -1.0) * texel).rg * 0.05;
                     sum += texture(tex, uv + vec2( 1.0, -1.0) * texel).rg * 0.05;
                     sum += texture(tex, uv + vec2(-1.0,  1.0) * texel).rg * 0.05;
                     sum += texture(tex, uv + vec2( 1.0,  1.0) * texel).rg * 0.05;
-                    
                     sum -= texture(tex, uv).rg;
                     return sum;
                 }
                 
                 void main() {
-                    vec2 texel = 1.0 / uResolution;
-                    vec2 state = texture(uState, vUv).rg;
+                    vec2 texel = 1.0 / u_res;
+                    vec2 state = texture(u_state, vUv).rg;
                     float u = state.r;
                     float v = state.g;
                     
-                    vec2 lap = laplacian(uState, vUv, texel);
+                    vec2 lap = laplacian(u_state, vUv, texel);
                     float reaction = u * v * v;
                     
-                    float F = uFeedRate + sin(vUv.x * 12.0 + uTime * 0.3) * 0.004;
-                    float K = uKillRate + cos(vUv.y * 12.0 - uTime * 0.2) * 0.004;
+                    // Domain warped mapping of Munafo's parameter space
+                    // Pushes the simulation through Spots (δ), Worms (μ), and U-Skate (π)
+                    float F = 0.046 + 0.016 * sin(vUv.x * 4.0 + u_time * 0.2);
+                    float k = 0.060 + 0.005 * cos(vUv.y * 4.0 - u_time * 0.15);
                     
-                    float du = uDiffusionU * lap.r - reaction + F * (1.0 - u);
-                    float dv = uDiffusionV * lap.g + reaction - (F + K) * v;
-                    
-                    float newU = u + uDeltaT * du;
-                    float newV = v + uDeltaT * dv;
-                    
-                    if (uMousePressed > 0.5) {
-                        float dist = distance(vUv, uMouse);
-                        if (dist < 0.02) {
-                            newV += 0.5;
+                    // Mouse injection
+                    if (u_mouse.x > -0.5) {
+                        float dist = distance(vUv, u_mouse);
+                        if(dist < 0.02) {
+                            v += 0.5;
                         }
                     }
                     
-                    vec2 autoPos = vec2(
-                        0.5 + sin(uTime * 0.6) * 0.35,
-                        0.5 + cos(uTime * 0.4) * 0.35
-                    );
-                    if (distance(vUv, autoPos) < 0.015) {
-                        newV += 0.3;
-                    }
+                    float du = 1.0 * lap.r - reaction + F * (1.0 - u);
+                    float dv = 0.5 * lap.g + reaction - (F + k) * v;
+                    
+                    float newU = u + u_dt * du;
+                    float newV = v + u_dt * dv;
                     
                     fragColor = vec4(clamp(newU, 0.0, 1.0), clamp(newV, 0.0, 1.0), 0.0, 1.0);
                 }
             `
         });
         
-        const displayMat = new THREE.ShaderMaterial({
+        const displayMaterial = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
             uniforms: {
-                uState: { value: null },
-                uTime: { value: 0.0 }
+                u_state: { value: null },
+                u_time: { value: 0.0 }
             },
             vertexShader: `
                 out vec2 vUv;
                 void main() {
                     vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = vec4(position, 1.0);
                 }
             `,
             fragmentShader: `
-                uniform sampler2D uState;
-                uniform float uTime;
+                precision highp float;
+                uniform sampler2D u_state;
+                uniform float u_time;
                 in vec2 vUv;
                 out vec4 fragColor;
                 
-                float hash(vec2 p) {
-                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-                }
-                
-                vec3 getAcidColor(float val) {
-                    vec3 c1 = vec3(1.0, 0.0, 0.5); 
-                    vec3 c2 = vec3(1.0, 0.6, 0.0); 
-                    vec3 c3 = vec3(0.0, 1.0, 0.6); 
-                    vec3 c4 = vec3(0.0, 0.4, 1.0); 
-                    vec3 c5 = vec3(0.8, 0.0, 1.0); 
-                    
-                    val = fract(val);
-                    if(val < 0.25) return mix(c1, c2, val * 4.0);
-                    if(val < 0.5) return mix(c2, c3, (val - 0.25) * 4.0);
-                    if(val < 0.75) return mix(c3, c4, (val - 0.5) * 4.0);
-                    return mix(c4, c5, (val - 0.75) * 4.0);
+                vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+                    return a + b * cos(6.28318 * (c * t + d));
                 }
                 
                 void main() {
-                    vec2 dir = normalize(vUv - 0.5);
-                    float offset = 0.006;
+                    // Pan and organic UV warp
+                    vec2 warpedUv = (vUv - 0.5) * (0.85 + 0.15 * sin(u_time * 0.1)) + 0.5;
+                    warpedUv.x += u_time * 0.02;
+                    warpedUv.y += u_time * 0.015;
+                    warpedUv.x += sin(vUv.y * 10.0 + u_time * 0.5) * 0.005;
+                    warpedUv.y += cos(vUv.x * 10.0 - u_time * 0.5) * 0.005;
                     
-                    float vR = texture(uState, vUv + dir * offset).g;
-                    float vG = texture(uState, vUv).g;
-                    float vB = texture(uState, vUv - dir * offset).g;
+                    vec2 state = texture(u_state, warpedUv).rg;
+                    float u = state.r;
+                    float v = state.g;
                     
-                    float warp = sin(vUv.x * 10.0 + uTime) * cos(vUv.y * 10.0 - uTime) * 0.12;
+                    // Pseudo-emboss for structural depth
+                    float du = u - texture(u_state, warpedUv + vec2(0.002)).r;
                     
-                    vec3 colR = getAcidColor(vR * 4.5 + warp + uTime * 0.15);
-                    vec3 colG = getAcidColor(vG * 4.5 + warp + uTime * 0.15 + 0.05);
-                    vec3 colB = getAcidColor(vB * 4.5 + warp + uTime * 0.15 + 0.10);
+                    float t = v * 2.5 + du * 2.0 + u_time * 0.15;
                     
-                    vec3 finalCol = vec3(colR.r, colG.g, colB.b);
+                    // Acid Vibration Palette (No black or white boundaries)
+                    vec3 a = vec3(0.6, 0.5, 0.6);
+                    vec3 b = vec3(0.4, 0.4, 0.4);
+                    vec3 c = vec3(1.0, 1.0, 1.0);
+                    vec3 d = vec3(0.0, 0.33, 0.67);
+                    vec3 col = palette(t, a, b, c, d);
                     
-                    float n = hash(vUv * (uTime + 1.0));
-                    finalCol += (n - 0.5) * 0.12;
+                    // Secondary Cyberdelic Neon mapping
+                    vec3 a2 = vec3(0.6, 0.4, 0.5);
+                    vec3 b2 = vec3(0.3, 0.4, 0.3);
+                    vec3 c2 = vec3(1.0, 1.0, 1.0);
+                    vec3 d2 = vec3(0.3, 0.2, 0.8);
+                    vec3 col2 = palette(u * 1.5 - u_time * 0.1, a2, b2, c2, d2);
                     
-                    finalCol = clamp(finalCol, 0.02, 0.98);
+                    col = mix(col, col2, smoothstep(0.2, 0.8, u));
                     
-                    fragColor = vec4(finalCol, 1.0);
+                    // Chromatic aberration fringe driven by gradients
+                    float ca = du * 15.0;
+                    col.r += ca;
+                    col.b -= ca;
+                    
+                    // Force clipping to prevent true black or true white
+                    col = clamp(col, 0.2, 0.8);
+                    
+                    // Boost saturation
+                    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+                    col = mix(vec3(lum), col, 1.8);
+                    
+                    // Final safety clamp
+                    col = clamp(col, 0.2, 0.8);
+                    
+                    fragColor = vec4(col, 1.0);
                 }
             `
         });
         
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        camera.position.z = 1;
-        
         const scene = new THREE.Scene();
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), displayMaterial);
+        scene.add(mesh);
+        
         const simScene = new THREE.Scene();
-        
-        const geometry = new THREE.PlaneGeometry(2, 2);
-        const simMesh = new THREE.Mesh(geometry, simMat);
-        const displayMesh = new THREE.Mesh(geometry, displayMat);
-        
+        const simMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), simMaterial);
         simScene.add(simMesh);
-        scene.add(displayMesh);
         
-        canvas.__three = {
-            renderer,
-            camera,
-            scene,
-            simScene,
-            simMat,
-            displayMat,
-            rtA,
-            rtB,
-            step: 0
-        };
-        
+        canvas.__three = { renderer, scene, camera, simScene, simMesh, displayMaterial, rtA, rtB, initTex, step: 0 };
     } catch (e) {
         console.error("WebGL Initialization Failed:", e);
         return;
     }
 }
 
-const t = canvas.__three;
-if (!t) return;
+const { renderer, scene, camera, simScene, simMesh, displayMaterial, rtA, rtB, initTex } = canvas.__three;
+let { step } = canvas.__three;
 
-const F = 0.032 + 0.022 * (Math.sin(time * 0.2) * 0.5 + 0.5);
-const k = 0.058 + 0.006 * (Math.cos(time * 0.15) * 0.5 + 0.5);
-
-if (t.simMat && t.simMat.uniforms) {
-    t.simMat.uniforms.uFeedRate.value = F;
-    t.simMat.uniforms.uKillRate.value = k;
-    t.simMat.uniforms.uTime.value = time;
-    t.simMat.uniforms.uMouse.value.set(mouse.x / grid.width, 1.0 - mouse.y / grid.height);
-    t.simMat.uniforms.uMousePressed.value = mouse.isPressed ? 1.0 : 0.0;
+if (simMesh?.material?.uniforms?.u_time) {
+    simMesh.material.uniforms.u_time.value = time;
 }
 
-const STEPS_PER_FRAME = 16;
-for (let i = 0; i < STEPS_PER_FRAME; i++) {
-    if (t.simMat && t.simMat.uniforms) {
-        t.simMat.uniforms.uState.value = (t.step % 2 === 0) ? t.rtA.texture : t.rtB.texture;
+if (simMesh?.material?.uniforms?.u_mouse) {
+    if (mouse.isPressed) {
+        simMesh.material.uniforms.u_mouse.value.set(mouse.x / grid.width, 1.0 - mouse.y / grid.height);
+    } else {
+        simMesh.material.uniforms.u_mouse.value.set(-1.0, -1.0);
     }
-    const target = (t.step % 2 === 0) ? t.rtB : t.rtA;
+}
+
+// Ping-pong reaction-diffusion integration
+const STEPS = 12;
+for (let i = 0; i < STEPS; i++) {
+    const readTex = step === 0 ? initTex : (step % 2 === 0 ? rtA.texture : rtB.texture);
+    const writeRT = step % 2 === 0 ? rtB : rtA;
     
-    t.renderer.setRenderTarget(target);
-    t.renderer.render(t.simScene, t.camera);
-    t.step++;
+    if (simMesh?.material?.uniforms?.u_state) {
+        simMesh.material.uniforms.u_state.value = readTex;
+    }
+    
+    renderer.setRenderTarget(writeRT);
+    renderer.render(simScene, camera);
+    
+    step++;
+}
+canvas.__three.step = step;
+
+// Final composite pass to screen
+renderer.setRenderTarget(null);
+if (displayMaterial?.uniforms?.u_time) {
+    displayMaterial.uniforms.u_time.value = time;
+}
+if (displayMaterial?.uniforms?.u_state) {
+    displayMaterial.uniforms.u_state.value = (step % 2 === 0 ? rtA.texture : rtB.texture);
 }
 
-t.renderer.setRenderTarget(null);
-if (t.displayMat && t.displayMat.uniforms) {
-    t.displayMat.uniforms.uState.value = (t.step % 2 === 0) ? t.rtA.texture : t.rtB.texture;
-    t.displayMat.uniforms.uTime.value = time;
-}
-
-t.renderer.setSize(grid.width, grid.height, false);
-t.renderer.render(t.scene, t.camera);
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
