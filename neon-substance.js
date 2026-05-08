@@ -1,186 +1,178 @@
-try {
-  if (!ctx) throw new Error("WebGL context not available");
+if (!canvas.__three) {
+    try {
+        if (!ctx) throw new Error("WebGL 2 context not available");
+        
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+        camera.position.z = 1;
+        
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: { 
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                in vec2 vUv;
+                out vec4 fragColor;
+                uniform float u_time;
+                uniform vec2 u_resolution;
 
-  if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({
-      canvas: canvas,
-      context: ctx,
-      alpha: true,
-      antialias: true,
-      powerPreference: "high-performance"
-    });
-    renderer.setSize(grid.width, grid.height, false);
+                #define PI 3.14159265359
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+                // Hash function for quantum dust / fast shimmer
+                float hash(vec2 p) {
+                    vec3 p3  = fract(vec3(p.xyx) * 0.1031);
+                    p3 += dot(p3, p3.yzx + 33.33);
+                    return fract((p3.x + p3.y) * p3.z);
+                }
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
+                // 2D Value Noise
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    vec2 u = f*f*(3.0-2.0*f);
+                    return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
+                               mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+                }
 
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
+                // Fractional Brownian Motion for fluid domain warping
+                float fbm(vec2 p) {
+                    float v = 0.0;
+                    float a = 0.5;
+                    mat2 rot = mat2(0.866, -0.5, 0.5, 0.866);
+                    for (int i = 0; i < 5; ++i) {
+                        v += a * noise(p);
+                        p = rot * p * 2.0 + vec2(100.0);
+                        a *= 0.5;
+                    }
+                    return v;
+                }
 
-      uniform float u_time;
-      uniform vec2 u_resolution;
+                // Bismuth/Deco Metric (L-Infinity combined with polar sunburst)
+                float decoMetric(vec2 p) {
+                    // 45 degree rotation to create diamond/chevron orientation
+                    mat2 rot = mat2(0.707, -0.707, 0.707, 0.707);
+                    vec2 pr = rot * p;
+                    
+                    // Chebyshev distance (L-Infinity) for square/stepped geometry
+                    float d_inf = max(abs(pr.x), abs(pr.y));
+                    
+                    // Sunburst modulation (Art Deco 12-fold radial symmetry)
+                    float angle = atan(p.y, p.x);
+                    float burst = 1.0 + 0.15 * sin(angle * 12.0); 
+                    
+                    return d_inf * burst;
+                }
 
-      // Noise / Grain
-      float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-      }
+                void main() {
+                    // Normalize and scale UVs
+                    vec2 uv = (vUv - 0.5);
+                    uv.x *= u_resolution.x / u_resolution.y;
+                    uv *= 4.0; 
 
-      // p6m Symmetry Folding (Tessellations Repo - Crystalline base)
-      vec2 foldP6m(vec2 p) {
-          p = abs(p);
-          const float sqrt3 = 1.73205080757;
-          if (p.y > p.x * sqrt3) {
-              p = vec2(p.x * sqrt3 + p.y, p.x - p.y * sqrt3) * 0.5;
-          }
-          p = abs(p);
-          if (p.y > p.x * sqrt3) {
-              p = vec2(p.x * sqrt3 + p.y, p.x - p.y * sqrt3) * 0.5;
-          }
-          return p;
-      }
+                    // 3 Simultaneous Time Scales
+                    float t_slow = u_time * 0.05;
+                    float t_med  = u_time * 0.2;
+                    float t_fast = u_time * 2.0;
 
-      // 3D Gyroid (Structural Color Repo - Triply Periodic Minimal Surface)
-      float gyroid(vec3 p) {
-          return dot(sin(p), cos(p.zxy));
-      }
+                    // 1. Slow Global Drift: Fluid Domain Warping
+                    vec2 q = vec2(fbm(uv * 1.5 + t_slow), fbm(uv * 1.5 - t_slow + 4.3));
+                    vec2 r = vec2(fbm(uv * 3.0 + q * 2.0 + t_slow * 1.5), fbm(uv * 3.0 + q * 2.0 - t_slow * 1.2));
+                    vec2 warpedUV = uv + r * 0.5;
 
-      // Volumetric FBM with absolute value for sharp "stress fracture" ridges
-      float fbm(vec3 p, float boundaryWarp) {
-          float d = 0.0;
-          float amp = 0.5;
-          float freq = 1.0;
-          
-          // Holographic Renormalization: frequency increases near boundary
-          float freqMult = 1.7 + boundaryWarp * 0.5; 
-          
-          for(int i = 0; i < 6; i++) {
-              d += amp * abs(gyroid(p * freq));
-              p.xyz = p.yzx + vec3(1.1, 2.3, 3.4); // Chiral rotation
-              freq *= freqMult;
-              amp *= 0.55;
-          }
-          return d;
-      }
+                    // 2. Medium Structural Motion: Stepped Ziggurat / Bismuth Growth
+                    float d = decoMetric(warpedUV);
+                    
+                    // Create stepped strata (Bismuth crystals / Deco setbacks)
+                    float strata = fract(d * 6.0 - t_med);
+                    float strataGradients = smoothstep(0.0, 0.1, strata) - smoothstep(0.8, 1.0, strata);
+                    
+                    // Create metallic inlay ridges (Shine as a structure)
+                    float ridge = smoothstep(0.0, 0.02, strata) - smoothstep(0.02, 0.05, strata);
+                    
+                    // Kintsugi Crack Seam (fracture logic)
+                    float seamNoise = fbm(warpedUV * 4.0);
+                    float seam = smoothstep(0.015, 0.0, abs(seamNoise - 0.5));
 
-      void main() {
-          // Centered, aspect-corrected UV
-          vec2 uv = (vUv - 0.5) * 2.0;
-          uv.x *= u_resolution.x / u_resolution.y;
-          
-          // Time Scales (The Feral Clockwork)
-          float t_slow = u_time * 0.05; // Global drift
-          float t_med  = u_time * 0.3;  // Structural crystallization/erosion
-          float t_fast = u_time * 2.5;  // Birefringence shimmer / photon jitter
-          
-          // Holographic AdS Geometry (Radial depth = scale)
-          // Space warps infinitely toward the edge
-          float r = length(uv);
-          float ads_z = max(0.05, 1.0 - r*r*0.8); 
-          vec2 warpedUv = uv / ads_z;
-          
-          // Apply p6m crystalline folding
-          vec2 foldUv = foldP6m(warpedUv * 1.5);
-          
-          // Domain Warping (Medium scale distortion)
-          vec3 warpPos = vec3(foldUv * 2.0, t_slow);
-          vec2 offset = vec2(
-              gyroid(warpPos),
-              gyroid(warpPos + vec3(4.2, 1.3, 8.9))
-          ) * 0.5;
-          
-          // Structural Sample (The physical substance)
-          vec3 p = vec3(foldUv * 4.0 + offset, t_med);
-          float d = fbm(p, r);
-          
-          // Calculate Normals via Gradient (gives the 2D plane 3D physical volume)
-          vec2 eps = vec2(0.015, 0.0);
-          float dx = fbm(p + vec3(eps.x, eps.y, eps.y), r) - d;
-          float dy = fbm(p + vec3(eps.y, eps.x, eps.y), r) - d;
-          vec3 normal = normalize(vec3(dx, dy, 0.08));
-          
-          // Caustic Lighting
-          vec3 lightDir = normalize(vec3(sin(t_fast*0.5), cos(t_fast*0.7), 1.2));
-          float diffuse = max(0.0, dot(normal, lightDir));
-          float specular = pow(max(0.0, dot(normal, lightDir)), 12.0);
-          
-          // Interference Holography / Birefringence (Neon CMY Palette)
-          // Phase is driven by structural depth, fast time, and acute angles
-          float phase = d * 12.0 - t_fast + specular * 4.0;
-          
-          vec3 cyan = vec3(0.0, 1.0, 1.0);
-          vec3 mag  = vec3(1.0, 0.0, 1.0);
-          vec3 yel  = vec3(1.0, 1.0, 0.0);
-          
-          // Phase-shifted weights for structural color
-          float w1 = smoothstep(0.1, 0.9, sin(phase));
-          float w2 = smoothstep(0.1, 0.9, sin(phase + 2.094)); // 120 deg
-          float w3 = smoothstep(0.1, 0.9, sin(phase + 4.188)); // 240 deg
-          
-          vec3 interferenceColor = (cyan * w1 + mag * w2 + yel * w3) / (w1 + w2 + w3 + 0.001);
-          
-          // Void Black Carving (Matte Host vs Brilliant Veins)
-          // The structure is dead black, but the sharp ridges / stress fractures emit light
-          float veinMask = smoothstep(0.8, 0.1, d);
-          float crackMask = smoothstep(0.2, 0.0, d) * 2.0; // Kintsugi extreme highlights
-          
-          vec3 finalColor = interferenceColor * veinMask * (diffuse + 0.2);
-          finalColor += interferenceColor * specular * crackMask * 2.5;
-          
-          // Quantum Dust (Particulate dry shine over wet viscous veins)
-          float dust = smoothstep(0.97, 1.0, hash(uv * 150.0 + t_fast));
-          finalColor += dust * cyan * veinMask * 1.5;
-          
-          // Physical Grain
-          float grain = hash(vUv * u_resolution + u_time) * 0.15;
-          finalColor += grain * veinMask;
-          
-          // Vignette (Fade into the deep void)
-          finalColor *= smoothstep(1.3, 0.2, r);
-          
-          // Output with a hard black floor to guarantee the void
-          fragColor = vec4(max(vec3(0.0), finalColor), 1.0);
-      }
-    `;
+                    // Caustic Projection (interference holography)
+                    float caustic = 0.0;
+                    vec2 cUV = warpedUV * 2.5;
+                    for(int i=0; i<3; i++) {
+                        cUV += vec2(sin(cUV.y * 2.0 + t_med), cos(cUV.x * 2.0 - t_med)) * 0.4;
+                        caustic += abs(sin(cUV.x + cUV.y));
+                    }
+                    caustic = pow(max(0.0, 1.0 - caustic / 3.0), 4.0);
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
+                    // 3. Fast Detail Shimmer: Quantum Dust / Mica Flakes
+                    float shimmer = hash(warpedUV * 200.0 + t_fast);
+                    float glitter = step(0.98, shimmer) * strataGradients;
 
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(plane);
+                    // Color Palette: Void Black, Neon Cyan, Magenta, Yellow
+                    vec3 voidBlack = vec3(0.02, 0.01, 0.03);
+                    vec3 cyan = vec3(0.0, 1.0, 0.9);
+                    vec3 magenta = vec3(1.0, 0.0, 0.8);
+                    vec3 yellow = vec3(1.0, 0.9, 0.0);
 
-    canvas.__three = { renderer, scene, camera, material };
-  }
+                    // Base material is void black with structural depth shadowing
+                    vec3 color = voidBlack * (0.2 + 0.8 * strataGradients);
 
-  const { renderer, scene, camera, material } = canvas.__three;
+                    // Structural color from disorder / Birefringence phase shift
+                    float colorPhase = fbm(warpedUV * 4.0 + d * 3.0 - t_med);
+                    
+                    vec3 structuralColor = mix(cyan, magenta, smoothstep(0.2, 0.5, colorPhase));
+                    structuralColor = mix(structuralColor, yellow, smoothstep(0.6, 0.9, colorPhase));
 
-  if (material?.uniforms?.u_time) {
-    material.uniforms.u_time.value = time;
-  }
-  if (material?.uniforms?.u_resolution) {
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
+                    // Apply structural color to the Deco ridges (metallic inlay)
+                    color = mix(color, structuralColor, ridge * 2.0);
+                    
+                    // Apply Kintsugi seams (filled with bright neon gradient)
+                    color = mix(color, mix(yellow, magenta, colorPhase), seam * 2.0);
 
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
+                    // Add Caustic light pools (cyan/magenta split projection)
+                    color += cyan * caustic * 0.5 * (1.0 - colorPhase);
+                    color += magenta * caustic * 0.5 * colorPhase;
 
-} catch (e) {
-  console.error("Feral texture compilation failed:", e);
+                    // Add glow to the deep valleys (Entropic buried shine)
+                    float valleyGlow = smoothstep(0.85, 1.0, strata);
+                    color += structuralColor * valleyGlow * 0.6;
+
+                    // Add fast shimmer (Glitter ecology)
+                    color += vec3(1.0) * glitter * 1.5;
+
+                    // Vignette to emphasize the void
+                    float vig = length(uv);
+                    color *= smoothstep(2.5, 0.5, vig);
+
+                    fragColor = vec4(min(color, 1.0), 1.0);
+                }
+            `
+        });
+        
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("WebGL Initialization Failed:", e);
+        return;
+    }
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) {
+        material.uniforms.u_resolution.value.x = grid.width;
+        material.uniforms.u_resolution.value.y = grid.height;
+    }
+}
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
