@@ -1,140 +1,176 @@
-if (!canvas.__three) {
-  try {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+try {
+    if (!canvas.__three) {
+        if (!ctx) throw new Error("WebGL 2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({ canvas: canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_res;
-      uniform vec2 u_mouse;
-
-      // Feral Quasicrystal Math: N-fold rotational symmetry via plane wave interference
-      float quasi(vec2 p, int N, float t) {
-        float v = 0.0;
-        for(int i = 0; i < 20; i++) {
-          if(i >= N) break;
-          float a = float(i) * 3.14159265359 / float(N);
-          vec2 dir = vec2(cos(a), sin(a));
-          // Phase drift to make the crystal breathe
-          float phase = t * (mod(float(i), 2.0) == 0.0 ? 1.0 : -1.0);
-          v += cos(dot(p, dir) + phase);
-        }
-        return v;
-      }
-
-      void main() {
-        vec2 uv = (vUv - 0.5) * 2.0;
-        uv.x *= u_res.x / u_res.y;
-
-        // Anxious photon warp: The manifold bends towards the observer
-        vec2 m = (u_mouse * 2.0 - 1.0);
-        uv += m * 0.15 * sin(uv.yx * 4.0 + u_time * 0.5);
-
-        // Base coordinate scale
-        vec2 p = uv * 30.0;
-        float t = u_time * 0.3;
-
-        // Incommensurate Frequencies: 5, 8, 13 (Fibonacci sequence)
-        // Automorphic Domain Warping: Field N warps the coordinates of field N+1
-        float q5 = quasi(p, 5, t);
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         
-        vec2 p8 = p + vec2(cos(q5), sin(q5)) * 1.618;
-        float q8 = quasi(p8, 8, t * 1.618);
-        
-        vec2 p13 = p8 + vec2(sin(q8), cos(q8)) * 2.618;
-        float q13 = quasi(p13, 13, t * 2.618);
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
 
-        // Topological Interference
-        float total = q5 * 1.0 + q8 * 0.618 + q13 * 0.382;
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position, 1.0);
+            }
+        `;
 
-        // Lithogenesis: Crystallize the smooth waves into razor-sharp ridges
-        // Using abs(fract) to create a non-repeating faceted surface geometry
-        float ridge = abs(fract(total * 1.1) - 0.5) * 2.0;
-        float sharp = pow(1.0 - ridge, 7.0);  // Sharp crystal edges
-        float core = pow(1.0 - ridge, 32.0); // Incandescent core intersections
+        const fragmentShader = `
+            uniform float u_time;
+            uniform vec2 u_resolution;
+            
+            in vec2 vUv;
+            out vec4 fragColor;
 
-        // Chromatic Phase-shifting (Neon Palette over Void Black)
-        // Irreconcilable waves map directly to RGB phase
-        vec3 colorPhase = vec3(
-          sin(q5 * 1.3 + t),
-          cos(q8 * 1.3 - t),
-          sin(q13 * 1.3 + t * 0.5)
-        ) * 0.5 + 0.5;
+            #define PI 3.14159265359
 
-        // Toxic Neon Alchemy
-        vec3 neon = mix(vec3(0.0, 1.0, 0.8), vec3(1.0, 0.0, 0.4), colorPhase.r); // Cyan to Magenta
-        neon = mix(neon, vec3(0.4, 0.0, 1.0), colorPhase.g); // Inject Electric Violet
-        neon = mix(neon, vec3(0.8, 1.0, 0.0), pow(colorPhase.b, 2.0)); // Acid Green peaks
+            // Complex math for Mobius Transform (Poincaré Disk mapping)
+            vec2 cmul(vec2 a, vec2 b) {
+                return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+            }
+            
+            vec2 cdiv(vec2 a, vec2 b) {
+                float d = dot(b, b);
+                return vec2(dot(a, b), a.y * b.x - a.x * b.y) / d;
+            }
 
-        // Assemble the material
-        vec3 col = neon * sharp * 1.8 + vec3(1.0) * core * 2.5;
+            // Quasicrystal Density Field (Incommensurate Plane Waves)
+            float field(vec2 p, float t) {
+                float w = 0.0;
+                
+                // 5-fold symmetry (Penrose / Golden Ratio)
+                for(int i = 0; i < 5; i++) {
+                    float angle = float(i) * PI / 5.0;
+                    // Phason drift: nonlinear phase shifting mutates the local topology
+                    float phase = t * 0.8 * sin(float(i) * 1.6180339887);
+                    vec2 dir = vec2(cos(angle), sin(angle));
+                    w += cos(dot(p, dir) + phase);
+                }
+                
+                // 8-fold symmetry (Ammann-Beenker / Silver Ratio)
+                for(int i = 0; i < 4; i++) {
+                    float angle = float(i) * PI / 4.0;
+                    float phase = -t * 0.6 * cos(float(i) * 1.4142135623);
+                    vec2 dir = vec2(cos(angle), sin(angle));
+                    // Spatial frequency scaled by sqrt(2) to force mathematical irreconcilability
+                    w += cos(dot(p * 1.4142135623, dir) + phase) * 1.25; 
+                }
+                
+                return w;
+            }
 
-        // Silicon Necrosis: Machine hesitation grit
-        float grit = fract(sin(dot(uv + t, vec2(12.9898, 78.233))) * 43758.5453);
-        col += neon * grit * 0.15 * sharp;
+            void main() {
+                vec2 uv = (vUv - 0.5) * 2.0;
+                uv.x *= u_resolution.x / u_resolution.y;
+                
+                float r = length(uv);
+                
+                // Absolute void outside the manifold
+                if(r > 1.0) {
+                    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                    return;
+                }
 
-        // Abyssal Void Background
-        vec3 voidColor = vec3(0.01, 0.0, 0.03) * length(uv);
-        col = max(col, voidColor);
+                // Hyperbolic breathing via Mobius translation
+                vec2 a = vec2(sin(u_time * 0.25) * 0.4, cos(u_time * 0.31) * 0.4);
+                vec2 num = uv - a;
+                vec2 den = vec2(1.0, 0.0) - cmul(vec2(a.x, -a.y), uv);
+                vec2 z = cdiv(num, den);
+                
+                // Exponential spatial crowding towards the boundary
+                vec2 p = z * 22.0;
 
-        // Vignette to crush the edges into the void
-        col *= 1.0 - pow(length(vUv - 0.5), 2.5) * 1.8;
+                // Evaluate the quasicrystal scalar field
+                float F0 = field(p, u_time);
+                
+                // Calculate analytical normals for crystalline lithogenesis
+                vec2 eps = vec2(0.05, 0.0);
+                float Fx = field(p + eps.xy, u_time);
+                float Fy = field(p + eps.yx, u_time);
+                vec3 normal = normalize(vec3(Fx - F0, Fy - F0, 0.15));
 
-        fragColor = vec4(col, 1.0);
-      }
-    `;
+                // Volumetric lighting setup
+                vec3 lightPos = vec3(sin(u_time) * 1.5, cos(u_time * 1.3) * 1.5, 1.0);
+                vec3 lightDir = normalize(lightPos - vec3(uv, 0.0));
+                vec3 viewDir = vec3(0.0, 0.0, 1.0);
+                vec3 halfVector = normalize(lightDir + viewDir);
+                
+                float diffuse = max(dot(normal, lightDir), 0.0);
+                float specular = pow(max(dot(normal, halfVector), 0.0), 64.0); // Sharp crystalline hits
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0 },
-        u_res: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
+                // Neon Palette
+                vec3 voidColor = vec3(0.02, 0.0, 0.04);
+                vec3 cyan = vec3(0.0, 0.9, 1.0);
+                vec3 magenta = vec3(1.0, 0.0, 0.6);
+                vec3 yellow = vec3(1.0, 0.9, 0.0);
+                
+                // Normalize field amplitude roughly from [-10, 10] to [0, 1]
+                float normF = (F0 + 10.0) / 20.0;
+                
+                vec3 col = voidColor;
+                
+                // Topographical color mapping
+                col = mix(col, magenta, smoothstep(0.35, 0.6, normF));
+                col = mix(col, cyan, smoothstep(0.55, 0.85, normF));
+                
+                // Domain walls: Sharp level-set contours mapping the mathematical interference
+                float contour = smoothstep(0.06, 0.0, abs(fract(F0 * 1.3) - 0.5));
+                col += cyan * contour * 0.7;
+                
+                // Constructive interference peaks (Bragg peaks)
+                float peak = smoothstep(0.82, 0.95, normF);
+                col += yellow * peak * 2.5;
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
+                // Apply shading
+                col = col * (diffuse * 0.7 + 0.3) + yellow * specular * 1.5;
+                
+                // Moiré / Chromatic Aberration near the boundary
+                float diskEdge = smoothstep(1.0, 0.95, r);
+                col *= diskEdge;
 
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
+                // Temporal noise injection (Entropy/Film Grain)
+                float noise = fract(sin(dot(vUv + u_time, vec2(12.9898, 78.233))) * 43758.5453);
+                col += magenta * noise * 0.06 * diskEdge;
+
+                // Tone mapping (Exposure)
+                col = 1.0 - exp(-col * 1.3);
+
+                fragColor = vec4(col, 1.0);
+            }
+        `;
+
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader,
+            fragmentShader,
+            depthWrite: false,
+            depthTest: false
+        });
+
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+
+        canvas.__three = { renderer, scene, camera, material };
+    }
+
+    const { renderer, scene, camera, material } = canvas.__three;
+
+    if (material?.uniforms?.u_time) {
+        material.uniforms.u_time.value = time;
+    }
+    if (material?.uniforms?.u_resolution) {
+        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
+
+} catch (e) {
     console.error("WebGL Initialization Failed:", e);
-    return;
-  }
 }
-
-const { renderer, scene, camera, material } = canvas.__three;
-
-if (material && material.uniforms) {
-  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-  if (material.uniforms.u_res) {
-    material.uniforms.u_res.value.set(grid.width, grid.height);
-  }
-  if (material.uniforms.u_mouse) {
-    const mx = mouse.x / grid.width;
-    const my = 1.0 - (mouse.y / grid.height);
-    material.uniforms.u_mouse.value.lerp(new THREE.Vector2(mx, my), 0.05);
-  }
-}
-
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
