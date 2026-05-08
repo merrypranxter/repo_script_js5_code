@@ -1,176 +1,176 @@
-try {
+if (typeof THREE !== 'undefined') {
     if (!canvas.__three) {
-        if (!ctx) throw new Error("WebGL 2 context not available");
+        try {
+            if (!ctx) throw new Error("WebGL 2 context not available");
 
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-        camera.position.z = 1;
+            const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+            const scene = new THREE.Scene();
+            const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+            camera.position.z = 1;
 
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
-
-        const fragmentShader = `
-            uniform float u_time;
-            uniform vec2 u_resolution;
-            
-            in vec2 vUv;
-            out vec4 fragColor;
-
-            #define PI 3.14159265359
-
-            // Complex math for Mobius Transform (Poincaré Disk mapping)
-            vec2 cmul(vec2 a, vec2 b) {
-                return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
-            }
-            
-            vec2 cdiv(vec2 a, vec2 b) {
-                float d = dot(b, b);
-                return vec2(dot(a, b), a.y * b.x - a.x * b.y) / d;
-            }
-
-            // Quasicrystal Density Field (Incommensurate Plane Waves)
-            float field(vec2 p, float t) {
-                float w = 0.0;
-                
-                // 5-fold symmetry (Penrose / Golden Ratio)
-                for(int i = 0; i < 5; i++) {
-                    float angle = float(i) * PI / 5.0;
-                    // Phason drift: nonlinear phase shifting mutates the local topology
-                    float phase = t * 0.8 * sin(float(i) * 1.6180339887);
-                    vec2 dir = vec2(cos(angle), sin(angle));
-                    w += cos(dot(p, dir) + phase);
+            const vertexShader = `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
-                
-                // 8-fold symmetry (Ammann-Beenker / Silver Ratio)
-                for(int i = 0; i < 4; i++) {
-                    float angle = float(i) * PI / 4.0;
-                    float phase = -t * 0.6 * cos(float(i) * 1.4142135623);
-                    vec2 dir = vec2(cos(angle), sin(angle));
-                    // Spatial frequency scaled by sqrt(2) to force mathematical irreconcilability
-                    w += cos(dot(p * 1.4142135623, dir) + phase) * 1.25; 
-                }
-                
-                return w;
-            }
+            `;
 
-            void main() {
-                vec2 uv = (vUv - 0.5) * 2.0;
-                uv.x *= u_resolution.x / u_resolution.y;
-                
-                float r = length(uv);
-                
-                // Absolute void outside the manifold
-                if(r > 1.0) {
-                    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
-                    return;
+            const fragmentShader = `
+                in vec2 vUv;
+                out vec4 fragColor;
+                uniform float u_time;
+                uniform vec2 u_resolution;
+
+                #define PI 3.14159265359
+
+                // Safe hyperbolic arctangent for projective unrolling
+                float safe_atanh(float x) {
+                    x = clamp(x, -0.9999, 0.9999);
+                    return 0.5 * log((1.0 + x) / (1.0 - x));
                 }
 
-                // Hyperbolic breathing via Mobius translation
-                vec2 a = vec2(sin(u_time * 0.25) * 0.4, cos(u_time * 0.31) * 0.4);
-                vec2 num = uv - a;
-                vec2 den = vec2(1.0, 0.0) - cmul(vec2(a.x, -a.y), uv);
-                vec2 z = cdiv(num, den);
-                
-                // Exponential spatial crowding towards the boundary
-                vec2 p = z * 22.0;
+                // Feral neon palette: Cyan, Magenta, Yellow-Green
+                vec3 getNeon(float t) {
+                    vec3 c1 = vec3(0.0, 1.0, 1.0); 
+                    vec3 c2 = vec3(1.0, 0.0, 1.0); 
+                    vec3 c3 = vec3(0.5, 1.0, 0.0); 
+                    t = fract(t);
+                    if(t < 0.333) return mix(c1, c2, smoothstep(0.0, 1.0, t * 3.0));
+                    if(t < 0.666) return mix(c2, c3, smoothstep(0.0, 1.0, (t - 0.333) * 3.0));
+                    return mix(c3, c1, smoothstep(0.0, 1.0, (t - 0.666) * 3.0));
+                }
 
-                // Evaluate the quasicrystal scalar field
-                float F0 = field(p, u_time);
-                
-                // Calculate analytical normals for crystalline lithogenesis
-                vec2 eps = vec2(0.05, 0.0);
-                float Fx = field(p + eps.xy, u_time);
-                float Fy = field(p + eps.yx, u_time);
-                vec3 normal = normalize(vec3(Fx - F0, Fy - F0, 0.15));
+                mat2 rot(float a) { return mat2(cos(a), -sin(a), sin(a), cos(a)); }
 
-                // Volumetric lighting setup
-                vec3 lightPos = vec3(sin(u_time) * 1.5, cos(u_time * 1.3) * 1.5, 1.0);
-                vec3 lightDir = normalize(lightPos - vec3(uv, 0.0));
-                vec3 viewDir = vec3(0.0, 0.0, 1.0);
-                vec3 halfVector = normalize(lightDir + viewDir);
-                
-                float diffuse = max(dot(normal, lightDir), 0.0);
-                float specular = pow(max(dot(normal, halfVector), 0.0), 64.0); // Sharp crystalline hits
+                // Complex math for Mobius translation
+                vec2 cmul(vec2 a, vec2 b) { return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+                vec2 cdiv(vec2 a, vec2 b) { float d = dot(b,b); return vec2(dot(a,b), a.y*b.x - a.x*b.y)/d; }
+                vec2 mobius_translate(vec2 z, vec2 p) {
+                    return cdiv(z - p, vec2(1.0, 0.0) - cmul(vec2(p.x, -p.y), z));
+                }
 
-                // Neon Palette
-                vec3 voidColor = vec3(0.02, 0.0, 0.04);
-                vec3 cyan = vec3(0.0, 0.9, 1.0);
-                vec3 magenta = vec3(1.0, 0.0, 0.6);
-                vec3 yellow = vec3(1.0, 0.9, 0.0);
-                
-                // Normalize field amplitude roughly from [-10, 10] to [0, 1]
-                float normF = (F0 + 10.0) / 20.0;
-                
-                vec3 col = voidColor;
-                
-                // Topographical color mapping
-                col = mix(col, magenta, smoothstep(0.35, 0.6, normF));
-                col = mix(col, cyan, smoothstep(0.55, 0.85, normF));
-                
-                // Domain walls: Sharp level-set contours mapping the mathematical interference
-                float contour = smoothstep(0.06, 0.0, abs(fract(F0 * 1.3) - 0.5));
-                col += cyan * contour * 0.7;
-                
-                // Constructive interference peaks (Bragg peaks)
-                float peak = smoothstep(0.82, 0.95, normF);
-                col += yellow * peak * 2.5;
+                void main() {
+                    vec2 uv = (vUv - 0.5) * 2.0;
+                    uv.x *= u_resolution.x / u_resolution.y;
 
-                // Apply shading
-                col = col * (diffuse * 0.7 + 0.3) + yellow * specular * 1.5;
-                
-                // Moiré / Chromatic Aberration near the boundary
-                float diskEdge = smoothstep(1.0, 0.95, r);
-                col *= diskEdge;
+                    // 3 Time scales: slow morph, medium drift, fast shimmer
+                    float t_slow = u_time * 0.15;
+                    // Machine hesitation: temporal stutter in the medium time scale
+                    float t_med = u_time * 0.4 + 0.05 * sin(u_time * 12.0); 
+                    float t_fast = u_time * 4.0;
 
-                // Temporal noise injection (Entropy/Film Grain)
-                float noise = fract(sin(dot(vUv + u_time, vec2(12.9898, 78.233))) * 43758.5453);
-                col += magenta * noise * 0.06 * diskEdge;
+                    uv *= 1.15; 
 
-                // Tone mapping (Exposure)
-                col = 1.0 - exp(-col * 1.3);
+                    float r_len = length(uv);
+                    if (r_len > 0.995) {
+                        fragColor = vec4(0.0, 0.0, 0.0, 1.0); // Void black background
+                        return;
+                    }
 
-                fragColor = vec4(col, 1.0);
-            }
-        `;
+                    // Mobius drift (orbiting the origin of the Poincaré disk)
+                    vec2 center = vec2(sin(t_med)*0.3, cos(t_med * 0.8)*0.3);
+                    vec2 z = mobius_translate(uv, center);
+                    z *= rot(t_med * 0.3);
 
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-            },
-            vertexShader,
-            fragmentShader,
-            depthWrite: false,
-            depthTest: false
-        });
+                    // Hyperbolic unrolling (projects the disk onto an infinite plane)
+                    float h_dist = safe_atanh(length(z));
+                    vec2 p_uv = normalize(z) * h_dist;
 
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
+                    float scale = 3.5;
+                    float sum_cos = 0.0;
+                    float index_sum = 0.0;
+                    vec3 edge_glow = vec3(0.0);
+                    float interference = 1.0;
 
-        canvas.__three = { renderer, scene, camera, material };
+                    // 7-fold irreconcilable symmetry (Heptagrid projection)
+                    for(int i = 0; i < 7; i++) {
+                        float fi = float(i);
+                        float angle = fi * PI * 2.0 / 7.0;
+                        vec2 dir = vec2(cos(angle), sin(angle));
+
+                        // Slow morphing cut window delaminating from 7D
+                        float gamma = sin(t_slow * 1.3 + fi * 1.618) * 2.0;
+
+                        // Project to 1D axis
+                        float p = dot(p_uv, dir) * scale + gamma;
+
+                        float w = cos(p * PI * 2.0);
+                        sum_cos += w;
+                        interference *= w; // Moiré multiplication
+
+                        // 7D cell index hash
+                        float cell = floor(p);
+                        index_sum += cell * sin(fi * 123.456);
+
+                        // Edge proximity
+                        float edge_dist = abs(fract(p) - 0.5);
+
+                        // Fast shimmer on the edges (phase modulation)
+                        float shimmer = sin(p * 25.0 - t_fast + fi) * 0.5 + 0.5;
+                        float intensity = 0.01 / (edge_dist + 0.002) * shimmer;
+
+                        edge_glow += getNeon(fi / 7.0 + t_slow) * intensity;
+                    }
+
+                    // Tile color driven by 7D topological index
+                    vec3 base_color = getNeon(index_sum * 4.33);
+
+                    // Solid matter representation via interference contours
+                    float matter = smoothstep(-0.2, 0.5, interference);
+                    matter *= 0.6 + 0.4 * sin(interference * 30.0 - t_fast * 0.5); // Topographical ridges
+
+                    // Depth in the projection
+                    float depth = sum_cos / 7.0;
+
+                    vec3 final_color = base_color * matter * (0.8 + 0.5 * depth);
+
+                    // Add shimmering edges, weighted by depth
+                    final_color += edge_glow * smoothstep(-0.8, 0.8, depth);
+
+                    // Contrast push and void mask blending
+                    final_color = pow(final_color, vec3(1.3, 1.3, 1.3));
+                    final_color *= smoothstep(0.995, 0.95, r_len); // Anti-alias disk boundary
+
+                    fragColor = vec4(final_color, 1.0);
+                }
+            `;
+
+            const material = new THREE.ShaderMaterial({
+                glslVersion: THREE.GLSL3,
+                uniforms: {
+                    u_time: { value: 0 },
+                    u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+                },
+                vertexShader,
+                fragmentShader
+            });
+
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+            scene.add(mesh);
+
+            canvas.__three = { renderer, scene, camera, material };
+        } catch (e) {
+            console.error("Feral Quasicrystal Initialization Failed:", e);
+            return;
+        }
     }
 
     const { renderer, scene, camera, material } = canvas.__three;
-
-    if (material?.uniforms?.u_time) {
+    if (material && material.uniforms) {
         material.uniforms.u_time.value = time;
-    }
-    if (material?.uniforms?.u_resolution) {
-        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+        if (material.uniforms.u_resolution) {
+            material.uniforms.u_resolution.value.set(grid.width, grid.height);
+        }
     }
 
     renderer.setSize(grid.width, grid.height, false);
     renderer.render(scene, camera);
-
-} catch (e) {
-    console.error("WebGL Initialization Failed:", e);
+} else {
+    // Graceful fallback if THREE is not available, though directives demand WebGL via THREE.
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, grid.width, grid.height);
+    ctx.fillStyle = '#0ff';
+    ctx.font = '20px monospace';
+    ctx.fillText('THREE.js is required for 7D Heptagrid Shader', 20, 40);
 }
