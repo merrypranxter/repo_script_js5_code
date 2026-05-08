@@ -1,178 +1,163 @@
 if (!canvas.__three) {
-    try {
-        if (!ctx) throw new Error("WebGL 2 context not available");
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
+    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
+
+      // [FAST SHIMMER] High-frequency PRNG for physical grain
+      float hash(vec3 p) {
+        return fract(sin(dot(p, vec3(12.9898, 78.233, 151.7182))) * 43758.5453);
+      }
+
+      // [MEDIUM MOTION] 3D Value Noise for tectonic shifts
+      float noise(vec3 x) {
+        vec3 i = floor(x);
+        vec3 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+                       mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                   mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                       mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+      }
+
+      // [STRUCTURAL LOGIC] L-Infinity norm for Bismuth/Deco stepped crystalline geometry
+      float crystal(vec3 p) {
+        vec3 q = abs(fract(p) - 0.5);
+        return max(q.x, max(q.y, q.z));
+      }
+
+      void main() {
+        // Normalize coordinates
+        vec2 uv = (vUv - 0.5) * 2.0;
+        uv.x *= u_resolution.x / u_resolution.y;
+
+        // --- THE THREE TIME SCALES ---
+        float t_slow = u_time * 0.05; // Global drift
+        float t_med  = u_time * 0.25; // Tectonic structural motion
+        float t_fast = u_time * 3.0;  // Micro-fluctuation shimmer
+
+        // Base coordinate space with slow drift
+        vec3 p = vec3(uv * 2.5, t_slow);
+
+        // Domain warping via noise
+        vec3 warp = vec3(
+            noise(p * 1.5 + t_med),
+            noise(p * 1.5 + t_med + 13.3),
+            noise(p * 1.5 + t_med + 27.8)
+        ) * 2.0 - 1.0;
         
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-        camera.position.z = 1;
+        // [THE WEIRD MECHANISM] Deco Quantization: 
+        // We step the warp itself to force rectilinear failure into fluid noise
+        warp = floor(warp * 6.0) / 6.0; 
+        p += warp * 1.2;
+
+        // Layered crystalline lattices competing for space
+        float l1 = crystal(p * 2.0);
+        float l2 = crystal(p * 4.0 + warp);
+        float l3 = crystal(p * 8.0 - warp);
+
+        // Accumulate physical depth (Z-buffer proxy)
+        float depth = (l1 * 0.5 + l2 * 0.25 + l3 * 0.125) * 2.0;
+
+        // Inject fast physical grain into the depth field
+        float grain = hash(vec3(uv * 200.0, t_fast));
+        depth += grain * 0.03;
+
+        // [GPU AUTOPSY] Procedural Normal Map via Screen-Space Derivatives
+        // Generates harsh, faceted crystalline lighting inherently
+        float dX = dFdx(depth);
+        float dY = dFdy(depth);
+        vec3 normal = normalize(vec3(dX * 150.0, dY * 150.0, 1.0));
+
+        // [OPTICS] Thin-Film / Bragg Reflection Logic
+        float viewAngle = max(0.1, dot(normal, vec3(0.0, 0.0, 1.0)));
+        float opticalPath = 2.0 * 1.56 * depth * viewAngle; // n=1.56 (chitin/mineral index)
+
+        // Map optical path to tight Interference Fringes
+        float phase = opticalPath * 12.0 - t_slow * 5.0;
         
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            uniforms: { 
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-            },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                in vec2 vUv;
-                out vec4 fragColor;
-                uniform float u_time;
-                uniform vec2 u_resolution;
+        // Exponentiate to create sharp, laser-like bands separated by absolute void
+        float c_band = pow(0.5 + 0.5 * sin(phase), 16.0);
+        float m_band = pow(0.5 + 0.5 * sin(phase + 2.094), 16.0);
+        float y_band = pow(0.5 + 0.5 * sin(phase + 4.188), 16.0);
 
-                #define PI 3.14159265359
+        vec3 cyan = vec3(0.0, 1.0, 1.0);
+        vec3 mag  = vec3(1.0, 0.0, 1.0);
+        vec3 yel  = vec3(1.0, 1.0, 0.0);
 
-                // Hash function for quantum dust / fast shimmer
-                float hash(vec2 p) {
-                    vec3 p3  = fract(vec3(p.xyx) * 0.1031);
-                    p3 += dot(p3, p3.yzx + 33.33);
-                    return fract((p3.x + p3.y) * p3.z);
-                }
+        // The Neon Synthesis
+        vec3 color = c_band * cyan + m_band * mag + y_band * yel;
 
-                // 2D Value Noise
-                float noise(vec2 p) {
-                    vec2 i = floor(p);
-                    vec2 f = fract(p);
-                    vec2 u = f*f*(3.0-2.0*f);
-                    return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
-                               mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
-                }
-
-                // Fractional Brownian Motion for fluid domain warping
-                float fbm(vec2 p) {
-                    float v = 0.0;
-                    float a = 0.5;
-                    mat2 rot = mat2(0.866, -0.5, 0.5, 0.866);
-                    for (int i = 0; i < 5; ++i) {
-                        v += a * noise(p);
-                        p = rot * p * 2.0 + vec2(100.0);
-                        a *= 0.5;
-                    }
-                    return v;
-                }
-
-                // Bismuth/Deco Metric (L-Infinity combined with polar sunburst)
-                float decoMetric(vec2 p) {
-                    // 45 degree rotation to create diamond/chevron orientation
-                    mat2 rot = mat2(0.707, -0.707, 0.707, 0.707);
-                    vec2 pr = rot * p;
-                    
-                    // Chebyshev distance (L-Infinity) for square/stepped geometry
-                    float d_inf = max(abs(pr.x), abs(pr.y));
-                    
-                    // Sunburst modulation (Art Deco 12-fold radial symmetry)
-                    float angle = atan(p.y, p.x);
-                    float burst = 1.0 + 0.15 * sin(angle * 12.0); 
-                    
-                    return d_inf * burst;
-                }
-
-                void main() {
-                    // Normalize and scale UVs
-                    vec2 uv = (vUv - 0.5);
-                    uv.x *= u_resolution.x / u_resolution.y;
-                    uv *= 4.0; 
-
-                    // 3 Simultaneous Time Scales
-                    float t_slow = u_time * 0.05;
-                    float t_med  = u_time * 0.2;
-                    float t_fast = u_time * 2.0;
-
-                    // 1. Slow Global Drift: Fluid Domain Warping
-                    vec2 q = vec2(fbm(uv * 1.5 + t_slow), fbm(uv * 1.5 - t_slow + 4.3));
-                    vec2 r = vec2(fbm(uv * 3.0 + q * 2.0 + t_slow * 1.5), fbm(uv * 3.0 + q * 2.0 - t_slow * 1.2));
-                    vec2 warpedUV = uv + r * 0.5;
-
-                    // 2. Medium Structural Motion: Stepped Ziggurat / Bismuth Growth
-                    float d = decoMetric(warpedUV);
-                    
-                    // Create stepped strata (Bismuth crystals / Deco setbacks)
-                    float strata = fract(d * 6.0 - t_med);
-                    float strataGradients = smoothstep(0.0, 0.1, strata) - smoothstep(0.8, 1.0, strata);
-                    
-                    // Create metallic inlay ridges (Shine as a structure)
-                    float ridge = smoothstep(0.0, 0.02, strata) - smoothstep(0.02, 0.05, strata);
-                    
-                    // Kintsugi Crack Seam (fracture logic)
-                    float seamNoise = fbm(warpedUV * 4.0);
-                    float seam = smoothstep(0.015, 0.0, abs(seamNoise - 0.5));
-
-                    // Caustic Projection (interference holography)
-                    float caustic = 0.0;
-                    vec2 cUV = warpedUV * 2.5;
-                    for(int i=0; i<3; i++) {
-                        cUV += vec2(sin(cUV.y * 2.0 + t_med), cos(cUV.x * 2.0 - t_med)) * 0.4;
-                        caustic += abs(sin(cUV.x + cUV.y));
-                    }
-                    caustic = pow(max(0.0, 1.0 - caustic / 3.0), 4.0);
-
-                    // 3. Fast Detail Shimmer: Quantum Dust / Mica Flakes
-                    float shimmer = hash(warpedUV * 200.0 + t_fast);
-                    float glitter = step(0.98, shimmer) * strataGradients;
-
-                    // Color Palette: Void Black, Neon Cyan, Magenta, Yellow
-                    vec3 voidBlack = vec3(0.02, 0.01, 0.03);
-                    vec3 cyan = vec3(0.0, 1.0, 0.9);
-                    vec3 magenta = vec3(1.0, 0.0, 0.8);
-                    vec3 yellow = vec3(1.0, 0.9, 0.0);
-
-                    // Base material is void black with structural depth shadowing
-                    vec3 color = voidBlack * (0.2 + 0.8 * strataGradients);
-
-                    // Structural color from disorder / Birefringence phase shift
-                    float colorPhase = fbm(warpedUV * 4.0 + d * 3.0 - t_med);
-                    
-                    vec3 structuralColor = mix(cyan, magenta, smoothstep(0.2, 0.5, colorPhase));
-                    structuralColor = mix(structuralColor, yellow, smoothstep(0.6, 0.9, colorPhase));
-
-                    // Apply structural color to the Deco ridges (metallic inlay)
-                    color = mix(color, structuralColor, ridge * 2.0);
-                    
-                    // Apply Kintsugi seams (filled with bright neon gradient)
-                    color = mix(color, mix(yellow, magenta, colorPhase), seam * 2.0);
-
-                    // Add Caustic light pools (cyan/magenta split projection)
-                    color += cyan * caustic * 0.5 * (1.0 - colorPhase);
-                    color += magenta * caustic * 0.5 * colorPhase;
-
-                    // Add glow to the deep valleys (Entropic buried shine)
-                    float valleyGlow = smoothstep(0.85, 1.0, strata);
-                    color += structuralColor * valleyGlow * 0.6;
-
-                    // Add fast shimmer (Glitter ecology)
-                    color += vec3(1.0) * glitter * 1.5;
-
-                    // Vignette to emphasize the void
-                    float vig = length(uv);
-                    color *= smoothstep(2.5, 0.5, vig);
-
-                    fragColor = vec4(min(color, 1.0), 1.0);
-                }
-            `
-        });
+        // [VOID BLACK] Structural Shadows & Cavities
+        float cavity = smoothstep(0.1, 0.9, depth);
         
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-        canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
-    }
+        // Deco contour ridges (black striations at specific depth intervals)
+        float contour = smoothstep(0.0, 0.05, abs(fract(depth * 8.0) - 0.5));
+        
+        color *= cavity;
+        color *= contour;
+
+        // Iridescent high-frequency specular glint (The Shimmer)
+        float glint = pow(max(0.0, dot(normal, normalize(vec3(0.5, 0.5, 1.0)))), 30.0);
+        color += glint * grain * vec3(0.8, 1.0, 1.0) * 2.0;
+
+        // Force deeper blacks and higher neon contrast
+        color = pow(color, vec3(1.2));
+
+        // Optical vignette
+        float vignette = 1.0 - dot(vUv - 0.5, vUv - 0.5) * 1.5;
+        color *= smoothstep(0.0, 0.8, vignette);
+
+        fragColor = vec4(color, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
+    });
+
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
+
 if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) {
-        material.uniforms.u_resolution.value.x = grid.width;
-        material.uniforms.u_resolution.value.y = grid.height;
-    }
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
 }
+
 renderer.setSize(grid.width, grid.height, false);
 renderer.render(scene, camera);
