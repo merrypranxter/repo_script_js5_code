@@ -1,183 +1,143 @@
-(function(ctx, grid, time, repos, input, mouse, canvas, THREE) {
-    // FERAL DESIGN BRAIN: KIYOSHI-ABSORBER-V1 x ALCHEMICAL SCRIPTURE
-    // HYPERBOLIC 7-FOLD QUASICRYSTAL <--> XOR-GHOST MANIFOLD COLLAPSE
-    
-    const scale = 3; 
-    const w = Math.ceil(grid.width / scale);
-    const h = Math.ceil(grid.height / scale);
+try {
+  if (!ctx) throw new Error("WebGL 2 context not available");
 
-    if (!canvas.__qcBuffer || canvas.__qcBuffer.width !== w || canvas.__qcBuffer.height !== h) {
-        canvas.__qcBuffer = ctx.createImageData(w, h);
-        const off = document.createElement('canvas');
-        off.width = w;
-        off.height = h;
-        canvas.__offscreen = off;
-        canvas.__offCtx = off.getContext('2d');
+  if (!canvas.__three) {
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+    camera.position.z = 1;
+
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
+
+    const fragmentShader = `
+      precision highp float;
+      precision highp int;
+      
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
+
+      #define PI 3.14159265359
+
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+      }
+
+      void main() {
+          vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+
+          float global_rot = u_time * 0.05;
+          float s = sin(global_rot), c = cos(global_rot);
+          uv = mat2(c, -s, s, c) * uv;
+
+          float cycle = (sin(u_time * PI * 2.0 / 15.0) + 1.0) * 0.5;
+          float state = smoothstep(0.35, 0.65, cycle);
+
+          vec2 uv_o = uv + 0.04 * vec2(cos(uv.y * 12.0 + u_time), sin(uv.x * 12.0 - u_time));
+
+          vec2 uv_g = uv;
+          float slice = step(0.92, fract(uv.y * 15.0 + u_time * 3.0));
+          uv_g.x += slice * 0.1 * sin(u_time * 40.0);
+          float quant = 60.0;
+          uv_g = floor(uv_g * quant) / quant;
+
+          vec2 p = mix(uv_o, uv_g, state) * 20.0;
+
+          uint ix = uint(int(uv_g.x * quant) + 10000);
+          uint iy = uint(int(uv_g.y * quant) + 10000);
+          uint it = uint(int(u_time * 15.0));
+          uint iz = ix ^ iy ^ it;
+
+          float grid_sum = 0.0;
+          vec3 color_acc = vec3(0.0);
+
+          for(int i = 0; i < 7; i++) {
+              float theta = float(i) * PI / 7.0;
+              vec2 v = vec2(cos(theta), sin(theta));
+
+              float proj1 = dot(p, v) + u_time * 0.4;
+              proj1 += mix(0.0, float(iz % 5u) * 0.15, state);
+
+              float l1_o = smoothstep(0.15, 0.0, abs(fract(proj1) - 0.5));
+              float l1_g = step(0.6, fract(proj1));
+              float l1 = mix(l1_o, l1_g, state);
+
+              float proj2 = dot(p * 1.618033, v) - u_time * 0.25;
+              proj2 += mix(0.0, float((iz >> 1) % 5u) * 0.15, state);
+
+              float l2_o = smoothstep(0.1, 0.0, abs(fract(proj2) - 0.5));
+              float l2_g = step(0.7, fract(proj2));
+              float l2 = mix(l2_o, l2_g, state);
+
+              grid_sum += l1 + l2 * 0.6;
+
+              vec3 c_o = 0.5 + 0.5 * cos(vec3(0, 2, 4) + theta * 3.0 + u_time * 0.5);
+              vec3 c_g = vec3(1.0);
+
+              color_acc += mix(c_o * l1_o, c_g * l1_g, state);
+              color_acc += mix(c_o * l2_o * 0.5, c_g * l2_g * 0.5, state);
+          }
+
+          vec3 comp_o = color_acc * 0.6;
+          comp_o += vec3(1.0, 0.7, 0.3) * smoothstep(3.5, 6.0, grid_sum) * 2.0;
+          comp_o *= smoothstep(0.0, 0.5, grid_sum);
+
+          vec3 comp_g = vec3(0.0);
+          if (grid_sum > 5.5) comp_g = vec3(1.0, 0.9, 0.0);
+          else if (grid_sum > 3.0) comp_g = vec3(0.0, 1.0, 0.8);
+          else if (grid_sum > 1.2) comp_g = vec3(1.0, 0.0, 0.4);
+          else if (grid_sum > 0.5) comp_g = vec3(0.1, 0.05, 0.1);
+
+          if (state > 0.5) {
+              float n = hash(uv_g + u_time);
+              if (n > 0.98) comp_g = vec3(1.0);
+              if (slice > 0.5 && n > 0.8) comp_g.r += 0.5;
+          }
+
+          vec3 final_color = mix(comp_o, comp_g, state);
+          final_color *= 1.0 - 0.4 * length(uv);
+
+          fragColor = vec4(final_color, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
+    });
+
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    canvas.__three = { renderer, scene, camera, material };
+  }
+
+  const { renderer, scene, camera, material } = canvas.__three;
+
+  if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) {
+      material.uniforms.u_resolution.value.set(grid.width, grid.height);
     }
+  }
 
-    const imgData = canvas.__qcBuffer;
-    const data = imgData.data;
-    const offCtx = canvas.__offCtx;
+  renderer.setSize(grid.width, grid.height, false);
+  renderer.render(scene, camera);
 
-    // 15-second cycle logic
-    const cycleLen = 15.0;
-    const cycle = (time % cycleLen) / cycleLen;
-    
-    let modeBlend = 0.0;
-    if (cycle < 0.4) {
-        modeBlend = 0.0; // Crystalline Order
-    } else if (cycle < 0.5) {
-        let t = (cycle - 0.4) / 0.1;
-        modeBlend = t * t * (3 - 2 * t); // Transition to Glitch
-    } else if (cycle < 0.9) {
-        modeBlend = 1.0; // Structural Dissolution
-    } else {
-        let t = (cycle - 0.9) / 0.1;
-        modeBlend = 1.0 - (t * t * (3 - 2 * t)); // Transition to Order
-    }
-
-    // 7-fold incommensurate symmetry (Hyperbolic Escher-like)
-    const N = 7;
-    const kx = new Float32Array(N);
-    const ky = new Float32Array(N);
-    const phases = new Float32Array(N);
-    
-    for (let i = 0; i < N; i++) {
-        kx[i] = Math.cos(i * Math.PI / N);
-        ky[i] = Math.sin(i * Math.PI / N);
-        // Phase shifts drift over time, stutter during glitch
-        let p = time * (0.2 + i * 0.05);
-        let p_stutter = Math.floor(p * 4.0) / 4.0; 
-        phases[i] = p * (1.0 - modeBlend) + p_stutter * modeBlend;
-    }
-
-    const cosA = Math.cos(time * 0.05);
-    const sinA = Math.sin(time * 0.05);
-    const hyperStrength = 0.8 + 0.15 * Math.sin(time * 0.2);
-    
-    // Deterministic pseudo-random for glitch artifacts
-    const stepTime = Math.floor(time * 12.0);
-    const globalTear = (modeBlend > 0.8 && (Math.sin(stepTime * 13.37) > 0.8)) ? 1 : 0;
-
-    let idx = 0;
-    for (let py = 0; py < h; py++) {
-        // Horizontal tearing / broadcast failure
-        let tearOffset = 0;
-        if (globalTear) {
-            tearOffset = Math.sin(py * 0.1 + time) * 20.0 * modeBlend;
-        }
-
-        for (let px = 0; px < w; px++) {
-            let ePx = px + tearOffset;
-            
-            // Normalize to [-1, 1]
-            let nx = (ePx - w / 2) / (w / 2);
-            let ny = (py - h / 2) / (h / 2);
-            
-            // Orbital rotation
-            let rx = nx * cosA - ny * sinA;
-            let ry = nx * sinA + ny * cosA;
-            
-            // Poincaré Hyperbolic Projection
-            let r2 = rx * rx + ry * ry;
-            let denom = 1.0 - r2 * hyperStrength;
-            if (denom < 0.01) denom = 0.01; // L-Infinity Escape
-            
-            let hx = (rx / denom) * 15.0;
-            let hy = (ry / denom) * 15.0;
-
-            // XOR-Ghost Manifold (Coordinate Fracture)
-            let qx = hx;
-            let qy = hy;
-            
-            if (modeBlend > 0.0) {
-                // Bitwise coordinate logic / Addressable trauma
-                let quant = 2.0 + 8.0 * modeBlend;
-                let bx = (hx * quant) | 0;
-                let by = (hy * quant) | 0;
-                
-                let bitX = bx ^ (by >> 1);
-                let bitY = by ^ (bx >> 1);
-                
-                qx = hx * (1.0 - modeBlend) + (bitX / quant) * modeBlend;
-                qy = hy * (1.0 - modeBlend) + (bitY / quant) * modeBlend;
-                
-                // Machine hesitation (NaN propagation simulation)
-                if (modeBlend > 0.9 && ((bx * by) % 113 === 0)) {
-                    qx *= -1.0;
-                }
-            }
-
-            // Evaluate Quasicrystal Field (Sum of plane waves)
-            let val = 0.0;
-            for (let i = 0; i < N; i++) {
-                // Interpolate between Euclidean dot product and L-Infinity metric
-                let dot_std = qx * kx[i] + qy * ky[i];
-                let dot_linf = Math.max(Math.abs(qx * kx[i]), Math.abs(qy * ky[i])) * Math.sign(dot_std);
-                
-                let dot_final = dot_std * (1.0 - modeBlend) + dot_linf * modeBlend;
-                val += Math.cos(dot_final + phases[i]);
-            }
-
-            // COLOR SYNTHESIS
-            let R, G, B;
-
-            // State 1: Crystalline Order (Ethereal Glow, Full Spectrum, Strata Ribbons)
-            let normVal = val / N; // Approx -1 to 1
-            let ribbon = Math.pow(Math.abs(Math.sin(val * Math.PI)), 0.3); // Moiré contouring
-            
-            let ro = (Math.sin(normVal * 10.0 + time * 1.0) * 0.5 + 0.5) * 255 * ribbon;
-            let go = (Math.sin(normVal * 10.0 + time * 1.0 + 2.094) * 0.5 + 0.5) * 255 * ribbon;
-            let bo = (Math.sin(normVal * 10.0 + time * 1.0 + 4.188) * 0.5 + 0.5) * 255 * ribbon;
-
-            // State 2: Structural Dissolution (Neon Cyan, Hot Pink, Void Black)
-            // Quantize scalar field to create macroblock islands
-            let v_q = Math.floor(val * 1.2) / 1.2; 
-            let hashP = (v_q * 12.9898 + stepTime * 0.1);
-            let hash = Math.abs(Math.sin(hashP) * 43758.5453) % 1.0;
-            
-            let rg = 5, gg = 5, bg = 5; // Void Black
-            if (hash > 0.65) {
-                rg = 255; gg = 20; bg = 147; // Hot Pink
-            } else if (hash > 0.3) {
-                rg = 0; gg = 255; bg = 255; // Neon Cyan
-            }
-            
-            // Dead pixels behaving like pollen
-            if (modeBlend > 0.5 && (Math.abs(Math.sin(ePx * 83.1 + py * 17.3 + stepTime)) % 1.0) > 0.995) {
-                rg = 255; gg = 255; bg = 255;
-            }
-
-            // Chimera Blend
-            R = ro * (1.0 - modeBlend) + rg * modeBlend;
-            G = go * (1.0 - modeBlend) + gg * modeBlend;
-            B = bo * (1.0 - modeBlend) + bg * modeBlend;
-
-            // Write to buffer
-            data[idx++] = R;
-            data[idx++] = G;
-            data[idx++] = B;
-            data[idx++] = 255; // Alpha
-        }
-    }
-
-    // Render low-res buffer to offscreen canvas
-    offCtx.putImageData(imgData, 0, 0);
-
-    // Draw scaled up to main canvas (Nearest-neighbor for glitch, smooth for order)
-    ctx.imageSmoothingEnabled = modeBlend < 0.1;
-    
-    // Slight chromatic aberration on final composite
-    if (modeBlend > 0.0) {
-        ctx.globalCompositeOperation = 'screen';
-        ctx.fillStyle = '#050505';
-        ctx.fillRect(0, 0, grid.width, grid.height);
-        
-        let shift = modeBlend * 4.0;
-        ctx.drawImage(canvas.__offscreen, 0, 0, w, h, shift, 0, grid.width, grid.height);
-        ctx.drawImage(canvas.__offscreen, 0, 0, w, h, -shift, 0, grid.width, grid.height);
-        ctx.globalCompositeOperation = 'source-over';
-    } else {
-        ctx.drawImage(canvas.__offscreen, 0, 0, w, h, 0, 0, grid.width, grid.height);
-    }
-})(ctx, grid, time, repos, input, mouse, canvas, THREE);
+} catch (e) {
+  console.error("WebGL 2 Quasicrystal Initialization Failed:", e);
+}
