@@ -1,161 +1,154 @@
 try {
-  if (!canvas.__three) {
     if (!ctx) throw new Error("WebGL 2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      context: ctx,
-      alpha: true,
-      antialias: false,
-      powerPreference: "high-performance"
-    });
-    
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
+    if (!canvas.__three) {
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
 
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
+            uniform float u_time;
+            uniform vec2 u_resolution;
 
-      // Generates a continuous sinusoidal wave grating
-      float sineGrating(vec2 p, float freq, float angle, float phase) {
-          vec2 dir = vec2(cos(angle), sin(angle));
-          float x = dot(p, dir);
-          return 0.5 + 0.5 * sin(x * freq + phase);
-      }
+            const vec3 hotPink = vec3(1.0, 0.1, 0.6);
+            const vec3 acidLime = vec3(0.6, 1.0, 0.1);
+            const vec3 elecCobalt = vec3(0.1, 0.3, 1.0);
+            const vec3 deepViolet = vec3(0.3, 0.0, 0.4);
 
-      void main() {
-          vec2 uv = vUv;
-          vec2 st = uv * 2.0 - 1.0;
-          st.x *= u_resolution.x / u_resolution.y;
+            float grid(vec2 uv, float scale, vec2 offset) {
+                vec2 st = uv * scale + offset;
+                vec2 g = abs(fract(st) - 0.5);
+                return smoothstep(0.3, 0.0, length(g));
+            }
 
-          // Heartbeat mechanism: double pump (lub-dub)
-          float t = u_time * 1.1; 
-          float beat = exp(-fract(t) * 8.0) + exp(-fract(t - 0.2) * 8.0);
-          
-          // Spatial warping based on heartbeat to make the moiré "breathe" and roll
-          float r = length(st);
-          float theta = atan(st.y, st.x);
-          vec2 warpedSt = st + vec2(cos(theta + u_time), sin(theta - u_time)) * r * (0.1 + beat * 0.05);
+            float ringRaw(vec2 uv, float ringFreq, vec2 center, float offset) {
+                float r = length(uv - center);
+                return sin(r * ringFreq + offset);
+            }
 
-          // Chromatic Wave Moiré (Rainbow Interference Engine)
-          // We use multiplicative blending of sine waves to create the classic liquid moiré
-          float baseFreq = 30.0 - beat * 2.0; 
-          
-          float mR = sineGrating(warpedSt, baseFreq, u_time * 0.1, u_time * 2.0) * 
-                     sineGrating(warpedSt, baseFreq * 1.05, -u_time * 0.15, -u_time * 1.5);
-                     
-          float mG = sineGrating(warpedSt, baseFreq * 1.02, u_time * 0.12, u_time * 2.2) * 
-                     sineGrating(warpedSt, baseFreq * 1.07, -u_time * 0.13, -u_time * 1.7);
-                     
-          float mB = sineGrating(warpedSt, baseFreq * 1.04, u_time * 0.14, u_time * 2.4) * 
-                     sineGrating(warpedSt, baseFreq * 1.09, -u_time * 0.11, -u_time * 1.9);
+            void main() {
+                vec2 fragCoord = vUv * u_resolution;
+                vec2 uv = (vUv - 0.5) * (u_resolution / u_resolution.y);
+                
+                // Heartbeat pulse: thump-thump
+                float beatTime = u_time * 1.2;
+                float beat = fract(beatTime);
+                float pulse = exp(-beat * 5.0) + exp(-fract(beatTime + 0.2) * 5.0) * 0.4;
+                
+                // Spatial distortion linked to the heartbeat
+                vec2 muv = uv * (1.0 - pulse * 0.05);
+                float rPhase = length(muv) * 8.0 - u_time * 0.8;
+                vec2 ruv = muv + vec2(cos(rPhase), sin(rPhase)) * (0.02 + pulse * 0.015);
 
-          // Push contrast aggressively to extract the difference frequency (the moiré)
-          vec3 signal = vec3(
-              smoothstep(0.15, 0.4, mR),
-              smoothstep(0.15, 0.4, mG),
-              smoothstep(0.15, 0.4, mB)
-          );
+                // Chromatic moiré offsets
+                vec2 offR = vec2(sin(u_time * 0.3), cos(u_time * 0.25)) * 0.1;
+                vec2 offG = vec2(cos(u_time * 0.32), sin(u_time * 0.27)) * 0.1;
+                vec2 offB = vec2(sin(u_time * 0.35), cos(u_time * 0.29)) * 0.1;
+                
+                // Rolling radial + square lattice interference (Beat frequencies)
+                float r1 = ringRaw(ruv, 180.0, offR, u_time * 3.0);
+                float r2 = ringRaw(ruv, 184.0, -offR, -u_time * 2.0);
+                float mR = (r1 * r2) * 0.5 + 0.5;
+                mR += grid(ruv, 70.0, offR) * 0.6;
 
-          // LED Subpixel Grid Structure
-          // Triad width in pixels (approximate based on resolution)
-          float triadWidth = 6.0; 
-          float density = u_resolution.x / triadWidth;
-          float spx = fract(uv.x * density);
-          
-          vec3 subpixelMask = vec3(
-              step(0.0, spx) * step(spx, 0.333),
-              step(0.333, spx) * step(spx, 0.666),
-              step(0.666, spx) * step(spx, 1.0)
-          );
+                float g1 = ringRaw(ruv, 182.0, offG, u_time * 3.1);
+                float g2 = ringRaw(ruv, 186.0, -offG, -u_time * 2.1);
+                float mG = (g1 * g2) * 0.5 + 0.5;
+                mG += grid(ruv, 70.5, offG) * 0.6;
 
-          // Horizontal row gaps for authentic matrix look
-          float spy = fract(uv.y * (u_resolution.y / triadWidth));
-          subpixelMask *= step(0.2, spy); 
+                float b1 = ringRaw(ruv, 184.0, offB, u_time * 3.2);
+                float b2 = ringRaw(ruv, 188.0, -offB, -u_time * 2.2);
+                float mB = (b1 * b2) * 0.5 + 0.5;
+                mB += grid(ruv, 71.0, offB) * 0.6;
+                
+                // Contrast push
+                mR = smoothstep(0.2, 1.4, mR);
+                mG = smoothstep(0.2, 1.4, mG);
+                mB = smoothstep(0.2, 1.4, mB);
+                
+                // LED Subpixel Grid
+                float cellSize = 10.0;
+                vec2 localUV = fract(fragCoord / cellSize);
+                
+                float px = localUV.x;
+                float py = localUV.y;
+                
+                // Subpixel triads (R, G, B)
+                float maskY = smoothstep(0.05, 0.2, py) * smoothstep(0.95, 0.8, py);
+                float maskR = smoothstep(0.05, 0.2, px) * smoothstep(0.33, 0.18, px) * maskY;
+                float maskG = smoothstep(0.38, 0.53, px) * smoothstep(0.66, 0.51, px) * maskY;
+                float maskB = smoothstep(0.71, 0.86, px) * smoothstep(1.0, 0.85, px) * maskY;
+                
+                vec3 ledColor = hotPink * mR * maskR + acidLime * mG * maskG + elecCobalt * mB * maskB;
+                
+                // Phosphor Bloom
+                float glowR = smoothstep(0.3, 1.2, mR);
+                float glowG = smoothstep(0.3, 1.2, mG);
+                float glowB = smoothstep(0.3, 1.2, mB);
+                vec3 bloom = (hotPink * glowR + acidLime * glowG + elecCobalt * glowB) * 0.5;
+                bloom *= (1.0 + pulse * 1.5); 
+                
+                // Deep Violet Scan Banding
+                float scan = sin(fragCoord.y * 1.2 - u_time * 12.0) * 0.5 + 0.5;
+                scan = pow(scan, 2.5);
+                
+                vec3 finalColor = ledColor * 3.5 + bloom;
+                finalColor = mix(finalColor, finalColor + deepViolet * 2.0, scan * 0.5);
+                finalColor -= deepViolet * (1.0 - scan) * 0.2;
 
-          // Palette Mapping: Fully saturated custom RGB triads
-          vec3 hotPink = vec3(1.0, 0.0, 0.6);
-          vec3 acidLime = vec3(0.5, 1.0, 0.0);
-          vec3 electricCobalt = vec3(0.0, 0.2, 1.0);
+                // Sensor/CRT Pixel Failure (Dead/Hot pixels)
+                float noise = fract(sin(dot(floor(fragCoord/cellSize), vec2(12.9898, 78.233))) * 43758.5453);
+                if(noise > 0.998) finalColor *= 0.1; 
+                if(noise < 0.002) finalColor += vec3(0.8);
 
-          vec3 image = vec3(0.0);
-          image += hotPink * signal.r * subpixelMask.r;
-          image += acidLime * signal.g * subpixelMask.g;
-          image += electricCobalt * signal.b * subpixelMask.b;
+                // Vignette & Final Pulse Multiplication
+                float vig = 1.0 - length(uv) * 0.85;
+                finalColor *= smoothstep(-0.2, 0.9, vig);
+                finalColor *= 0.75 + pulse * 0.4;
 
-          // Phosphor Bloom & Overdrive
-          // Simulating light escaping the subpixel mask boundaries
-          vec3 bloomBase = vec3(mR, mG, mB);
-          bloomBase = pow(bloomBase, vec3(2.0)); // Isolate the hottest spots
-          vec3 bloom = hotPink * bloomBase.r + acidLime * bloomBase.g + electricCobalt * bloomBase.b;
-          
-          // Bloom intensifies violently on the heartbeat
-          image += bloom * (0.8 + beat * 1.5);
+                fragColor = vec4(finalColor, 1.0);
+            }
+        `;
 
-          // Deep Violet Scan Banding
-          // A slow, thick, rolling disruption of the signal
-          vec3 deepViolet = vec3(0.4, 0.0, 0.8);
-          float bandPhase = uv.y * 12.0 - u_time * 1.5;
-          float band = sin(bandPhase) * 0.5 + 0.5;
-          band = smoothstep(0.7, 1.0, band); // Sharpen into a distinct bar
-          
-          // The band overwrites the image with saturated violet energy
-          image = mix(image, deepViolet * (1.0 + bloomBase.r * 2.0), band * 0.85);
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader,
+            fragmentShader
+        });
 
-          // Sub-surface interference (CRT raster noise)
-          float raster = fract(sin(dot(uv, vec2(12.9898, 78.233)) + u_time) * 43758.5453);
-          image += image * raster * 0.15;
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        
+        canvas.__three = { renderer, scene, camera, material };
+    }
 
-          // Edge vignette to ground the screen
-          float vig = length(st);
-          image *= 1.0 - smoothstep(0.8, 1.5, vig);
+    const { renderer, scene, camera, material } = canvas.__three;
 
-          // Final output, clamped to prevent blowout inversion
-          fragColor = vec4(min(image, vec3(1.5)), 1.0);
-      }
-    `;
+    if (material?.uniforms?.u_time) {
+        material.uniforms.u_time.value = time;
+    }
+    if (material?.uniforms?.u_resolution) {
+        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-
-    canvas.__three = { renderer, scene, camera, material };
-  }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("Feral WebGL Error:", e);
+    console.error("WebGL Initialization or Render Failed:", e);
 }
