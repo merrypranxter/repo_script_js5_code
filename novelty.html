@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>novelty</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
+#hud{
+  position:fixed;top:12px;left:12px;z-index:9999;
+  background:rgba(0,0,0,0.82);border:1px solid #0ff;
+  border-radius:4px;color:#0ff;
+  font:12px/1.5 'Courier New',monospace;
+  padding:8px 10px;min-width:180px;
+  box-shadow:0 0 14px #0ff4;
+  user-select:none;
+}
+#hud-name{font-size:11px;color:#fff;margin-bottom:4px;letter-spacing:1px}
+#hud-status{font-size:10px;color:#0ff9;margin-bottom:6px;min-height:14px;word-break:break-word}
+#hud-btns{display:flex;gap:5px;flex-wrap:wrap}
+#hud-btns button{
+  background:none;border:1px solid #0ff6;color:#0ff;
+  font:11px 'Courier New',monospace;padding:2px 7px;
+  border-radius:2px;cursor:pointer;
+}
+#hud-btns button:hover{background:#0ff2;border-color:#0ff}
+</style>
+
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hud">
+  <div id="hud-name">novelty.js</div>
+  <div id="hud-status">loading…</div>
+  <div id="hud-btns">
+    <button id="btn-hide">Hide</button>
+    <button id="btn-save">Save PNG</button>
+    <button id="btn-reset">Reset</button>
+  </div>
+</div>
+<script>
+(function(){
+  'use strict';
+
+  // ── Globals ──────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('art');
+  const grid   = { width: 0, height: 0 };
+  let   time   = 0;
+  const mouse  = { x: 0, y: 0, isPressed: false, pressed: false, down: false };
+  let   input  = '';
+  const THREE_GLOBAL = null;
+
+  // ── Canvas / context ─────────────────────────────────────────────────────
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const CTX_TYPE = '2d';
+  let ctx = null;
+
+  function initContext() {
+    ctx = canvas.getContext(CTX_TYPE, {});
+  }
+
+  function resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    canvas.width  = Math.round(w * DPR);
+    canvas.height = Math.round(h * DPR);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    grid.width  = canvas.width;
+    grid.height = canvas.height;
+  }
+
+  initContext();
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ── Mouse / Touch ─────────────────────────────────────────────────────────
+  function updateMouse(e) {
+    const r = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / r.width;
+    const scaleY = canvas.height / r.height;
+    const src = e.touches ? e.touches[0] : e;
+    mouse.x = (src.clientX - r.left) * scaleX;
+    mouse.y = (src.clientY - r.top)  * scaleY;
+  }
+  canvas.addEventListener('mousedown',  e => { updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; });
+  canvas.addEventListener('mousemove',  e => { updateMouse(e); });
+  canvas.addEventListener('mouseup',    ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; }, {passive:false});
+  canvas.addEventListener('touchmove',  e => { e.preventDefault(); updateMouse(e); }, {passive:false});
+  canvas.addEventListener('touchend',   ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
+
+  // ── Keyboard input ───────────────────────────────────────────────────────
+  window.addEventListener('keydown', e => {
+    if (e.key === 'H' || e.key === 'h') { removeHud(); return; }
+    if (e.key.length === 1) input += e.key;
+    else if (e.key === 'Backspace') input = input.slice(0, -1);
+  });
+
+  // ── HUD ──────────────────────────────────────────────────────────────────
+  const hud       = document.getElementById('hud');
+  const statusEl  = document.getElementById('hud-status');
+
+  function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
+  function removeHud()    { if (hud && hud.parentNode) hud.parentNode.removeChild(hud); }
+
+  document.getElementById('btn-hide').addEventListener('click', removeHud);
+
+  document.getElementById('btn-save').addEventListener('click', function() {
+    try {
+      const a = document.createElement('a');
+      a.href     = canvas.toDataURL('image/png');
+      a.download = 'novelty.png';
+      a.click();
+    } catch(e) { setStatus('save failed: ' + e.message); }
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', resetSketch);
+
+  // ── Sketch source (base64) ────────────────────────────────────────────────
+  const _b64 = 'Y29uc3Qgb3V0cHV0ID0gW107CmNvbnN0IGN3ID0gMTA7IC8vIEFwcHJveCBjaGFyYWN0ZXIgd2lkdGgKY29uc3QgY2ggPSAyMDsgLy8gQXBwcm94IGNoYXJhY3RlciBoZWlnaHQKCi8vIE1vdXNlIGNvb3JkaW5hdGVzIG1hcHBlZCB0byBncmlkCmxldCBteCA9IG1vdXNlLnggLyBjdzsKbGV0IG15ID0gbW91c2UueSAvIGNoOwoKLy8gSWYgbW91c2UgaXMgaWRsZSwgc2ltdWxhdGUgYSB3YW5kZXJpbmcgc2luZ3VsYXJpdHkgKENvbmNyZXNjZW5jZSBQb2ludCkKaWYgKG1vdXNlLnggPT09IDAgJiYgbW91c2UueSA9PT0gMCkgewogICAgbXggPSBncmlkLmNvbHMgLyAyICsgTWF0aC5zaW4odGltZSkgKiAxNTsKICAgIG15ID0gZ3JpZC5yb3dzIC8gMiArIE1hdGguY29zKHRpbWUgKiAwLjgpICogMTA7Cn0KCi8vIFBzeWNoZWRlbGljIFBvcCBBcnQgUGFsZXR0ZQpjb25zdCBjb2xvcnMgPSBbJyNGRjAwOTknLCAnIzAwRkZDQycsICcjRkZGRjAwJywgJyNDQzAwRkYnLCAnI0ZGNjYwMCcsICcjMzNGRjAwJywgJyMwMEZGRkYnXTsKY29uc3Qgc3ltcyA9ICLiiJ7iiIbiiIfimpfimLzimL3imL/imYDiipXimYHimYLimYPimYTimYXimYbimYciOwpjb25zdCBwb3BEb3RzID0gIiAub0/il48iOwoKLy8gTWNLZW5uYSBDb3JwdXMgKyBGdW5naSArIE1pbmVyYWxzCmNvbnN0IHRleHRTdHIgPSAiIE5PVkVMVFkgQ09OQ1JFU0NFTkNFIFRJTUVXQVZFIFpFUk8gRVNDSEFUT04gTUFMQUNISVRFIEZMVU9SSVRFIEFHQVJJQ09NWUNFVEVTIENFTEVTVElBTCBDTE9VRFMgU01PS0UgUE9QIE1VU0hST09NICIuc3BsaXQoIiIpOwoKLy8gUHJlY2FsY3VsYXRlIHRpbWUgbW9kaWZpZXJzIGZvciBvcHRpbWl6YXRpb24KY29uc3QgdDEgPSB0aW1lOwpjb25zdCB0MiA9IHRpbWUgKiAyOwpjb25zdCB0MyA9IHRpbWUgKiAzOwpjb25zdCB0NCA9IHRpbWUgKiA0Owpjb25zdCB0MTUgPSBNYXRoLmZsb29yKHRpbWUgKiAxNSk7Cgpmb3IgKGxldCB5ID0gMDsgeSA8IGdyaWQucm93czsgeSsrKSB7CiAgY29uc3Qgcm93ID0gW107CiAgY29uc3QgeTAxID0geSAqIDAuMTsKICBjb25zdCBzaW5ZID0gTWF0aC5zaW4oeTAxICsgdDEpICogMjsKCiAgZm9yIChsZXQgeCA9IDA7IHggPCBncmlkLmNvbHM7IHgrKykgewogICAgY29uc3QgZHggPSB4IC0gbXg7CiAgICBjb25zdCBkeSA9IHkgLSBteTsKICAgIGNvbnN0IGRpc3QgPSBNYXRoLnNxcnQoZHgqZHggKyBkeSpkeSk7CiAgICAKICAgIC8vIERpc3RvcnRlZCBjb29yZGluYXRlcyBmb3Igb3JnYW5pYyBwc3ljaGVkZWxpYy9mdW5nYWwgZmVlbAogICAgY29uc3QgbnggPSB4ICsgc2luWTsKICAgIGNvbnN0IG55ID0geSArIE1hdGguY29zKHggKiAwLjEgLSB0MSkgKiAyOwoKICAgIC8vIEZyYWN0YWwgVGltZXdhdmUgKE5vdmVsdHkgVGhlb3J5KQogICAgLy8gRGVjcmVhc2luZyBhbXBsaXR1ZGUsIGluY3JlYXNpbmcgZnJlcXVlbmN5CiAgICBjb25zdCB3YXZlID0gTWF0aC5zaW4obnggKiAwLjEyICsgdDEpICogTWF0aC5jb3MobnkgKiAwLjEyIC0gdDEpICsKICAgICAgICAgICAgICAgICAoTWF0aC5zaW4obnggKiAwLjI0ICsgdDIpICogTWF0aC5jb3MobnkgKiAwLjI0IC0gdDIpKSAqIDAuNSArCiAgICAgICAgICAgICAgICAgKE1hdGguc2luKG54ICogMC4zNiArIHQzKSAqIE1hdGguY29zKG55ICogMC4zNiAtIHQzKSkgKiAwLjMzMzsKICAgIAogICAgLy8gU3BpcmFsIGNvbmNyZXNjZW5jZSBwdWxsaW5nIHRvd2FyZHMgdGhlIHNpbmd1bGFyaXR5CiAgICBjb25zdCBhbmdsZSA9IE1hdGguYXRhbjIoZHksIGR4KTsKICAgIGNvbnN0IHNwaXJhbCA9IE1hdGguc2luKGFuZ2xlICogNyArIGRpc3QgKiAwLjQgLSB0NCk7CiAgICAKICAgIC8vIEZ1bmdhbCBTcG9yZSBDbG91ZCBpbnRlcmZlcmVuY2UKICAgIGNvbnN0IGZ1bmdhbCA9IE1hdGguc2luKHggKiAwLjMgKyB0MSkgKiBNYXRoLmNvcyh5ICogMC4zIC0gdDEpOwogICAgCiAgICAvLyBUb3RhbCBOb3ZlbHR5IGNhbGN1bGF0aW9uCiAgICBsZXQgbm92ZWx0eSA9IHdhdmUgKyBzcGlyYWwgKyBmdW5nYWwgKiAwLjUgKyAoMTUgLyAoZGlzdCArIDAuNSkpOwogICAgCiAgICAvLyBQcmVzc2luZyB0aGUgbW91c2UgYWNjZWxlcmF0ZXMgY29uY3Jlc2NlbmNlCiAgICBpZiAobW91c2UuaXNQcmVzc2VkKSBub3ZlbHR5ICo9IDEuODsKICAgIAogICAgLy8gUG9wIEFydCBDb2xvciBCYW5kaW5nCiAgICBjb25zdCBiYW5kZWROb3ZlbHR5ID0gTWF0aC5mbG9vcihNYXRoLmFicyhub3ZlbHR5ICogMykpICUgY29sb3JzLmxlbmd0aDsKICAgIGxldCBjb2xvciA9IGNvbG9yc1tiYW5kZWROb3ZlbHR5XTsKICAgIAogICAgbGV0IGNoYXIgPSAiICI7CiAgICBsZXQgc2l6ZSA9IDEyOwogICAgCiAgICBpZiAobm92ZWx0eSA+IDIuNSkgewogICAgICAvLyBUaGUgRXNjaGF0b24gLyBIaWdoIE5vdmVsdHk6IFJldmVhbCB0aGUgY29ycHVzCiAgICAgIGNoYXIgPSB0ZXh0U3RyWyh4ICsgeSAqIGdyaWQuY29scyArIHQxNSkgJSB0ZXh0U3RyLmxlbmd0aF07CiAgICAgIHNpemUgPSAxNCArIG5vdmVsdHkgKiAyOwogICAgICBjb2xvciA9ICIjRkZGRkZGIjsgLy8gRmxhc2ggcHVyZSB3aGl0ZSBhdCB0aGUgZWRnZSBvZiB0aW1lCiAgICB9IGVsc2UgaWYgKG5vdmVsdHkgPiAxLjIpIHsKICAgICAgLy8gQ2VsZXN0aWFsIE1vdGlmcyAmIENyeXN0YWxsaW5lIE1pbmVyYWwgU3RydWN0dXJlcwogICAgICBjaGFyID0gc3ltc1soeCAqIHkgKyBNYXRoLmZsb29yKHQyKSkgJSBzeW1zLmxlbmd0aF07CiAgICAgIHNpemUgPSAxMiArIG5vdmVsdHk7CiAgICB9IGVsc2UgaWYgKG5vdmVsdHkgPiAwLjIpIHsKICAgICAgLy8gQmVuLURheSBEb3RzIChQb3AgQXJ0KQogICAgICBjb25zdCBkb3RJZHggPSBNYXRoLmZsb29yKE1hdGguYWJzKG5vdmVsdHkgKiA0KSkgJSBwb3BEb3RzLmxlbmd0aDsKICAgICAgY2hhciA9IHBvcERvdHNbZG90SWR4XTsKICAgICAgc2l6ZSA9IDEwICsgZG90SWR4OwogICAgfSBlbHNlIHsKICAgICAgLy8gSGFiaXQgLyBMb3cgTm92ZWx0eQogICAgICBjaGFyID0gIsK3IjsKICAgICAgY29sb3IgPSAnIzNhMDA1Yyc7IC8vIERlZXAgcHN5Y2hlZGVsaWMgcHVycGxlCiAgICAgIHNpemUgPSAxMDsKICAgIH0KICAgIAogICAgLy8gQ2xhbXAgc2l6ZSB0byBwcmV2ZW50IHJlbmRlcmluZyBleHBsb3Npb25zCiAgICBzaXplID0gc2l6ZSA+IDMyID8gMzIgOiAoc2l6ZSA8IDggPyA4IDogc2l6ZSk7CiAgICAKICAgIHJvdy5wdXNoKHsgY2hhciwgY29sb3IsIHNpemUgfSk7CiAgfQogIG91dHB1dC5wdXNoKHJvdyk7Cn0KCnJldHVybiBvdXRwdXQ7';
+  const source = decodeURIComponent(escape(atob(_b64)));
+
+  // ── Compile sketch ────────────────────────────────────────────────────────
+  let sketchFn = null;
+  try {
+    sketchFn = new Function('canvas','ctx','grid','time','mouse','input','THREE', source + '\n');
+    setStatus('ok');
+  } catch(e) {
+    setStatus('compile error: ' + e.message);
+    console.error('[novelty] compile error:', e);
+  }
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
+  function resetSketch() {
+    try {
+      // Dispose Three.js renderer if present
+      if (canvas.__three) {
+        const t = canvas.__three;
+        if (t.renderer) { try { t.renderer.dispose(); } catch(_){} }
+        if (t.rtA)      { try { t.rtA.dispose(); }      catch(_){} }
+        if (t.rtB)      { try { t.rtB.dispose(); }      catch(_){} }
+        if (t.material) { try { t.material.dispose(); } catch(_){} }
+        delete canvas.__three;
+      }
+      // Clear any other custom state
+      for (const k of Object.keys(canvas)) {
+        if (k.startsWith('__')) { try { delete canvas[k]; } catch(_){} }
+      }
+      // Clear Canvas2D if applicable
+      if (CTX_TYPE === '2d' && ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      // Reset context after dispose
+      initContext();
+      startTime = performance.now();
+      setStatus('reset ok');
+    } catch(e) {
+      setStatus('reset error: ' + e.message);
+    }
+  }
+
+  // ── Animation loop ────────────────────────────────────────────────────────
+  let startTime = performance.now();
+
+  function frame() {
+    time = (performance.now() - startTime) / 1000;
+    mouse.pressed = false; // single-frame pulse reset
+    if (sketchFn) {
+      try {
+        sketchFn(canvas, ctx, grid, time, mouse, input, THREE_GLOBAL);
+      } catch(e) {
+        setStatus('runtime error: ' + e.message);
+        console.error('[novelty] runtime error:', e);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

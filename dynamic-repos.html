@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dynamic-repos</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
+#hud{
+  position:fixed;top:12px;left:12px;z-index:9999;
+  background:rgba(0,0,0,0.82);border:1px solid #0ff;
+  border-radius:4px;color:#0ff;
+  font:12px/1.5 'Courier New',monospace;
+  padding:8px 10px;min-width:180px;
+  box-shadow:0 0 14px #0ff4;
+  user-select:none;
+}
+#hud-name{font-size:11px;color:#fff;margin-bottom:4px;letter-spacing:1px}
+#hud-status{font-size:10px;color:#0ff9;margin-bottom:6px;min-height:14px;word-break:break-word}
+#hud-btns{display:flex;gap:5px;flex-wrap:wrap}
+#hud-btns button{
+  background:none;border:1px solid #0ff6;color:#0ff;
+  font:11px 'Courier New',monospace;padding:2px 7px;
+  border-radius:2px;cursor:pointer;
+}
+#hud-btns button:hover{background:#0ff2;border-color:#0ff}
+</style>
+
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hud">
+  <div id="hud-name">dynamic-repos.js</div>
+  <div id="hud-status">loading…</div>
+  <div id="hud-btns">
+    <button id="btn-hide">Hide</button>
+    <button id="btn-save">Save PNG</button>
+    <button id="btn-reset">Reset</button>
+  </div>
+</div>
+<script>
+(function(){
+  'use strict';
+
+  // ── Globals ──────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('art');
+  const grid   = { width: 0, height: 0 };
+  let   time   = 0;
+  const mouse  = { x: 0, y: 0, isPressed: false, pressed: false, down: false };
+  let   input  = '';
+  const THREE_GLOBAL = null;
+
+  // ── Canvas / context ─────────────────────────────────────────────────────
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const CTX_TYPE = '2d';
+  let ctx = null;
+
+  function initContext() {
+    ctx = canvas.getContext(CTX_TYPE, {});
+  }
+
+  function resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    canvas.width  = Math.round(w * DPR);
+    canvas.height = Math.round(h * DPR);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    grid.width  = canvas.width;
+    grid.height = canvas.height;
+  }
+
+  initContext();
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ── Mouse / Touch ─────────────────────────────────────────────────────────
+  function updateMouse(e) {
+    const r = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / r.width;
+    const scaleY = canvas.height / r.height;
+    const src = e.touches ? e.touches[0] : e;
+    mouse.x = (src.clientX - r.left) * scaleX;
+    mouse.y = (src.clientY - r.top)  * scaleY;
+  }
+  canvas.addEventListener('mousedown',  e => { updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; });
+  canvas.addEventListener('mousemove',  e => { updateMouse(e); });
+  canvas.addEventListener('mouseup',    ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; }, {passive:false});
+  canvas.addEventListener('touchmove',  e => { e.preventDefault(); updateMouse(e); }, {passive:false});
+  canvas.addEventListener('touchend',   ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
+
+  // ── Keyboard input ───────────────────────────────────────────────────────
+  window.addEventListener('keydown', e => {
+    if (e.key === 'H' || e.key === 'h') { removeHud(); return; }
+    if (e.key.length === 1) input += e.key;
+    else if (e.key === 'Backspace') input = input.slice(0, -1);
+  });
+
+  // ── HUD ──────────────────────────────────────────────────────────────────
+  const hud       = document.getElementById('hud');
+  const statusEl  = document.getElementById('hud-status');
+
+  function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
+  function removeHud()    { if (hud && hud.parentNode) hud.parentNode.removeChild(hud); }
+
+  document.getElementById('btn-hide').addEventListener('click', removeHud);
+
+  document.getElementById('btn-save').addEventListener('click', function() {
+    try {
+      const a = document.createElement('a');
+      a.href     = canvas.toDataURL('image/png');
+      a.download = 'dynamic-repos.png';
+      a.click();
+    } catch(e) { setStatus('save failed: ' + e.message); }
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', resetSketch);
+
+  // ── Sketch source (base64) ────────────────────────────────────────────────
+  const _b64 = 'Y29uc3Qgb3V0cHV0ID0gW107CmNvbnN0IGN4ID0gZ3JpZC5jb2xzIC8gMjsKY29uc3QgY3kgPSBncmlkLnJvd3MgLyAyOwoKY29uc3QgcG9wQ2hhcnMgPSBbJ0AnLCAnTycsICdvJywgJyonLCAnficsICcuJywgJysnLCAn4pynJywgJ+KYgScsICfimIUnLCAn4py/JywgJ+KYvCddOwpjb25zdCBvc0NoYXJzID0gWycwJywgJzEnLCAneCcsICdGJywgJyUnLCAnJicsICdBJywgJ1onLCAnVCcsICdIJywgJ8KnJywgJ8K2JywgJ+KAoScsICfigKAnLCAn4paRJywgJ+KWkicsICfilpMnXTsKCmNvbnN0IHBvcENvbG9ycyA9IFsnI0ZGMTQ5MycsICcjMDBGRkZGJywgJyNGRkQ3MDAnLCAnIzMyQ0QzMicsICcjRkY0NTAwJywgJyNGRjY5QjQnXTsKY29uc3Qgb3NDb2xvcnMgPSBbJyMwMEZGNDEnLCAnIzhBMkJFMicsICcjNEIwMDgyJywgJyNEQzE0M0MnLCAnIzAwOEYxMScsICcjNTU2QjJGJ107Cgpmb3IgKGxldCB5ID0gMDsgeSA8IGdyaWQucm93czsgeSsrKSB7CiAgY29uc3Qgcm93ID0gW107CiAgZm9yIChsZXQgeCA9IDA7IHggPCBncmlkLmNvbHM7IHgrKykgewogICAgY29uc3QgZHggPSB4IC0gY3g7CiAgICBjb25zdCBkeSA9ICh5IC0gY3kpICogMjsgCiAgICBjb25zdCBkaXN0VG9DZW50ZXIgPSBNYXRoLnNxcnQoZHggKiBkeCArIGR5ICogZHkpOwogICAgCiAgICBjb25zdCBwaXhlbFggPSB4ICogMTA7CiAgICBjb25zdCBwaXhlbFkgPSB5ICogMjA7CiAgICBjb25zdCBtZHggPSBwaXhlbFggLSBtb3VzZS54ICsgTWF0aC5zaW4oeSAqIDAuNSArIHRpbWUgKiAzKSAqIDE1OwogICAgY29uc3QgbWR5ID0gcGl4ZWxZIC0gbW91c2UueSArIE1hdGguY29zKHggKiAwLjUgKyB0aW1lICogMykgKiAxNTsKICAgIGNvbnN0IGRpc3RUb01vdXNlID0gTWF0aC5zcXJ0KG1keCAqIG1keCArIG1keSAqIG1keSk7CiAgICAKICAgIGNvbnN0IGFuZ2xlID0gTWF0aC5hdGFuMihkeSwgZHgpOwogICAgCiAgICAvLyBQc3ljaGVkZWxpYyBQb3AgV2F2ZXMKICAgIGNvbnN0IHBzeWNoV2F2ZSA9IE1hdGguc2luKGRpc3RUb0NlbnRlciAqIDAuMTUgLSB0aW1lICogMikgKyBNYXRoLmNvcyhhbmdsZSAqIDYgKyB0aW1lICogMS41KTsKICAgIAogICAgLy8gTG92ZWNyYWZ0IE9TIFRlbnRhY2xlcyAvIFRocmVhZHMKICAgIGNvbnN0IHRlbnRhY2xlV2F2ZXMgPSBNYXRoLnNpbihhbmdsZSAqIDcgKyBkaXN0VG9DZW50ZXIgKiAwLjEgLSB0aW1lICogNCk7CiAgICBjb25zdCBpc1RlbnRhY2xlID0gTWF0aC5hYnModGVudGFjbGVXYXZlcykgPCAwLjI1ICYmIGRpc3RUb0NlbnRlciA8IDQwOwogICAgCiAgICBsZXQgY2hhciA9ICcgJzsKICAgIGxldCBjb2xvciA9ICcjZmZmJzsKICAgIGxldCBzaXplID0gMTI7CiAgICAKICAgIC8vIEF6YXRob3RoIENQVSBDb3JlCiAgICBjb25zdCBjb3JlUHVsc2UgPSBNYXRoLnNpbih0aW1lICogNikgKiAzOwogICAgaWYgKGRpc3RUb0NlbnRlciA8IDYgKyBjb3JlUHVsc2UpIHsKICAgICAgY2hhciA9IG9zQ2hhcnNbTWF0aC5mbG9vcihNYXRoLnJhbmRvbSgpICogb3NDaGFycy5sZW5ndGgpXTsKICAgICAgY29sb3IgPSBtb3VzZS5pc1ByZXNzZWQgPyAnI0ZGMDAwMCcgOiAnI0RDMTQzQyc7CiAgICAgIHNpemUgPSAxOCArIE1hdGgucmFuZG9tKCkgKiA4OwogICAgfSBlbHNlIGlmIChpc1RlbnRhY2xlKSB7CiAgICAgIGNoYXIgPSBvc0NoYXJzW01hdGguZmxvb3IoKE1hdGguYWJzKGR4ICsgZHkpICsgdGltZSAqIDEwKSAlIG9zQ2hhcnMubGVuZ3RoKV07CiAgICAgIGNvbG9yID0gb3NDb2xvcnNbTWF0aC5mbG9vcigoZGlzdFRvQ2VudGVyIC0gdGltZSAqIDUpICUgb3NDb2xvcnMubGVuZ3RoICsgb3NDb2xvcnMubGVuZ3RoKSAlIG9zQ29sb3JzLmxlbmd0aF07CiAgICAgIHNpemUgPSAxNCArIE1hdGguc2luKGRpc3RUb0NlbnRlciAqIDAuNCAtIHRpbWUgKiA1KSAqIDQ7CiAgICB9IGVsc2UgewogICAgICBjb25zdCBpZHggPSBNYXRoLmZsb29yKE1hdGguYWJzKHBzeWNoV2F2ZSAqIDMpKSAlIHBvcENoYXJzLmxlbmd0aDsKICAgICAgY2hhciA9IHBvcENoYXJzW2lkeF07CiAgICAgIGNvbG9yID0gcG9wQ29sb3JzW01hdGguZmxvb3IoTWF0aC5hYnMoZGlzdFRvQ2VudGVyICogMC4xIC0gdGltZSAqIDIpKSAlIHBvcENvbG9ycy5sZW5ndGhdOwogICAgICBzaXplID0gMTAgKyBwc3ljaFdhdmUgKiAzOwogICAgfQogICAgCiAgICAvLyBNb3VzZSBJbnRlcmFjdGlvbjogQ2hhb3MgRW5naW5lZXJpbmcgKHRlYXJpbmcgdGhlIHZlaWwpCiAgICBjb25zdCBtb3VzZVJhZGl1cyA9IG1vdXNlLmlzUHJlc3NlZCA/IDE4MCA6IDEwMDsKICAgIGlmIChkaXN0VG9Nb3VzZSA8IG1vdXNlUmFkaXVzKSB7CiAgICAgIGNvbnN0IGluZmx1ZW5jZSA9IDEgLSAoZGlzdFRvTW91c2UgLyBtb3VzZVJhZGl1cyk7CiAgICAgIGlmIChNYXRoLnJhbmRvbSgpIDwgaW5mbHVlbmNlICogMC45KSB7CiAgICAgICAgY2hhciA9IG9zQ2hhcnNbTWF0aC5mbG9vcihNYXRoLnJhbmRvbSgpICogb3NDaGFycy5sZW5ndGgpXTsKICAgICAgICBjb2xvciA9IG1vdXNlLmlzUHJlc3NlZCA/ICcjRkYwMDAwJyA6ICcjMDBGRjQxJzsKICAgICAgICBzaXplID0gMTIgKyBpbmZsdWVuY2UgKiAobW91c2UuaXNQcmVzc2VkID8gMjQgOiAxNCk7CiAgICAgIH0KICAgIH0KICAgIAogICAgcm93LnB1c2goeyBjaGFyLCBjb2xvciwgc2l6ZSB9KTsKICB9CiAgb3V0cHV0LnB1c2gocm93KTsKfQpyZXR1cm4gb3V0cHV0Ow==';
+  const source = decodeURIComponent(escape(atob(_b64)));
+
+  // ── Compile sketch ────────────────────────────────────────────────────────
+  let sketchFn = null;
+  try {
+    sketchFn = new Function('canvas','ctx','grid','time','mouse','input','THREE', source + '\n');
+    setStatus('ok');
+  } catch(e) {
+    setStatus('compile error: ' + e.message);
+    console.error('[dynamic-repos] compile error:', e);
+  }
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
+  function resetSketch() {
+    try {
+      // Dispose Three.js renderer if present
+      if (canvas.__three) {
+        const t = canvas.__three;
+        if (t.renderer) { try { t.renderer.dispose(); } catch(_){} }
+        if (t.rtA)      { try { t.rtA.dispose(); }      catch(_){} }
+        if (t.rtB)      { try { t.rtB.dispose(); }      catch(_){} }
+        if (t.material) { try { t.material.dispose(); } catch(_){} }
+        delete canvas.__three;
+      }
+      // Clear any other custom state
+      for (const k of Object.keys(canvas)) {
+        if (k.startsWith('__')) { try { delete canvas[k]; } catch(_){} }
+      }
+      // Clear Canvas2D if applicable
+      if (CTX_TYPE === '2d' && ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      // Reset context after dispose
+      initContext();
+      startTime = performance.now();
+      setStatus('reset ok');
+    } catch(e) {
+      setStatus('reset error: ' + e.message);
+    }
+  }
+
+  // ── Animation loop ────────────────────────────────────────────────────────
+  let startTime = performance.now();
+
+  function frame() {
+    time = (performance.now() - startTime) / 1000;
+    mouse.pressed = false; // single-frame pulse reset
+    if (sketchFn) {
+      try {
+        sketchFn(canvas, ctx, grid, time, mouse, input, THREE_GLOBAL);
+      } catch(e) {
+        setStatus('runtime error: ' + e.message);
+        console.error('[dynamic-repos] runtime error:', e);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
