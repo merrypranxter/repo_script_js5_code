@@ -1,217 +1,214 @@
-try {
-    // FERAL DESIGN-BRAIN: LITHOGENESIS MODULE ENGAGED
-    // AESTHETIC DIRECTIVE: Structural Color Birefringence Slag
-    // PALETTE: Void Black / Neon Cyan / Neon Magenta / Neon Yellow
-    // MECHANISM: 2nd cos(theta) = m*lambda (Bragg Reflection) mapped over a warped Gyroid manifold.
-
-    if (!canvas.__three) {
-        if (!ctx) throw new Error("WebGL 2 context not available. The void requires hardware acceleration.");
-
-        const renderer = new THREE.WebGLRenderer({ 
-            canvas, 
-            context: ctx, 
-            alpha: true, 
-            antialias: true 
-        });
+if (!canvas.__three) {
+    try {
+        if (!ctx) throw new Error("WebGL 2 context not available");
         
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
         const scene = new THREE.Scene();
-        // Orthographic camera for pure screen-space procedural texturing
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
         
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
-
-        const fragmentShader = `
-            precision highp float;
-
-            in vec2 vUv;
-            out vec4 fragColor;
-
-            uniform float u_time;
-            uniform vec2 u_resolution;
-
-            // QUANTUM DUST HASH (Fast shimmer)
-            float hash(vec3 p) {
-                p = fract(p * vec3(443.897, 441.423, 437.195));
-                p += dot(p, p.yxz + 19.19);
-                return fract((p.x + p.y) * p.z);
-            }
-
-            // 3D NOISE KERNEL
-            float noise(vec3 p) {
-                vec3 i = floor(p);
-                vec3 f = fract(p);
-                f = f * f * (3.0 - 2.0 * f);
-                float n = i.x + i.y * 157.0 + 113.0 * i.z;
-                return mix(
-                    mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
-                        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-                    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
-                        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-            }
-
-            // FRACTIONAL BROWNIAN MOTION (Domain Warping)
-            float fbm(vec3 p) {
-                float v = 0.0;
-                float a = 0.5;
-                // Asymmetric rotation matrix to break grid alignment
-                mat3 rot = mat3(
-                    0.36, 0.48, -0.8,
-                    -0.8, 0.60, 0.0,
-                    0.48, 0.64, 0.60
-                );
-                for (int i = 0; i < 5; i++) {
-                    v += a * noise(p);
-                    p = rot * p * 2.0 + vec3(0.1, 0.2, 0.3);
-                    a *= 0.5;
-                }
-                return v;
-            }
-
-            // TRIPLY PERIODIC MINIMAL SURFACE (Gyroid)
-            float gyroid(vec3 p) {
-                return dot(sin(p), cos(p.yzx));
-            }
-
-            void main() {
-                // Normalize coordinates to aspect ratio
-                vec2 uv = (vUv - 0.5) * (u_resolution.x / u_resolution.y);
-                uv *= 3.0; // Zoom out to reveal macro-structure
-
-                // --- THREE SIMULTANEOUS TIME SCALES ---
-                
-                // 1. SLOW GLOBAL DRIFT (Tectonic plate shifting)
-                float t_slow = u_time * 0.05;
-                
-                // 2. MEDIUM STRUCTURAL MOTION (Liquid crystal flow with machine hesitation)
-                float glitch = step(0.95, hash(vec3(floor(u_time * 10.0), 0.0, 0.0))) * 0.2;
-                float t_med = u_time * 0.2 + glitch;
-                
-                // 3. FAST DETAIL SHIMMER (Quantum dust and photon excitement)
-                float t_fast = u_time * 1.5;
-
-                // --- HOSTILE COORDINATES & DOMAIN WARP ---
-                vec3 p = vec3(uv * 1.5, t_slow);
-                float n1 = fbm(p);
-                
-                // Hyperbolic Möbius twist based on slow noise
-                float r = length(uv);
-                float theta = atan(uv.y, uv.x);
-                vec2 warpedUv = uv + vec2(cos(theta + n1 * 6.28), sin(theta + n1 * 6.28)) * (n1 * 0.6);
-
-                // --- MESOSCOPIC LATTICE (The physical substance) ---
-                vec3 p2 = vec3(warpedUv * 3.0, t_med);
-                // Curl-like spatial distortion
-                p2.xy += vec2(fbm(p2 + vec3(1.0)), fbm(p2 - vec3(1.0))) * 1.5;
-                float lattice = gyroid(p2);
-                
-                // Crystalline Cleavage Planes (Anisotropic intersecting lines)
-                float cleavage = sin(warpedUv.x * 40.0 + lattice * 10.0) * cos(warpedUv.y * 40.0 + lattice * 10.0);
-                
-                // --- THIN-FILM INTERFERENCE PHYSICS ---
-                // Bragg Reflection mapping: 2*n*d*cos(theta) = m*lambda
-                
-                // Procedural thickness map (d)
-                float thickness = abs(lattice) * 600.0 + abs(cleavage) * 150.0 + fbm(p2 * 2.0) * 300.0;
-                
-                // Pseudo-normal for view angle (cosTheta)
-                vec3 N = normalize(vec3(
-                    gyroid(p2 + vec3(0.01, 0.0, 0.0)) - lattice,
-                    gyroid(p2 + vec3(0.0, 0.01, 0.0)) - lattice,
-                    0.5 // Z-depth assumption
-                ));
-                vec3 V = vec3(0.0, 0.0, 1.0); // View vector (straight on)
-                float cosTheta = max(0.0, dot(N, V));
-                
-                // Optical path difference (n = 1.5)
-                float pathDiff = 2.0 * 1.5 * thickness * cosTheta;
-
-                // Map path difference to specific CMY wavelengths (in nanometers)
-                // Interference = 0.5 + 0.5 * cos( 2 * PI * pathDiff / lambda )
-                float c_int = pow(0.5 + 0.5 * cos(6.28318 * pathDiff / 490.0), 3.0); // Cyan peak
-                float m_int = pow(0.5 + 0.5 * cos(6.28318 * pathDiff / 550.0), 3.0); // Magenta proxy
-                float y_int = pow(0.5 + 0.5 * cos(6.28318 * pathDiff / 600.0), 3.0); // Yellow peak
-
-                // --- VOID LOGIC ---
-                // Deep black pits where the structure undergoes entropic decay
-                float voidMask = smoothstep(0.2, 0.6, fbm(vec3(uv * 2.0, t_slow * 0.5)));
-                // Carve harsh geometric edges into the voids
-                voidMask *= smoothstep(0.0, 0.2, abs(lattice + 0.5));
-
-                // --- FAST SHIMMER (Quantum Dust) ---
-                float dust = hash(vec3(uv * 150.0, t_fast));
-                // Dust only settles on the high ridges of the lattice
-                float dustIntensity = smoothstep(0.95, 1.0, dust) * smoothstep(0.5, 1.0, lattice) * voidMask;
-
-                // --- ALCHEMICAL ASSEMBLY ---
-                vec3 color = vec3(0.0); // Start in the void
-                
-                // Inject Neon CMY based on interference math
-                color += c_int * vec3(0.0, 1.0, 1.0) * 1.2;
-                color += m_int * vec3(1.0, 0.0, 1.0) * 1.2;
-                color += y_int * vec3(1.0, 1.0, 0.0) * 1.2;
-                
-                // Apply the void (Starving the light)
-                color *= voidMask;
-
-                // Add structural glints (Birefringence flashes on cleavage planes)
-                float glint = smoothstep(0.85, 1.0, abs(cleavage)) * voidMask;
-                color += glint * vec3(0.8, 1.0, 1.0); // White-hot cyan core
-
-                // Overlay the active dust layer (Yellow/Magenta noise)
-                color += dustIntensity * mix(vec3(1.0, 0.0, 1.0), vec3(1.0, 1.0, 0.0), hash(vec3(uv, 1.0)));
-
-                // Vignette (Focusing the microscope)
-                float vignette = 1.0 - smoothstep(0.5, 2.5, r);
-                color *= vignette;
-
-                // Final contrast crush for that harsh, physical look
-                color = smoothstep(0.0, 1.0, color);
-
-                fragColor = vec4(color, 1.0);
-            }
-        `;
-
         const material = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
-            uniforms: {
+            uniforms: { 
                 u_time: { value: 0 },
                 u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
             },
-            vertexShader,
-            fragmentShader,
-            depthWrite: false,
-            depthTest: false
-        });
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+precision highp float;
 
+in vec2 vUv;
+out vec4 fragColor;
+
+uniform float u_time;
+uniform vec2 u_resolution;
+
+// ─── Mathematical Noise & Hashing ──────────────────────────────────────────────
+float hash(vec3 p) {
+    return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+}
+
+float snoise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    
+    float n000 = hash(i + vec3(0.0, 0.0, 0.0));
+    float n100 = hash(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash(i + vec3(1.0, 1.0, 1.0));
+    
+    float nx00 = mix(n000, n100, f.x);
+    float nx10 = mix(n010, n110, f.x);
+    float nx01 = mix(n001, n101, f.x);
+    float nx11 = mix(n011, n111, f.x);
+    
+    float nxy0 = mix(nx00, nx10, f.y);
+    float nxy1 = mix(nx01, nx11, f.y);
+    
+    return mix(nxy0, nxy1, f.z) * 2.0 - 1.0;
+}
+
+float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++) {
+        v += a * snoise(p);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return v;
+}
+
+float getHeight(vec2 p, float t) {
+    return fbm(vec3(p * 3.0, t)) * 0.5 + 0.5;
+}
+
+// ─── Perceptual Color Math (OKLab) ─────────────────────────────────────────────
+vec3 OKLab_to_linearSRGB(vec3 c) {
+    float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
+    float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
+    float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
+
+    float l = l_ * l_ * l_;
+    float m = m_ * m_ * m_;
+    float s = s_ * s_ * s_;
+
+    return vec3(
+         4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    );
+}
+
+float linear_to_sRGB(float x) {
+    x = clamp(x, 0.0, 1.0);
+    return x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0/2.4) - 0.055;
+}
+
+vec3 OKLab_to_sRGB(vec3 c) {
+    vec3 lin = OKLab_to_linearSRGB(c);
+    return vec3(linear_to_sRGB(lin.r), linear_to_sRGB(lin.g), linear_to_sRGB(lin.b));
+}
+
+// ─── Main Material Engine ──────────────────────────────────────────────────────
+void main() {
+    vec2 uv2 = vUv * 2.0 - 1.0;
+    uv2.x *= u_resolution.x / u_resolution.y;
+    
+    // Three simultaneous time scales
+    float t_slow = u_time * 0.05;
+    float t_med  = u_time * 0.2;
+    float t_fast = u_time * 1.5;
+    
+    // 1. Domain Warping (Slow Drift)
+    vec3 warpPos = vec3(uv2 * 1.5, t_slow);
+    vec2 warp = vec2(fbm(warpPos), fbm(warpPos + vec3(12.3, 4.5, -6.7)));
+    
+    // 2. Poincaré Hyperbolic Projection
+    vec2 hyperUv = uv2 / (1.0 + dot(uv2, uv2));
+    hyperUv += warp * 0.5;
+    
+    float theta = t_slow * 0.2;
+    mat2 rot = mat2(cos(theta), -sin(theta), sin(theta), cos(theta));
+    hyperUv = rot * hyperUv;
+    
+    // 3. Multi-scale Turing / Lenia Approximation (Medium Structure)
+    float s1 = getHeight(hyperUv, t_med);
+    float s2 = fbm(vec3(hyperUv * 6.0 - warp * 0.5, t_med * 1.1)) * 0.5 + 0.5;
+    float s3 = fbm(vec3(hyperUv * 12.0 + warp, t_med * 0.9)) * 0.5 + 0.5;
+    
+    // Lenia Gaussian Growth Functions
+    float g1 = 2.0 * exp(-pow(s1 - s2 - 0.15, 2.0) / 0.02) - 1.0;
+    float g2 = 2.0 * exp(-pow(s2 - s3 - 0.25, 2.0) / 0.05) - 1.0;
+    
+    float cyan_mask = smoothstep(0.0, 0.8, g1);
+    float mag_mask = smoothstep(0.0, 0.8, g2);
+    
+    // 4. Physical Substance Normal Mapping
+    float eps = 0.02;
+    float h0 = s1;
+    float hx = getHeight(hyperUv + vec2(eps, 0.0), t_med);
+    float hy = getHeight(hyperUv + vec2(0.0, eps), t_med);
+    vec3 normal = normalize(vec3(hx - h0, hy - h0, 0.05));
+    
+    vec3 lightDir = normalize(vec3(sin(t_slow), cos(t_slow), 0.5));
+    float diffuse = max(0.0, dot(normal, lightDir));
+    float specular = pow(max(0.0, dot(reflect(-lightDir, normal), vec3(0.0, 0.0, 1.0))), 16.0);
+    
+    // 5. Moiré Vibration (Fast Detail Shimmer)
+    float g_freq1 = 150.0;
+    float grid1 = sin(hyperUv.x * g_freq1 + t_fast) * cos(hyperUv.y * g_freq1 - t_fast);
+    float g_freq2 = 145.0;
+    vec2 rotUv = vec2(hyperUv.x * 0.8 - hyperUv.y * 0.6, hyperUv.x * 0.6 + hyperUv.y * 0.8);
+    float grid2 = sin(rotUv.x * g_freq2) * cos(rotUv.y * g_freq2);
+    float moire_beat = smoothstep(0.0, 0.1, grid1 * grid2);
+    
+    // 6. Silicon Necrosis (Math Failure Glitch)
+    float necrosis = fract(1.0 / (abs(s1 - s3) + 0.001));
+    necrosis = step(0.98, necrosis) * moire_beat;
+    
+    float grain = fract(sin(dot(vUv + t_fast, vec2(12.9898, 78.233))) * 43758.5453);
+    
+    // ─── OKLab Color Assembly ──────────────────────────────────────────────────
+    // Neon Gamut Boundaries in OKLab
+    vec3 l_cyan = vec3(0.91, -0.15, -0.04);
+    vec3 l_mag  = vec3(0.60,  0.23, -0.10);
+    vec3 l_yel  = vec3(0.97, -0.07,  0.20);
+    
+    // Base Void Black
+    vec3 lab = vec3(0.05 + grain * 0.05, 0.0, 0.0);
+    
+    // Layer 1: Cyan Membrane
+    float cyan_w = cyan_mask * (0.4 + 0.6 * diffuse);
+    lab = mix(lab, l_cyan, cyan_w);
+    lab.x += specular * cyan_mask * 0.4;
+    
+    // Layer 2: Magenta Core
+    float mag_w = mag_mask * (1.0 - cyan_mask * 0.3);
+    lab = mix(lab, l_mag, mag_w);
+    
+    // Layer 3: Yellow Moiré Parasites (Feeds on breakdown zones)
+    float yel_w = moire_beat * smoothstep(0.4, 0.8, s3) * (1.0 - mag_w * 0.8);
+    lab = mix(lab, l_yel, yel_w);
+    
+    // Layer 4: Necrosis Highlight
+    lab.x += necrosis * 0.6;
+    
+    // Edge Vignette
+    float falloff = 1.0 - dot(vUv - 0.5, vUv - 0.5) * 2.0;
+    lab.x *= smoothstep(0.0, 1.0, falloff);
+    
+    fragColor = vec4(OKLab_to_sRGB(lab), 1.0);
+}
+            `
+        });
+        
         const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(mesh);
-        
-        // Cache the hardware context to prevent re-initialization trauma
         canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("WebGL Initialization Failed:", e);
+        return;
     }
-
-    const { renderer, scene, camera, material } = canvas.__three;
-
-    // Safely update the vital fluids (uniforms)
-    if (material && material.uniforms) {
-        if (material.uniforms.u_time) {
-            material.uniforms.u_time.value = time;
-        }
-        if (material.uniforms.u_resolution) {
-            material.uniforms.u_resolution.value.set(grid.width, grid.height);
-        }
-    }
-
-    // Execute the warp-level render
-    renderer.setSize(grid.width, grid.height, false);
-    renderer.render(scene, camera);
-
-} catch (e) {
-    console.error("LITHOGENESIS ENGINE FAILURE:", e);
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
