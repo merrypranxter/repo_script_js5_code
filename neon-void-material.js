@@ -1,10 +1,10 @@
 if (!canvas.__three) {
   try {
-    if (!ctx) throw new Error("WebGL2 context required but not available.");
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
     camera.position.z = 1;
 
     const vertexShader = `
@@ -22,110 +22,140 @@ if (!canvas.__three) {
       uniform float u_time;
       uniform vec2 u_resolution;
 
-      // 2D Rotation Matrix
-      mat2 rot(float a) {
-          float c = cos(a), s = sin(a);
-          return mat2(c, -s, s, c);
-      }
+      // The Three Time Scales
+      // Slow: Global tectonic drift & domain warping
+      // Med:  Structural cleavage growth & fluid advection
+      // Fast: High-frequency lattice shimmer & Bragg diffraction
+      #define T_SLOW (u_time * 0.05)
+      #define T_MED  (u_time * 0.3)
+      #define T_FAST (u_time * 3.0)
 
-      // Hash without Sine for performance & chaos
-      float hash(vec2 p) {
-          vec3 p3  = fract(vec3(p.xyx) * 0.1031);
+      // Feral PRNG
+      float hash12(vec2 p) {
+          vec3 p3  = fract(vec3(p.xyx) * .1031);
           p3 += dot(p3, p3.yzx + 33.33);
           return fract((p3.x + p3.y) * p3.z);
       }
 
-      // Value Noise
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-          return mix(
-              mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-              mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
-              f.y
-          );
+      vec2 hash22(vec2 p) {
+          vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
+          p3 += dot(p3, p3.yzx + 33.33);
+          return fract((p3.xx + p3.yz) * p3.zy);
       }
 
-      // Fractal Brownian Motion
-      float fbm(vec2 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          for(int i = 0; i < 6; i++) {
-              f += amp * noise(p);
-              p = rot(1.234) * p * 2.0;
-              amp *= 0.5;
+      mat2 rot(float a) {
+          float s = sin(a), c = cos(a);
+          return mat2(c, -s, s, c);
+      }
+
+      // Art Nouveau Whiplash Domain Warp
+      vec2 whiplash(vec2 p) {
+          vec2 pp = p;
+          for(float i = 1.0; i <= 3.0; i++) {
+              pp.x += sin(p.y * 2.0 * i + T_SLOW) * 0.5 / i;
+              pp.y += cos(p.x * 1.5 * i - T_SLOW) * 0.5 / i;
+              p = rot(0.1 * sin(T_SLOW)) * pp;
           }
-          return f;
+          return p;
+      }
+
+      // Neon CMY Palette Generator (The Neon Rule against The Void Rule)
+      // Mathematically guarantees pure CMY peaks
+      vec3 neonCMY(float t) {
+          float c = pow(0.5 + 0.5 * sin(t * 6.28318 + 0.0), 24.0);
+          float m = pow(0.5 + 0.5 * sin(t * 6.28318 + 2.094), 24.0);
+          float y = pow(0.5 + 0.5 * sin(t * 6.28318 + 4.188), 24.0);
+          return vec3(m + y, c + y, c + m);
+      }
+
+      // Birefringent Lithogenesis Lattice (Cellular + L-infinity hybrid)
+      vec4 lattice(vec2 p) {
+          vec2 id = floor(p);
+          vec2 f = fract(p);
+          
+          float minDist = 10.0;
+          float secondMinDist = 10.0;
+          vec2 closestCell;
+          
+          for(int y = -1; y <= 1; y++) {
+              for(int x = -1; x <= 1; x++) {
+                  vec2 neighbor = vec2(float(x), float(y));
+                  vec2 pt = hash22(id + neighbor);
+                  
+                  // Medium scale: Cellular drift
+                  pt = 0.5 + 0.4 * sin(T_MED + 6.2831 * pt);
+                  
+                  vec2 diff = neighbor + pt - f;
+                  
+                  // Anisotropic L-infinity metric for cubic/bismuth cleavage planes
+                  diff *= rot(T_SLOW + hash12(id) * 2.0);
+                  float dist = max(abs(diff.x), abs(diff.y)) * 0.8 + length(diff) * 0.2;
+                  
+                  if(dist < minDist) {
+                      secondMinDist = minDist;
+                      minDist = dist;
+                      closestCell = id + neighbor;
+                  } else if(dist < secondMinDist) {
+                      secondMinDist = dist;
+                  }
+              }
+          }
+          
+          float cleavage = secondMinDist - minDist;
+          return vec4(minDist, cleavage, closestCell.x, closestCell.y);
       }
 
       void main() {
-          // Normalize coordinates
-          vec2 uv = vUv * 2.0 - 1.0;
-          uv.x *= u_resolution.x / u_resolution.y;
+          vec2 p = (vUv - 0.5) * 2.0;
+          p.x *= u_resolution.x / u_resolution.y;
 
-          // Three simultaneous time scales (The Weird Mechanism)
-          float t_slow = u_time * 0.04; 
-          float t_med  = u_time * 0.15;
+          // Apply slow tectonic Art Nouveau warping
+          vec2 warpedP = whiplash(p * 3.0);
           
-          // Machine hesitation / stutter injected into the fast time scale
-          float t_fast = u_time * 2.5 + sin(u_time * 12.0) * 0.05;
-
-          // 1. SLOW DRIFT: Tectonic domain warping (The Ocean Math)
-          vec2 q = vec2(
-              fbm(uv * 2.0 + t_slow),
-              fbm(uv * 2.0 + vec2(5.2, 1.3) - t_slow)
-          );
-
-          // 2. MEDIUM MOTION: Viscous fluid advection mapping
-          vec2 r = vec2(
-              fbm(uv * 3.0 + 4.0 * q + t_med),
-              fbm(uv * 3.0 + 4.0 * q + vec2(8.3, 2.8) - t_med)
-          );
-
-          // 3. ART NOUVEAU WHIPLASH: Tension ridges via absolute sine
-          float flow = fbm(uv * 2.5 + r * 2.5 + t_med * 0.8);
-          float ridge_raw = abs(sin(flow * 18.0));
+          // Deep internal structure (Layer 1)
+          vec4 crystal1 = lattice(warpedP * 2.0 + vec2(T_SLOW));
+          // Surface structure (Layer 2)
+          vec4 crystal2 = lattice(warpedP * 4.0 - vec2(T_SLOW * 0.5));
           
-          // Subsurface scattering bleed (Lit from below)
-          float sss = exp(-ridge_raw * 8.0);
-          // Razor sharp neon core
-          float ridge = 0.015 / (ridge_raw + 0.005); 
+          float cleav1 = crystal1.y;
+          float cleav2 = crystal2.y;
+          
+          float hash1 = hash12(crystal1.zw);
+          float hash2 = hash12(crystal2.zw);
+          
+          // High-frequency Bragg diffraction phase offsets
+          float bragg1 = crystal1.x * 10.0 - cleav1 * 5.0 + hash1 * 10.0 + T_FAST;
+          float bragg2 = crystal2.x * 20.0 - cleav2 * 10.0 + hash2 * 10.0 - T_FAST * 1.5;
+          
+          vec3 col = vec3(0.0);
+          
+          // Accumulate neon light from deep cleavage fractures
+          vec3 neon1 = neonCMY(bragg1 * 0.1);
+          col += neon1 * smoothstep(0.15, 0.0, cleav1) * 1.5;
+          
+          // Accumulate neon light from surface fractures
+          vec3 neon2 = neonCMY(bragg2 * 0.1);
+          col += neon2 * smoothstep(0.08, 0.0, cleav2) * 2.5;
+          
+          // Moiré vibration pattern on the flat crystal faces (Cyan/Magenta tension)
+          float moire = sin(dot(p, vec2(cos(hash2 * 6.28), sin(hash2 * 6.28))) * 250.0 + T_FAST);
+          moire = smoothstep(0.9, 1.0, moire);
+          col += neonCMY(hash2 + T_FAST * 0.2) * moire * smoothstep(0.0, 0.2, cleav2) * 0.6;
 
-          // 4. FAST SHIMMER: Bragg diffraction grating (Crystalline Facets)
-          // Quantize the space slightly to create a "mineral flake" interference
-          vec2 uv_quant = floor((uv + r * 0.1) * 90.0) / 90.0;
-          float shimmer1 = sin(length(uv_quant) * 250.0 - t_fast);
-          float shimmer2 = sin(dot(uv_quant, vec2(180.0, -120.0)) + t_fast * 1.3);
-          float bragg = max(0.0, shimmer1 * shimmer2);
+          // Physical substance grain / noise
+          float grain = hash12(vUv * u_resolution + u_time);
+          col *= 0.8 + 0.2 * grain;
+          
+          // The Void Rule: Background must be abyssal
+          col = max(col, vec3(0.005, 0.0, 0.01)); 
+          
+          // Crush contrast for intense saturation
+          col = pow(col, vec3(1.1));
 
-          // BASE: Void Black with deep purple/cyan "The Ship" under-structure
-          float depth = fbm(uv * 8.0 - q * 3.0);
-          vec3 col = vec3(0.02, 0.0, 0.06) * depth;
+          // Subtle vignette
+          float vig = length(p);
+          col *= smoothstep(2.5, 0.5, vig);
 
-          // THE NEON RULE: CMY spectral separation
-          // CYAN Phase
-          float cyan_mask = smoothstep(0.3, 0.7, fbm(uv * 1.5 + r + t_med));
-          col += vec3(0.0, 1.0, 0.9) * (ridge * 0.8 + sss * 0.2) * cyan_mask * (1.0 + bragg * 1.5);
-
-          // MAGENTA Phase
-          float mag_mask = smoothstep(0.4, 0.8, fbm(uv * 1.5 - r * 1.2 - t_med * 1.1));
-          col += vec3(1.0, 0.0, 0.8) * (ridge * 0.8 + sss * 0.2) * mag_mask * (1.0 + bragg * 1.5);
-
-          // YELLOW Phase (Narrower, creates high-tension intersections)
-          float yel_mask = smoothstep(0.5, 0.65, fbm(uv * 4.0 + r * 0.5 + t_slow * 2.0));
-          col += vec3(1.0, 0.9, 0.0) * (ridge * 1.2) * yel_mask * (1.0 + bragg * 2.0);
-
-          // "THE WHIRRING" - Concentric interference rings in the substrate
-          float ring = abs(sin(length(uv - q * 0.5) * 25.0 - t_med * 4.0));
-          col += vec3(0.0, 0.4, 0.5) * (0.02 / (ring + 0.01)) * depth * (1.0 - yel_mask);
-
-          // Vignette to ground it as a physical material sample
-          float vignette = 1.0 - smoothstep(0.5, 1.5, length(vUv * 2.0 - 1.0));
-          col *= vignette;
-
-          // Tonemapping & Output
-          col = pow(col, vec3(0.85)); // slight gamma lift for the neons
           fragColor = vec4(col, 1.0);
       }
     `;
@@ -147,20 +177,16 @@ if (!canvas.__three) {
 
     canvas.__three = { renderer, scene, camera, material };
   } catch (e) {
-    console.error("Feral WebGL Lithogenesis Failed:", e);
+    console.error("Feral WebGL Initialization Failed:", e);
     return;
   }
 }
 
 const { renderer, scene, camera, material } = canvas.__three;
 
-if (material?.uniforms) {
-  if (material.uniforms.u_time) {
-    material.uniforms.u_time.value = time;
-  }
-  if (material.uniforms.u_resolution) {
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
+if (material && material.uniforms) {
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
 }
 
 renderer.setSize(grid.width, grid.height, false);
