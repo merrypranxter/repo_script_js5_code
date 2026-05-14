@@ -239,7 +239,8 @@
     },
     "lenia-reef.js": {
       "order": 76,
-      "alias": "lenia-reef.js - WHITE with some rainbow hints"
+      "alias": "lenia-reef.js - WHITE with some rainbow hints",
+      "color": "#00e676"
     },
     "living-fabric.js": {
       "order": 77,
