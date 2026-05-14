@@ -511,7 +511,8 @@
       "order": 154
     },
     "vibrant-diffusion.js": {
-      "order": 155
+      "order": 155,
+      "color": "#00e676"
     },
     "vibrant-rd.js": {
       "order": 156,
