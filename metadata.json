@@ -301,7 +301,8 @@
       "order": 96
     },
     "neon-heartbeat.js": {
-      "order": 97
+      "order": 97,
+      "alias": "colorful moire"
     },
     "neon-life.js": {
       "order": 98,
