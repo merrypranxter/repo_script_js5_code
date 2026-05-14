@@ -232,7 +232,8 @@
       "order": 73
     },
     "led-pulse.js": {
-      "order": 74
+      "order": 74,
+      "color": "#ff3d00"
     },
     "lenia-lace.js": {
       "order": 75
