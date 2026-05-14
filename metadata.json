@@ -457,7 +457,8 @@
       "order": 150
     },
     "vhs-pause.js": {
-      "order": 151
+      "order": 151,
+      "alias": "vhs-pause.js (WHITE SCREEN)"
     },
     "vhs_crt_glitch.js": {
       "order": 152
