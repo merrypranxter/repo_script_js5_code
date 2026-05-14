@@ -510,7 +510,8 @@
       "alias": "cute pinky glitchy"
     },
     "wild-diffusion.js": {
-      "order": 168
+      "order": 168,
+      "alias": "wild-diffusion.js"
     },
     "wild_diffusion.js": {
       "order": 169
