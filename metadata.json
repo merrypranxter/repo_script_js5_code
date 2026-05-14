@@ -515,7 +515,8 @@
     },
     "vibrant-rd.js": {
       "order": 156,
-      "alias": "vibrant-rd.js"
+      "alias": "vibrant-rd.js",
+      "color": "#ff3d00"
     },
     "vibrant_rd.js": {
       "order": 157
