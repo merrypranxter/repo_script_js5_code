@@ -512,7 +512,8 @@
     },
     "vibrant-diffusion.js": {
       "order": 155,
-      "color": "#00e676"
+      "color": "#00e676",
+      "alias": "reaction diffusion mandala thing"
     },
     "vibrant-rd.js": {
       "order": 156,
