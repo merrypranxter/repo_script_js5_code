@@ -451,7 +451,8 @@
       "order": 148
     },
     "vhs-coral.js": {
-      "order": 149
+      "order": 149,
+      "color": "#ff3d00"
     },
     "vhs-glitch.js": {
       "order": 150,
