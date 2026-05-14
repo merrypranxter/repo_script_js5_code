@@ -298,7 +298,8 @@
       "order": 95
     },
     "neon-grain.js": {
-      "order": 96
+      "order": 96,
+      "color": "#00e676"
     },
     "neon-heartbeat.js": {
       "order": 97,
