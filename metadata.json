@@ -508,7 +508,8 @@
       "order": 153
     },
     "vhs_pause.js": {
-      "order": 154
+      "order": 154,
+      "alias": "vhs_pause.js - WHITE SCREEN TEXTURE"
     },
     "vibrant-diffusion.js": {
       "order": 155,
