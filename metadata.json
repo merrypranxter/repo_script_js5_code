@@ -506,7 +506,8 @@
     },
     "vivid_signal_decay.js": {
       "order": 167,
-      "color": "#ffff00"
+      "color": "#ffff00",
+      "alias": "cute pinky glitchy"
     },
     "wild-diffusion.js": {
       "order": 168
