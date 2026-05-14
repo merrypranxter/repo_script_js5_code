@@ -169,7 +169,8 @@
       "order": 52
     },
     "fabric-damage.js": {
-      "order": 53
+      "order": 53,
+      "alias": "THAT UGLY ROUND ONE"
     },
     "fractaldance.js": {
       "order": 54,
