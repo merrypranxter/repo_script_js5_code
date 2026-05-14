@@ -176,7 +176,8 @@
     },
     "git-art.js": {
       "order": 55,
-      "alias": "LISA FRANK QUASICRYSTAL YELLOW PINK PURPLE CYAN"
+      "alias": "LISA FRANK QUASICRYSTAL YELLOW PINK PURPLE CYAN",
+      "color": "#ff00ff"
     },
     "git-blend.js": {
       "order": 56
