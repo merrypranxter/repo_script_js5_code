@@ -229,7 +229,8 @@
       "order": 72
     },
     "led-moire.js": {
-      "order": 73
+      "order": 73,
+      "alias": "led-moire.js // screen texture"
     },
     "led-pulse.js": {
       "order": 74,
