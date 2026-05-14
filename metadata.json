@@ -422,7 +422,8 @@
     },
     "signal_decay.js": {
       "order": 139,
-      "alias": "BLACKK/WHITE GLTICHY"
+      "alias": "BLACKK/WHITE GLTICHY",
+      "color": "#00e5ff"
     },
     "slime-moire.js": {
       "order": 140
