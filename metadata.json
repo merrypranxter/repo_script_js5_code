@@ -281,7 +281,8 @@
     },
     "moire-dna.js": {
       "order": 90,
-      "alias": "THE EYE moire"
+      "alias": "THE EYE moire",
+      "color": "#ff3d00"
     },
     "moire-interference.js": {
       "order": 91
