@@ -515,7 +515,8 @@
       "color": "#ff3d00"
     },
     "wild_diffusion.js": {
-      "order": 169
+      "order": 169,
+      "alias": "FANTASTIC REACTION DIFFUSION"
     }
   },
   "folders": []
