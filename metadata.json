@@ -511,7 +511,8 @@
     },
     "wild-diffusion.js": {
       "order": 168,
-      "alias": "too blue reaction diffusion.jse"
+      "alias": "too blue reaction diffusion.jse",
+      "color": "#ff3d00"
     },
     "wild_diffusion.js": {
       "order": 169
