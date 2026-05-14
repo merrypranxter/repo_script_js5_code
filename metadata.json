@@ -305,7 +305,8 @@
     },
     "neon-life.js": {
       "order": 98,
-      "color": "#ff00ff"
+      "color": "#ff00ff",
+      "alias": "lisa frank nebula"
     },
     "neon-moire-stars.js": {
       "order": 99
