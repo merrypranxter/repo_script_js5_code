@@ -180,7 +180,8 @@
       "color": "#ff00ff"
     },
     "git-blend.js": {
-      "order": 56
+      "order": 56,
+      "alias": "git-blend.js"
     },
     "git-flow.js": {
       "order": 57
