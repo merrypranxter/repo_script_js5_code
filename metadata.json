@@ -304,7 +304,8 @@
       "order": 97
     },
     "neon-life.js": {
-      "order": 98
+      "order": 98,
+      "color": "#ff00ff"
     },
     "neon-moire-stars.js": {
       "order": 99
