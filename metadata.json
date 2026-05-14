@@ -226,7 +226,8 @@
       "order": 71
     },
     "kiyo-quasicrystal.js": {
-      "order": 72
+      "order": 72,
+      "alias": "kiyo-quasicrystal.js // THAT CRAZY ONE"
     },
     "led-moire.js": {
       "order": 73,
