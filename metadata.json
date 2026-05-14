@@ -454,7 +454,8 @@
       "order": 149
     },
     "vhs-glitch.js": {
-      "order": 150
+      "order": 150,
+      "color": "#00e5ff"
     },
     "vhs-pause.js": {
       "order": 151,
