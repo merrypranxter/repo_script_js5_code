@@ -262,7 +262,8 @@
       "order": 83
     },
     "math-dynamics.js": {
-      "order": 84
+      "order": 84,
+      "color": "#00e676"
     },
     "math_blueprint.js": {
       "order": 85,
