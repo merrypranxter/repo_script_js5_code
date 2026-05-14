@@ -241,7 +241,8 @@
       "order": 76
     },
     "living-fabric.js": {
-      "order": 77
+      "order": 77,
+      "color": "#00e676"
     },
     "lorenz_gray_scott.js": {
       "order": 78,
