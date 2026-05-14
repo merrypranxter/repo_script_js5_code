@@ -61,7 +61,9 @@
       "order": 16
     },
     "astral-vhs.js": {
-      "order": 17
+      "order": 17,
+      "color": "#00e676",
+      "alias": "astral-vhs.js"
     },
     "astral_doctrine.js": {
       "order": 18
