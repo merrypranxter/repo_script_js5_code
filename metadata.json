@@ -296,7 +296,8 @@
     },
     "neon-glitch-decay.js": {
       "order": 95,
-      "alias": "lisa frank glitchy"
+      "alias": "lisa frank glitchy",
+      "color": "#ff00ff"
     },
     "neon-grain.js": {
       "order": 96,
