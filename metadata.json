@@ -277,7 +277,8 @@
       "order": 88
     },
     "moire-art.js": {
-      "order": 89
+      "order": 89,
+      "color": "#ff3d00"
     },
     "moire-dna.js": {
       "order": 90,
