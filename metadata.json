@@ -253,7 +253,8 @@
       "order": 80
     },
     "magenta-glitch-tape.js": {
-      "order": 81
+      "order": 81,
+      "color": "#ff00ff"
     },
     "magenta-tape-glitch.js": {
       "order": 82,
