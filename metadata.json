@@ -244,7 +244,8 @@
       "order": 77
     },
     "lorenz_gray_scott.js": {
-      "order": 78
+      "order": 78,
+      "alias": "red butterfly thing"
     },
     "lovecraft-mythos.js": {
       "order": 79
