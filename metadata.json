@@ -223,7 +223,8 @@
       "order": 70
     },
     "interactive-design.js": {
-      "order": 71
+      "order": 71,
+      "alias": "REDDISH BLURRY PIXELS"
     },
     "kiyo-quasicrystal.js": {
       "order": 72,
