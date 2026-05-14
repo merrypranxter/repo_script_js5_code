@@ -506,7 +506,8 @@
     },
     "vhs_glitch.js": {
       "order": 153,
-      "color": "#00e5ff"
+      "color": "#00e5ff",
+      "alias": "vhs colored lines error"
     },
     "vhs_pause.js": {
       "order": 154,
