@@ -292,7 +292,8 @@
       "order": 93
     },
     "moire.js": {
-      "order": 94
+      "order": 94,
+      "alias": "green moire star thing"
     },
     "neon-glitch-decay.js": {
       "order": 95,
