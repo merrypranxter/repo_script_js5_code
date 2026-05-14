@@ -280,7 +280,8 @@
       "order": 89
     },
     "moire-dna.js": {
-      "order": 90
+      "order": 90,
+      "alias": "THE EYE moire"
     },
     "moire-interference.js": {
       "order": 91
