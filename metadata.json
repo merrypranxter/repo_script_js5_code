@@ -172,7 +172,8 @@
       "order": 53
     },
     "fractaldance.js": {
-      "order": 54
+      "order": 54,
+      "color": "#ffff00"
     },
     "git-art.js": {
       "order": 55,
