@@ -458,7 +458,8 @@
     },
     "vhs-pause.js": {
       "order": 151,
-      "alias": "vhs-pause.js (WHITE SCREEN)"
+      "alias": "vhs-pause.js (WHITE SCREEN)",
+      "color": "#00e5ff"
     },
     "vhs_crt_glitch.js": {
       "order": 152
