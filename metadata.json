@@ -265,7 +265,8 @@
       "order": 84
     },
     "math_blueprint.js": {
-      "order": 85
+      "order": 85,
+      "color": "#ff3d00"
     },
     "maximalist_weird.js": {
       "order": 86,
