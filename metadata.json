@@ -1,10 +1,516 @@
 {
   "files": {
     "rgb_subpixels.js": {
-      "alias": "rgb_subpixels.js"
+      "alias": "rgb_subpixels.js",
+      "order": 134
     },
     "repo-viz.js": {
-      "color": "#ff00ff"
+      "color": "#ff00ff",
+      "order": 133
+    },
+    "11d-time-crystal.js": {
+      "order": 0
+    },
+    "RepoArt.js": {
+      "order": 1
+    },
+    "RepoFlow.js": {
+      "order": 2
+    },
+    "acid-bloom.js": {
+      "order": 3
+    },
+    "acid-fractals.js": {
+      "order": 4
+    },
+    "acid-matrix-glitch.js": {
+      "order": 5
+    },
+    "acid-slime.js": {
+      "order": 6
+    },
+    "acidic-analog-glitch.js": {
+      "order": 7
+    },
+    "acidic-palette.js": {
+      "order": 8
+    },
+    "acidic-vhs-decay.js": {
+      "order": 9
+    },
+    "acidic-vhs-rot.js": {
+      "order": 10
+    },
+    "amber-phosphor.js": {
+      "order": 11
+    },
+    "amber_ripple.js": {
+      "order": 12
+    },
+    "analog-decay.js": {
+      "order": 13
+    },
+    "analog_decay.js": {
+      "order": 14
+    },
+    "anu.js": {
+      "order": 15
+    },
+    "aperiodic_flux.js": {
+      "order": 16
+    },
+    "astral-vhs.js": {
+      "order": 17
+    },
+    "astral_doctrine.js": {
+      "order": 18
+    },
+    "biolum-terraces.js": {
+      "order": 19
+    },
+    "bold-interactive.js": {
+      "order": 20
+    },
+    "bold-repo-art.js": {
+      "order": 21
+    },
+    "bright-automata.js": {
+      "order": 22
+    },
+    "candy-lenia.js": {
+      "order": 23
+    },
+    "candy_lenia.js": {
+      "order": 24
+    },
+    "chroma-diffusion.js": {
+      "order": 25
+    },
+    "cobalt-scanline.js": {
+      "order": 26
+    },
+    "cobalt_scan.js": {
+      "order": 27
+    },
+    "colorful-fractals.js": {
+      "order": 28
+    },
+    "colorful-moire.js": {
+      "order": 29
+    },
+    "crt-poincare.js": {
+      "order": 30
+    },
+    "cthulhu-awakens.js": {
+      "order": 31
+    },
+    "cthulhu.js": {
+      "order": 32
+    },
+    "cthulu-awakens.js": {
+      "order": 33
+    },
+    "cyan_matrix.js": {
+      "order": 34
+    },
+    "deco-bg.js": {
+      "order": 35
+    },
+    "degraded-signal.js": {
+      "order": 36
+    },
+    "dmt.js": {
+      "order": 37
+    },
+    "do-it-sizes.js": {
+      "order": 38
+    },
+    "doit.js": {
+      "order": 39
+    },
+    "dynamic-art.js": {
+      "order": 40
+    },
+    "dynamic-design.js": {
+      "order": 41
+    },
+    "dynamic-git-art.js": {
+      "order": 42
+    },
+    "dynamic-interactive-design.js": {
+      "order": 43
+    },
+    "dynamic-interactive.js": {
+      "order": 44
+    },
+    "dynamic-mashup.js": {
+      "order": 45
+    },
+    "dynamic-math.js": {
+      "order": 46
+    },
+    "dynamic-moire.js": {
+      "order": 47
+    },
+    "dynamic-rd.js": {
+      "order": 48
+    },
+    "dynamic-repo-art.js": {
+      "order": 49
+    },
+    "dynamic-repo.js": {
+      "order": 50
+    },
+    "dynamic-repos.js": {
+      "order": 51
+    },
+    "emerald-tablets.js": {
+      "order": 52
+    },
+    "fabric-damage.js": {
+      "order": 53
+    },
+    "fractaldance.js": {
+      "order": 54
+    },
+    "git-art.js": {
+      "order": 55
+    },
+    "git-blend.js": {
+      "order": 56
+    },
+    "git-flow.js": {
+      "order": 57
+    },
+    "git-interactive.js": {
+      "order": 58
+    },
+    "git-manifold.js": {
+      "order": 59
+    },
+    "github-art.js": {
+      "order": 60
+    },
+    "github-dynamic-art.js": {
+      "order": 61
+    },
+    "github-dynamic.js": {
+      "order": 62
+    },
+    "github-interactive.js": {
+      "order": 63
+    },
+    "haunted_crt.js": {
+      "order": 64
+    },
+    "haunted_monitor.js": {
+      "order": 65
+    },
+    "hey_dirk.js": {
+      "order": 66
+    },
+    "hyperbolic-led.js": {
+      "order": 67
+    },
+    "hyperbolic-subpixel.js": {
+      "order": 68
+    },
+    "inspo/inspo.js": {
+      "order": 69
+    },
+    "interactive-art.js": {
+      "order": 70
+    },
+    "interactive-design.js": {
+      "order": 71
+    },
+    "kiyo-quasicrystal.js": {
+      "order": 72
+    },
+    "led-moire.js": {
+      "order": 73
+    },
+    "led-pulse.js": {
+      "order": 74
+    },
+    "lenia-lace.js": {
+      "order": 75
+    },
+    "lenia-reef.js": {
+      "order": 76
+    },
+    "living-fabric.js": {
+      "order": 77
+    },
+    "lorenz_gray_scott.js": {
+      "order": 78
+    },
+    "lovecraft-mythos.js": {
+      "order": 79
+    },
+    "lv426.js": {
+      "order": 80
+    },
+    "magenta-glitch-tape.js": {
+      "order": 81
+    },
+    "magenta-tape-glitch.js": {
+      "order": 82
+    },
+    "math-choreography.js": {
+      "order": 83
+    },
+    "math-dynamics.js": {
+      "order": 84
+    },
+    "math_blueprint.js": {
+      "order": 85
+    },
+    "maximalist_weird.js": {
+      "order": 86
+    },
+    "mckenna-mushroom.js": {
+      "order": 87
+    },
+    "mckenna-nouveau.js": {
+      "order": 88
+    },
+    "moire-art.js": {
+      "order": 89
+    },
+    "moire-dna.js": {
+      "order": 90
+    },
+    "moire-interference.js": {
+      "order": 91
+    },
+    "moire-point.js": {
+      "order": 92
+    },
+    "moire-star.js": {
+      "order": 93
+    },
+    "moire.js": {
+      "order": 94
+    },
+    "neon-glitch-decay.js": {
+      "order": 95
+    },
+    "neon-grain.js": {
+      "order": 96
+    },
+    "neon-heartbeat.js": {
+      "order": 97
+    },
+    "neon-life.js": {
+      "order": 98
+    },
+    "neon-moire-stars.js": {
+      "order": 99
+    },
+    "neon-pulse-grid.js": {
+      "order": 100
+    },
+    "neon-pulse.js": {
+      "order": 101
+    },
+    "neon-subpixel-pulse.js": {
+      "order": 102
+    },
+    "neon-substance.js": {
+      "order": 103
+    },
+    "neon-tentacle.js": {
+      "order": 104
+    },
+    "neon-void-grain.js": {
+      "order": 105
+    },
+    "neon-void-material.js": {
+      "order": 106
+    },
+    "neon_glitch_decay.js": {
+      "order": 107
+    },
+    "neon_media_rot.js": {
+      "order": 108
+    },
+    "neon_quasicrystal.js": {
+      "order": 109
+    },
+    "neon_substance.js": {
+      "order": 110
+    },
+    "non-euclidean.js": {
+      "order": 111
+    },
+    "noneuc-crystal.js": {
+      "order": 112
+    },
+    "noneucl_tess.js": {
+      "order": 113
+    },
+    "noneuclid.js": {
+      "order": 114
+    },
+    "noneuclidean-art.js": {
+      "order": 115
+    },
+    "noneuclidean.js": {
+      "order": 116
+    },
+    "novelty.js": {
+      "order": 117
+    },
+    "quasicrystal-dissolve.js": {
+      "order": 118
+    },
+    "quasicrystal-oscillator.js": {
+      "order": 119
+    },
+    "quasicrystal.js": {
+      "order": 120
+    },
+    "quasicrystal_cycle.js": {
+      "order": 121
+    },
+    "quasicrystal_flux.js": {
+      "order": 122
+    },
+    "quasicycle.js": {
+      "order": 123
+    },
+    "quasifunk.js": {
+      "order": 124
+    },
+    "red_cctv.js": {
+      "order": 125
+    },
+    "repo-art.js": {
+      "order": 126
+    },
+    "repo-ascii.js": {
+      "order": 127
+    },
+    "repo-design.js": {
+      "order": 128
+    },
+    "repo-dynamic.js": {
+      "order": 129
+    },
+    "repo-flow.js": {
+      "order": 130
+    },
+    "repo-fusion.js": {
+      "order": 131
+    },
+    "repo-visual.js": {
+      "order": 132
+    },
+    "rotting_signal.js": {
+      "order": 135
+    },
+    "sacred-geometry.js": {
+      "order": 136
+    },
+    "screendoor.js": {
+      "order": 137
+    },
+    "signal-decay.js": {
+      "order": 138
+    },
+    "signal_decay.js": {
+      "order": 139
+    },
+    "slime-moire.js": {
+      "order": 140
+    },
+    "slime-party.js": {
+      "order": 141
+    },
+    "structural-moire.js": {
+      "order": 142
+    },
+    "subpixel-grid.js": {
+      "order": 143
+    },
+    "subpixel-moire.js": {
+      "order": 144
+    },
+    "subpixel_grid.js": {
+      "order": 145
+    },
+    "synergy.js": {
+      "order": 146
+    },
+    "thoth-atlantis.js": {
+      "order": 147
+    },
+    "timewave.js": {
+      "order": 148
+    },
+    "vhs-coral.js": {
+      "order": 149
+    },
+    "vhs-glitch.js": {
+      "order": 150
+    },
+    "vhs-pause.js": {
+      "order": 151
+    },
+    "vhs_crt_glitch.js": {
+      "order": 152
+    },
+    "vhs_glitch.js": {
+      "order": 153
+    },
+    "vhs_pause.js": {
+      "order": 154
+    },
+    "vibrant-diffusion.js": {
+      "order": 155
+    },
+    "vibrant-rd.js": {
+      "order": 156
+    },
+    "vibrant_rd.js": {
+      "order": 157
+    },
+    "violet-curl-waves.js": {
+      "order": 158
+    },
+    "vivid-diffusion.js": {
+      "order": 159
+    },
+    "vivid-maximalist.js": {
+      "order": 160
+    },
+    "vivid-rd.js": {
+      "order": 161
+    },
+    "vivid_glitch.js": {
+      "order": 162
+    },
+    "vivid_glitch_decay.js": {
+      "order": 163
+    },
+    "vivid_glitch_lenia.js": {
+      "order": 164
+    },
+    "vivid_glitchcore.js": {
+      "order": 165
+    },
+    "vivid_maximalist.js": {
+      "order": 166
+    },
+    "vivid_signal_decay.js": {
+      "order": 167
+    },
+    "wild-diffusion.js": {
+      "order": 168
+    },
+    "wild_diffusion.js": {
+      "order": 169
     }
   },
   "folders": []
