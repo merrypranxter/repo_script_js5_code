@@ -302,7 +302,8 @@
     },
     "neon-heartbeat.js": {
       "order": 97,
-      "alias": "colorful moire"
+      "alias": "colorful moire",
+      "color": "#00e676"
     },
     "neon-life.js": {
       "order": 98,
