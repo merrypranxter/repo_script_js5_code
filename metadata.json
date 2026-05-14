@@ -263,7 +263,8 @@
     },
     "math-dynamics.js": {
       "order": 84,
-      "color": "#00e676"
+      "color": "#00e676",
+      "alias": "beautiful glassy"
     },
     "math_blueprint.js": {
       "order": 85,
