@@ -2,6 +2,9 @@
   "files": {
     "rgb_subpixels.js": {
       "alias": "rgb_subpixels.js"
+    },
+    "repo-viz.js": {
+      "color": "#ff00ff"
     }
   },
   "folders": []
