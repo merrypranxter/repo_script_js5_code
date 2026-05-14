@@ -254,7 +254,8 @@
     },
     "magenta-glitch-tape.js": {
       "order": 81,
-      "color": "#00e5ff"
+      "color": "#00e5ff",
+      "alias": "hot pink/black tape glitch"
     },
     "magenta-tape-glitch.js": {
       "order": 82,
