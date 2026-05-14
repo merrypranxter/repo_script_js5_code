@@ -256,7 +256,8 @@
       "order": 81
     },
     "magenta-tape-glitch.js": {
-      "order": 82
+      "order": 82,
+      "color": "#00e5ff"
     },
     "math-choreography.js": {
       "order": 83,
