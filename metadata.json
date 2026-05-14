@@ -514,7 +514,8 @@
       "order": 155
     },
     "vibrant-rd.js": {
-      "order": 156
+      "order": 156,
+      "alias": "vibrant-rd.js"
     },
     "vibrant_rd.js": {
       "order": 157
