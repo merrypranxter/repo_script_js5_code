@@ -43,7 +43,8 @@
       "order": 10
     },
     "amber-phosphor.js": {
-      "order": 11
+      "order": 11,
+      "color": "#00e676"
     },
     "amber_ripple.js": {
       "order": 12
