@@ -379,7 +379,8 @@
       "order": 109
     },
     "neon_substance.js": {
-      "order": 110
+      "order": 110,
+      "color": "#ff3d00"
     },
     "non-euclidean.js": {
       "order": 111
