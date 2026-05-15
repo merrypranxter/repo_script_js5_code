@@ -472,7 +472,8 @@
       "order": 141
     },
     "structural-moire.js": {
-      "order": 142
+      "order": 142,
+      "color": "#00e676"
     },
     "subpixel-grid.js": {
       "order": 143,
