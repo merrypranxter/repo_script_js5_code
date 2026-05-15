@@ -475,7 +475,8 @@
       "order": 142
     },
     "subpixel-grid.js": {
-      "order": 143
+      "order": 143,
+      "color": "#00e5ff"
     },
     "subpixel-moire.js": {
       "order": 144
