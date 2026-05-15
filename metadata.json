@@ -485,7 +485,8 @@
     },
     "synergy.js": {
       "order": 146,
-      "alias": "voxel cheetahprint"
+      "alias": "voxel cheetahprint",
+      "color": "#00e676"
     },
     "thoth-atlantis.js": {
       "order": 147
