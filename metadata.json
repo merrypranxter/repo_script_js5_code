@@ -364,7 +364,8 @@
       "order": 104
     },
     "neon-void-grain.js": {
-      "order": 105
+      "order": 105,
+      "color": "#ff3d00"
     },
     "neon-void-material.js": {
       "order": 106,
