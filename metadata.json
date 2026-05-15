@@ -458,7 +458,8 @@
       "order": 137
     },
     "signal-decay.js": {
-      "order": 138
+      "order": 138,
+      "color": "#ff3d00"
     },
     "signal_decay.js": {
       "order": 139,
