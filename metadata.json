@@ -481,7 +481,8 @@
       "order": 144
     },
     "subpixel_grid.js": {
-      "order": 145
+      "order": 145,
+      "color": "#00e5ff"
     },
     "synergy.js": {
       "order": 146,
