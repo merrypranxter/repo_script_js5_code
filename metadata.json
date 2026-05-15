@@ -373,7 +373,8 @@
       "order": 107
     },
     "neon_media_rot.js": {
-      "order": 108
+      "order": 108,
+      "color": "#ff3d00"
     },
     "neon_quasicrystal.js": {
       "order": 109
