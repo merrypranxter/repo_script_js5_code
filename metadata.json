@@ -484,7 +484,8 @@
       "order": 145
     },
     "synergy.js": {
-      "order": 146
+      "order": 146,
+      "alias": "voxel cheetahprint"
     },
     "thoth-atlantis.js": {
       "order": 147
