@@ -482,7 +482,8 @@
     },
     "subpixel_grid.js": {
       "order": 145,
-      "color": "#00e5ff"
+      "color": "#00e5ff",
+      "alias": "subpixel_grid.js screen texture"
     },
     "synergy.js": {
       "order": 146,
