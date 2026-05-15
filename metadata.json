@@ -476,7 +476,8 @@
     },
     "subpixel-grid.js": {
       "order": 143,
-      "color": "#00e5ff"
+      "color": "#00e5ff",
+      "alias": "screen door"
     },
     "subpixel-moire.js": {
       "order": 144
