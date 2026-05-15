@@ -455,7 +455,8 @@
       "order": 136
     },
     "screendoor.js": {
-      "order": 137
+      "order": 137,
+      "color": "#ff3d00"
     },
     "signal-decay.js": {
       "order": 138,
