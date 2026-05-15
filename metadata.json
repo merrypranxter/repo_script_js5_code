@@ -367,7 +367,8 @@
       "order": 105
     },
     "neon-void-material.js": {
-      "order": 106
+      "order": 106,
+      "color": "#ff3d00"
     },
     "neon_glitch_decay.js": {
       "order": 107
