@@ -466,7 +466,8 @@
       "color": "#00e5ff"
     },
     "slime-moire.js": {
-      "order": 140
+      "order": 140,
+      "color": "#ff3d00"
     },
     "slime-party.js": {
       "order": 141
