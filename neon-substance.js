@@ -1,201 +1,172 @@
-if (!canvas.__three) {
-    try {
-        if (!ctx) throw new Error("WebGL 2 context not available");
-        
+try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
+
+    if (!canvas.__three) {
         const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, grid.width/grid.height, 0.1, 1000);
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
         camera.position.z = 1;
+
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
+
+            uniform float u_time;
+            uniform vec2 u_resolution;
+
+            // Hash for electrostatic xerox grain
+            float hash(vec2 p) {
+                vec3 p3  = fract(vec3(p.xyx) * .1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+
+            // Domain warping for fluid structural motion
+            vec2 fbm_warp(vec2 p, float t) {
+                float a = t * 0.5;
+                mat2 rot = mat2(cos(a), -sin(a), sin(a), cos(a));
+                vec2 q = vec2(sin(p.y * 2.0 + t), cos(p.x * 2.0 - t * 0.8));
+                return p + (q * rot) * 0.15;
+            }
+
+            void main() {
+                // Time scales: 
+                // t_slow = manifold deformation (Kleinian group evolution)
+                // t_med = fluid domain flow (mold growth)
+                // t_fast = thin-film optical phase shift (iridescence)
+                float t_slow = u_time * 0.08;
+                float t_med = u_time * 0.3;
+                float t_fast = u_time * 2.5;
+
+                // Normalize and aspect correct
+                vec2 uv = (vUv - 0.5) * 2.0;
+                uv.x *= u_resolution.x / u_resolution.y;
+
+                // Apply medium-scale domain warp
+                vec2 z = fbm_warp(uv, t_med);
+
+                float orbit = 0.0;
+                float scale = 1.0;
+                float min_dist = 1e5;
+
+                // Hyperbolic Manifold / Kleinian-inspired folding
+                // Simulating the boundary of a 3-manifold where the "mold" grows
+                for(int i = 0; i < 7; i++) {
+                    // Fold space (creates geometric boundaries)
+                    z = abs(z) - vec2(0.4 + sin(t_slow * 0.5)*0.1, 0.3 + cos(t_slow * 0.3)*0.1);
+
+                    // Rotate
+                    float a = t_slow + float(i) * 0.15;
+                    mat2 rot = mat2(cos(a), -sin(a), sin(a), cos(a));
+                    z *= rot;
+
+                    // Möbius circle inversion (pushes space outward, creates fractal dust/gaskets)
+                    float r2 = dot(z, z);
+                    // Clamp to prevent singularities but allow chaotic expansion
+                    float k = clamp(1.2 / r2, 0.1, 4.0); 
+                    z *= k;
+                    scale *= k;
+
+                    orbit += r2;
+                    min_dist = min(min_dist, r2);
+                }
+
+                // --- Structural Color / Thin Film Physics ---
+                // Calculate physical thickness of the "mold" layer based on fractal scaling
+                float film_thickness = 250.0 + (orbit / max(scale, 0.001)) * 600.0;
+
+                // Optical Path Difference (OPD) = 2 * n * d * cos(theta)
+                // Simulate viewing angle via distance from center
+                float view_angle = length(uv) * 0.8; 
+                float cos_theta = cos(view_angle);
+                
+                // Fast time scale drives the phase of the light, making it shimmer
+                float opd = 2.0 * 1.56 * film_thickness * cos_theta + t_fast * 150.0;
+
+                // Compute constructive interference for specific wavelengths
+                vec3 wavelengths = vec3(650.0, 530.0, 440.0); // Red, Green, Blue
+                vec3 phase = (opd / wavelengths) * 6.2831853;
+                // Fabry-Perot style interference approximation
+                vec3 interference = 0.5 + 0.5 * cos(phase);
+
+                // --- Cyberdelic Neon Palette Mapping ---
+                vec3 voidBlack = vec3(0.015, 0.023, 0.031); // #040608
+                vec3 neonCyan = vec3(0.0, 1.0, 0.94);       // #00FFF0
+                vec3 neonMagenta = vec3(1.0, 0.0, 0.8);     // #FF00CC
+                vec3 acidLime = vec3(0.69, 1.0, 0.0);       // #B0FF00
+
+                // Use the fractal orbit and interference to select the neon hue
+                vec3 neonColor = mix(neonCyan, neonMagenta, smoothstep(0.2, 0.8, interference.r));
+                neonColor = mix(neonColor, acidLime, smoothstep(0.4, 0.9, interference.b * sin(orbit)));
+
+                // Material composition: Multiply the chosen neon hue by the interference intensity
+                // This creates physical-looking iridescent bands within the restricted palette
+                vec3 materialColor = neonColor * (pow(interference, vec3(1.5)) * 1.5);
+
+                // Structure mask: The mold only exists near the limit set of the Kleinian group
+                // High scale = deep in the fractal = edge of the manifold
+                float edge_glow = exp(-min_dist * scale * 0.02);
+                float structure = smoothstep(0.0, 0.5, edge_glow);
+
+                // Combine Void Black background with the glowing structural material
+                vec3 finalColor = mix(voidBlack, materialColor, structure);
+
+                // --- Print Artifacts & Physicality ---
+                // 1. Chromatic Aberration (Glitch/Scan-bend) at the edges
+                float aberration = smoothstep(0.3, 0.8, structure) * 0.05 * sin(t_med * 5.0);
+                finalColor.r += mix(0.0, neonMagenta.r, smoothstep(0.0, 1.0, exp(-min_dist * scale * (0.02 + aberration))));
+                finalColor.b += mix(0.0, neonCyan.b, smoothstep(0.0, 1.0, exp(-min_dist * scale * (0.02 - aberration))));
+
+                // 2. Electrostatic Photocopy Grain
+                float grain = hash(vUv * 500.0 + u_time);
+                // Apply grain via Soft Light blend mode logic to maintain contrast
+                vec3 grainColor = vec3(grain);
+                finalColor = finalColor + (grainColor * 2.0 - 1.0) * (finalColor - finalColor * finalColor) * 0.4;
+
+                // 3. Tonal Compression (Xerox artifact)
+                // Crushes the blacks and peaks the neon highlights
+                finalColor = smoothstep(vec3(0.02), vec3(0.95), finalColor);
+
+                fragColor = vec4(finalColor, 1.0);
+            }
+        `;
 
         const material = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
-            uniforms: { 
+            vertexShader,
+            fragmentShader,
+            uniforms: {
                 u_time: { value: 0 },
                 u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
             },
-            vertexShader: `
-                out vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    // Bypass projection completely to perfectly fill the screen
-                    gl_Position = vec4(position.xy, 0.0, 1.0);
-                }
-            `,
-            fragmentShader: `
-                in vec2 vUv;
-                out vec4 fragColor;
-
-                uniform float u_time;
-                uniform vec2 u_resolution;
-
-                // --------------------------------------------------------
-                // NOISE & MATH CORE
-                // --------------------------------------------------------
-                float hash(vec2 p) {
-                    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-                }
-
-                float noise(vec2 p) {
-                    vec2 i = floor(p);
-                    vec2 f = fract(p);
-                    f = f * f * (3.0 - 2.0 * f);
-                    float a = hash(i);
-                    float b = hash(i + vec2(1.0, 0.0));
-                    float c = hash(i + vec2(0.0, 1.0));
-                    float d = hash(i + vec2(1.0, 1.0));
-                    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-                }
-
-                float fbm(vec2 p) {
-                    float f = 0.0;
-                    float amp = 0.5;
-                    for(int i = 0; i < 5; i++) {
-                        f += amp * noise(p);
-                        p *= 2.0;
-                        amp *= 0.5;
-                    }
-                    return f;
-                }
-
-                // --------------------------------------------------------
-                // ISLAMIC TILING: PENTAGRID (QUASICRYSTAL BASIS)
-                // --------------------------------------------------------
-                float pgD(vec2 p, int k, float sp, float gamma) {
-                    float a = float(k) * 3.14159265359 / 5.0;
-                    vec2 n = vec2(cos(a), sin(a));
-                    // Distance to nearest line in the family
-                    return abs(fract(dot(p, n) / sp + gamma + 0.5) - 0.5) * sp;
-                }
-
-                float pentagrid(vec2 p, float sp, float phase) {
-                    float d = 1e9;
-                    for(int i = 0; i < 5; i++) {
-                        float gamma = float(i + 1) / 10.0 + phase;
-                        d = min(d, pgD(p, i, sp, gamma));
-                    }
-                    return d;
-                }
-
-                // --------------------------------------------------------
-                // MAIN MATERIAL COMPILATION
-                // --------------------------------------------------------
-                void main() {
-                    vec2 uv = vUv * 2.0 - 1.0;
-                    uv.x *= u_resolution.x / u_resolution.y;
-
-                    // THREE SIMULTANEOUS TIME SCALES
-                    // Machine hesitation introduced via sine step
-                    float timeStutter = u_time + 0.1 * sin(u_time * 10.0) * step(0.9, sin(u_time * 2.0));
-                    
-                    float t_slow = timeStutter * 0.05; // Global topological drift
-                    float t_med  = timeStutter * 0.2;  // Structural phase shifting
-                    float t_fast = u_time * 2.0;       // Micro-shimmer and interference
-
-                    // 1. FLUID ADVECTION (Topological warping)
-                    vec2 q = uv * 3.0;
-                    vec2 q_orig = q;
-                    for(int i = 0; i < 4; i++) {
-                        float n = fbm(q * 1.2 + t_slow);
-                        float angle = n * 6.2831853 * 2.0;
-                        q += vec2(cos(angle), sin(angle)) * 0.25;
-                    }
-
-                    // 2. STRUCTURAL LAYER (Medium Motion)
-                    float sp = 1.0 + 0.2 * fbm(q * 3.0 - t_slow); // Dynamic spacing pressure
-                    
-                    // Chromatic Parallax misregistration (Separating the CMY channels)
-                    vec2 offC = vec2( 0.02 * fbm(q * 5.0 + t_med), 0.0);
-                    vec2 offM = vec2(-0.02 * fbm(q * 5.0 - t_med),  0.02 * fbm(q * 5.0));
-                    vec2 offY = vec2( 0.0,                        -0.02 * fbm(q * 5.0 + t_med * 0.5));
-
-                    // Core quasi-geometry
-                    float dC = pentagrid(q + offC, sp, t_med);
-                    float dM = pentagrid(q + offM, sp, t_med + 0.1);
-                    float dY = pentagrid(q + offY, sp, t_med + 0.2);
-
-                    // 3. THIN-FILM INTERFERENCE (Fast detail shimmer)
-                    float filmThickness = 200.0 + 600.0 * fbm(q * 15.0 + vec2(t_fast * 0.1, 0.0));
-                    float interference = cos(filmThickness * 0.02) * 0.5 + 0.5;
-
-                    // Line drawing modulated by thin-film tension
-                    float width = 0.005 + 0.02 * interference;
-                    float lC = smoothstep(width, 0.0, dC);
-                    float lM = smoothstep(width, 0.0, dM);
-                    float lY = smoothstep(width, 0.0, dY);
-
-                    // Caustic Glow (Thermal bloom around structures)
-                    float gC = 0.002 / (dC * dC + 0.0001) * (0.5 + 0.5 * noise(q * 25.0 - t_fast));
-                    float gM = 0.002 / (dM * dM + 0.0001) * (0.5 + 0.5 * noise(q * 25.0 + t_fast));
-                    float gY = 0.002 / (dY * dY + 0.0001) * (0.5 + 0.5 * noise(q * 25.0));
-
-                    // Compose Neon CMY
-                    vec3 color = vec3(0.0);
-                    vec3 cyan    = vec3(0.0, 1.0, 1.0);
-                    vec3 magenta = vec3(1.0, 0.0, 1.0);
-                    vec3 yellow  = vec3(1.0, 1.0, 0.0);
-                    
-                    color += cyan    * (lC + gC * 0.8);
-                    color += magenta * (lM + gM * 0.8);
-                    color += yellow  * (lY + gY * 0.8);
-
-                    // Broad thermal bloom (low frequency structural glow)
-                    float broadC = pentagrid(q * 0.5 + offC, sp, t_med);
-                    float broadM = pentagrid(q * 0.5 + offM, sp, t_med + 0.1);
-                    float broadY = pentagrid(q * 0.5 + offY, sp, t_med + 0.2);
-                    color += cyan    * (0.01 / (broadC * broadC + 0.01));
-                    color += magenta * (0.01 / (broadM * broadM + 0.01));
-                    color += yellow  * (0.01 / (broadY * broadY + 0.01));
-
-                    // 4. PHYSICAL SUBSTANCE (Abyssal Substrate)
-                    float sub = fbm(q_orig * 8.0) * fbm(q * 16.0);
-                    vec3 subColor = vec3(0.01, 0.02, 0.03) * sub;
-                    // Iridescent oil sheen in the darkness
-                    subColor += vec3(0.05, 0.02, 0.1) * interference * sub * 2.0;
-                    color += subColor;
-
-                    // 5. DEAD PIXELS (Pollen / Hardware Necrosis)
-                    vec2 pixelCoord = vUv * u_resolution;
-                    float h = hash(floor(pixelCoord + t_fast * 15.0));
-                    float pollen = step(0.998, h);
-                    vec3 pollenColor = mix(cyan, magenta, hash(floor(pixelCoord) * 0.1));
-                    pollenColor = mix(pollenColor, yellow, hash(floor(pixelCoord) * 0.2));
-                    color += pollenColor * pollen * 5.0;
-
-                    // 6. ACES TONEMAPPING (HDR to LDR Compaction)
-                    float a = 2.51;
-                    float b = 0.03;
-                    float c = 2.43;
-                    float d = 0.59;
-                    float e = 0.14;
-                    color = clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
-
-                    // 7. FILM GRAIN & VIGNETTE (Tactility)
-                    float grain = hash(pixelCoord + t_fast);
-                    color *= 0.92 + 0.08 * grain;
-
-                    float vig = length(vUv - 0.5) * 2.0;
-                    color *= 1.0 - smoothstep(0.7, 1.4, vig);
-
-                    fragColor = vec4(color, 1.0);
-                }
-            `
+            depthWrite: false,
+            depthTest: false
         });
 
         const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(mesh);
-        
+
         canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
     }
-}
 
-const { renderer, scene, camera, material } = canvas.__three;
-if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-}
+    const { renderer, scene, camera, material } = canvas.__three;
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+    if (material && material.uniforms) {
+        material.uniforms.u_time.value = time;
+        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
+
+} catch (e) {
+    console.error("Feral Lithogenesis Failed:", e);
+}
