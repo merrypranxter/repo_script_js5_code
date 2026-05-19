@@ -1,231 +1,231 @@
-try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+function render(ctx, grid, time, repos, input, mouse, canvas, THREE) {
+    if (!canvas.__three) {
+        try {
+            if (!ctx) throw new Error("WebGL 2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            // --- 1. PREPARE THE "DECORATIVE" TEXT MASK (KINETIC TYPE STORM / PSYCHEDELIC COLLAGE) ---
+            // We draw the text to an offscreen canvas to use as a texture mask in the shader.
+            // This allows us to apply "xerox degradation" and "sacred geometry" organically.
+            const tSize = 1024;
+            const textCanvas = document.createElement('canvas');
+            textCanvas.width = tSize;
+            textCanvas.height = tSize;
+            const tCtx = textCanvas.getContext('2d');
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+            tCtx.fillStyle = '#000000';
+            tCtx.fillRect(0, 0, tSize, tSize);
 
-    // Offscreen canvas for the "ASTRAL TRASH" text overlay
-    const textCanvas = document.createElement('canvas');
-    textCanvas.width = grid.width;
-    textCanvas.height = grid.height;
-    const textCtx = textCanvas.getContext('2d', { willReadFrequently: true });
-    const textTex = new THREE.CanvasTexture(textCanvas);
-    textTex.minFilter = THREE.LinearFilter;
-    textTex.magFilter = THREE.LinearFilter;
-    textTex.format = THREE.RGBAFormat;
+            // Sacred Geometry Underlay (Origami Creases / Occult Mandala)
+            tCtx.strokeStyle = '#333333';
+            tCtx.lineWidth = 4;
+            for (let i = 1; i <= 8; i++) {
+                tCtx.beginPath();
+                tCtx.arc(tSize / 2, tSize / 2, i * 60, 0, Math.PI * 2);
+                tCtx.stroke();
+                tCtx.beginPath();
+                tCtx.moveTo(tSize / 2 + Math.cos(i * Math.PI / 4) * 500, tSize / 2 + Math.sin(i * Math.PI / 4) * 500);
+                tCtx.lineTo(tSize / 2 - Math.cos(i * Math.PI / 4) * 500, tSize / 2 - Math.sin(i * Math.PI / 4) * 500);
+                tCtx.stroke();
+            }
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
+            // Typography: ASTRAL TRASH
+            tCtx.font = 'bold 150px "Courier New", Courier, monospace';
+            tCtx.textAlign = 'center';
+            tCtx.textBaseline = 'middle';
 
-    const fragmentShader = `
-      precision highp float;
-      
-      in vec2 vUv;
-      out vec4 fragColor;
+            // Xerox degradation / Print Misregistration effect
+            for (let i = 0; i < 8; i++) {
+                tCtx.globalAlpha = 0.15 + (i * 0.05);
+                const ox = (Math.random() - 0.5) * 15;
+                const oy = (Math.random() - 0.5) * 15;
+                tCtx.fillStyle = '#FFFFFF';
+                tCtx.fillText("ASTRAL", tSize / 2 + ox, tSize / 2 - 80 + oy);
+                tCtx.fillText("TRASH", tSize / 2 + ox, tSize / 2 + 80 + oy);
+            }
+            // Core crisp text
+            tCtx.globalAlpha = 1.0;
+            tCtx.fillText("ASTRAL", tSize / 2, tSize / 2 - 80);
+            tCtx.fillText("TRASH", tSize / 2, tSize / 2 + 80);
 
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform sampler2D u_text;
+            const textTexture = new THREE.CanvasTexture(textCanvas);
+            textTexture.minFilter = THREE.LinearFilter;
+            textTexture.magFilter = THREE.LinearFilter;
 
-      #define NUM_OCTAVES 6
+            // --- 2. INITIALIZE THREE.JS ---
+            const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            
+            const scene = new THREE.Scene();
+            const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-      // Pseudo-random hash
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
-      }
+            // --- 3. THE ALCHEMICAL SHADER (FERROFLUID + SHINY + PSYCHEDELIC COLLAGE) ---
+            const vertexShader = `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `;
 
-      // Value noise
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        vec2 u = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
-                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-      }
+            const fragmentShader = `
+                in vec2 vUv;
+                out vec4 fragColor;
 
-      // Fractional Brownian Motion for domain warping
-      float fbm(vec2 x, float t) {
-        float v = 0.0;
-        float a = 0.5;
-        vec2 shift = vec2(100.0);
-        mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
-        for (int i = 0; i < NUM_OCTAVES; ++i) {
-          v += a * noise(x);
-          x = rot * x * 2.0 + shift + t;
-          a *= 0.5;
+                uniform float u_time;
+                uniform vec2 u_resolution;
+                uniform sampler2D u_textMap;
+
+                // --- HASH & NOISE (The Nature of Code) ---
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+                }
+
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+                               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+                }
+
+                // Fractal Brownian Motion
+                float fbm(vec2 p) {
+                    float v = 0.0;
+                    float a = 0.5;
+                    for (int i = 0; i < 5; i++) {
+                        v += a * noise(p);
+                        p *= 2.0;
+                        a *= 0.5;
+                    }
+                    return v;
+                }
+
+                // Rosensweig / Crumple Ridge (Ferrofluid Dance / Origami Creases)
+                float ridge(vec2 p) {
+                    float n = fbm(p);
+                    return 1.0 - abs(n * 2.0 - 1.0);
+                }
+
+                void main() {
+                    // --- TIME SCALES (The Temporal Mechanism) ---
+                    float t_slow = u_time * 0.15;   // Global drift & tectonic shift
+                    float t_med  = u_time * 0.8;    // Structural fluid motion
+                    float t_fast = u_time * 12.0;   // Quantum dust & electronic shimmer
+
+                    vec2 uv = vUv;
+                    
+                    // Aspect ratio correction for text mapping
+                    vec2 textUv = uv;
+                    float aspect = u_resolution.x / u_resolution.y;
+                    if (aspect > 1.0) {
+                        textUv.x = (textUv.x - 0.5) * aspect + 0.5;
+                    } else {
+                        textUv.y = (textUv.y - 0.5) / aspect + 0.5;
+                    }
+
+                    // --- SLOW: DOMAIN WARPING (Ink Bleed / Labyrinthine Ferrofluid) ---
+                    vec2 warpField;
+                    warpField.x = fbm(uv * 3.0 + t_slow);
+                    warpField.y = fbm(uv * 3.0 - t_slow + 42.0);
+                    vec2 warpedUv = textUv + (warpField - 0.5) * 0.15;
+
+                    // --- MEDIUM: STRUCTURAL MOTION (Shiny Veins / Origami Moiré) ---
+                    // Creates physical depth and "kintsugi" fault lines
+                    float structuralRidge = pow(ridge(warpedUv * 8.0 - t_med * 0.2), 3.0);
+                    float fluidFlow = sin(warpedUv.x * 20.0 + t_med) * cos(warpedUv.y * 20.0 - t_med);
+                    float caustic = smoothstep(0.0, 0.8, fluidFlow * ridge(warpedUv * 15.0 + t_med));
+
+                    // --- FAST: SHIMMER & ABERRATION (Psychedelic Glitch / Halftone) ---
+                    // The text acts as a magnetic attractor, pulling the CMY colors apart
+                    float aberrationSpread = 0.01 + 0.04 * structuralRidge;
+                    
+                    // Chromatic separation sampling (Acid Vibration Palette)
+                    float txtC = texture(u_textMap, warpedUv + vec2(aberrationSpread, 0.0)).r;
+                    float txtM = texture(u_textMap, warpedUv + vec2(-aberrationSpread, aberrationSpread)).r;
+                    float txtY = texture(u_textMap, warpedUv + vec2(0.0, -aberrationSpread)).r;
+                    float txtBase = texture(u_textMap, warpedUv).r;
+
+                    // --- MATERIAL LITHOGENESIS (Color Computation) ---
+                    // 1. The Void (Base substance: oily, deep, dark)
+                    vec3 col = vec3(0.01, 0.02, 0.03);
+                    
+                    // 2. Subsurface Buried Shine (Ferrofluid pools)
+                    col = mix(col, vec3(0.0, 0.2, 0.3), caustic * 0.4);
+                    col += vec3(0.3, 0.0, 0.2) * structuralRidge * 0.3;
+
+                    // 3. Neon Acid Injection (The Text)
+                    vec3 neonCyan    = vec3(0.00, 1.00, 0.94);
+                    vec3 neonMagenta = vec3(1.00, 0.00, 0.80);
+                    vec3 neonYellow  = vec3(1.00, 0.90, 0.00);
+
+                    // The text literally bleeds its CMY channels into the fluid structures
+                    col += neonCyan * txtC * (0.4 + 0.6 * fluidFlow);
+                    col += neonMagenta * txtM * (0.4 + 0.6 * structuralRidge);
+                    col += neonYellow * txtY * (0.4 + 0.6 * fbm(warpedUv * 25.0 + t_fast * 0.05));
+
+                    // 4. Quantum Dust / Print Artifacts (Fast Shimmer)
+                    float dust = fract(sin(dot(uv + t_fast, vec2(12.9898, 78.233))) * 43758.5453);
+                    
+                    // Edge detection on the text to concentrate the dust (Glitter Ecology)
+                    float textEdge = abs((txtC + txtM + txtY) / 3.0 - txtBase);
+                    float edgeGlow = smoothstep(0.05, 0.3, textEdge);
+                    col += neonYellow * dust * edgeGlow * 1.5;
+
+                    // 5. Halftone Screen Overlay (Psychedelic Collage)
+                    vec2 grid = fract(uv * u_resolution.xy * 0.4) - 0.5;
+                    float luma = dot(col, vec3(0.299, 0.587, 0.114));
+                    float dotRadius = 0.5 * sqrt(1.0 - luma);
+                    float halftone = smoothstep(dotRadius + 0.05, dotRadius - 0.05, length(grid));
+                    
+                    // Multiply blend the halftone pattern to give it physical "print" grit
+                    col *= mix(1.0, halftone, 0.25);
+                    
+                    // Add raw film grain
+                    col += dust * 0.05;
+
+                    // 6. Entropic Vignette
+                    float vig = length(uv - 0.5);
+                    col *= smoothstep(0.85, 0.25, vig);
+
+                    // Output perceptual color
+                    fragColor = vec4(col, 1.0);
+                }
+            `;
+
+            const material = new THREE.ShaderMaterial({
+                glslVersion: THREE.GLSL3,
+                vertexShader,
+                fragmentShader,
+                uniforms: {
+                    u_time: { value: 0 },
+                    u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                    u_textMap: { value: textTexture }
+                },
+                depthWrite: false,
+                depthTest: false
+            });
+
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+            scene.add(mesh);
+
+            canvas.__three = { renderer, scene, camera, material, textTexture };
+
+        } catch (e) {
+            console.error("WebGL Initialization Failed:", e);
+            return;
         }
-        return v;
-      }
+    }
 
-      void main() {
-        // Coordinate setup
-        vec2 uv = vUv;
-        vec2 p = uv * 3.0; // Scale the math space
-        
-        // Time scales
-        float t_slow = u_time * 0.15;
-        float t_med  = u_time * 0.6;
-        float t_fast = u_time * 4.0;
+    const { renderer, scene, camera, material } = canvas.__three;
 
-        // ----------------------------------------------------
-        // 1. PROCEDURAL MATERIAL (Fluid, Depth, Grain, Op-Art)
-        // ----------------------------------------------------
-        
-        // Domain Warping Layers
-        vec2 q = vec2(fbm(p + vec2(0.0, 0.0) + t_slow, t_slow),
-                      fbm(p + vec2(5.2, 1.3) + t_slow, t_slow));
-                      
-        vec2 r = vec2(fbm(p + 4.0 * q + vec2(1.7, 9.2) + t_med, t_med),
-                      fbm(p + 4.0 * q + vec2(8.3, 2.8) + t_med, t_med));
+    // Safety guards for uniform updates
+    if (material && material.uniforms) {
+        if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+        if (material.uniforms.u_resolution) {
+            material.uniforms.u_resolution.value.set(grid.width, grid.height);
+        }
+    }
 
-        float f = fbm(p + 4.0 * r, t_slow);
-
-        // Aesthetic Components
-        // Void Black Base
-        vec3 col = vec3(0.02, 0.00, 0.04);
-
-        // Neon Cyan: Viscous fluid ribbons
-        float ribbons = smoothstep(0.3, 0.7, r.x) * smoothstep(0.7, 0.3, r.x);
-        vec3 cyan = vec3(0.0, 1.0, 1.0);
-        col = mix(col, cyan, ribbons * f * 2.5);
-
-        // Neon Magenta: Cellular interference / Op-Art tension
-        float interference = sin(q.y * 40.0 + t_med) * cos(q.x * 40.0 - t_med);
-        interference = smoothstep(0.0, 0.15, interference) * smoothstep(0.3, 0.15, interference);
-        vec3 magenta = vec3(1.0, 0.0, 1.0);
-        col = mix(col, magenta, interference * r.y * 2.0);
-
-        // Neon Yellow: High-frequency reaction-diffusion veins
-        float veins = abs(sin(r.y * 60.0 + t_fast * 0.5));
-        veins = smoothstep(0.97, 1.0, veins);
-        vec3 yellow = vec3(1.0, 1.0, 0.0);
-        col = mix(col, yellow, veins * 1.5);
-
-        // Depth & ambient occlusion from FBM
-        col *= (f * f * 2.5 + 0.1);
-        
-        // Specular fast shimmer (wet fluid look)
-        float spec = pow(max(0.0, sin(r.x * 120.0 + t_fast)), 5.0);
-        col += spec * vec3(0.5, 1.0, 1.0) * 0.6;
-
-        // Physical Grain
-        float grain = hash(uv * u_resolution + t_fast);
-        col -= grain * 0.15;
-
-        // ----------------------------------------------------
-        // 2. TEXT OVERLAY (Glitchcore, RGB Split, Wobble)
-        // ----------------------------------------------------
-        
-        vec2 tUv = uv;
-        // Cute bouncy float
-        tUv.y += sin(tUv.x * 6.0 + t_med) * 0.015;
-        tUv.x += cos(tUv.y * 5.0 + t_med * 0.8) * 0.01;
-
-        // Glitch trigger (sporadic jumps)
-        float glitchTrigger = step(0.92, hash(vec2(floor(t_fast * 2.0), 1.0))); 
-        float splitAmt = 0.003 + 0.04 * glitchTrigger * noise(vec2(uv.y * 25.0, t_fast));
-
-        // Chromatic split sample
-        vec4 tR = texture(u_text, tUv + vec2(splitAmt, 0.0));
-        vec4 tG = texture(u_text, tUv);
-        vec4 tB = texture(u_text, tUv - vec2(splitAmt, 0.0));
-
-        float maxAlpha = max(max(tR.a, tG.a), tB.a);
-        vec3 textCol = vec3(tR.r, tG.g, tB.b);
-        
-        // CRT scanline over text
-        float scanline = sin(uv.y * u_resolution.y * 0.4 - t_fast * 8.0) * 0.5 + 0.5;
-        textCol -= scanline * 0.15;
-
-        // Blend text onto background
-        col = mix(col, textCol, maxAlpha);
-
-        fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_text: { value: textTex }
-      },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-
-    canvas.__three = { renderer, scene, camera, material, textCanvas, textCtx, textTex };
-  }
-
-  const { renderer, scene, camera, material, textCanvas, textCtx, textTex } = canvas.__three;
-
-  // Update uniforms
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  // Handle resize and draw "ASTRAL TRASH"
-  if (textCanvas.width !== grid.width || textCanvas.height !== grid.height) {
-    textCanvas.width = grid.width;
-    textCanvas.height = grid.height;
-
-    textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
-    
-    const fontSize = Math.min(grid.width, grid.height) * 0.12;
-    textCtx.font = `italic 900 ${fontSize}px "Arial Rounded MT Bold", "Comic Sans MS", "Fredoka One", sans-serif`;
-    textCtx.textAlign = 'center';
-    textCtx.textBaseline = 'middle';
-    textCtx.lineJoin = 'round';
-
-    const cx = grid.width / 2;
-    const cy = grid.height / 2;
-
-    // Thick black stroke (sticker/pop-art style)
-    textCtx.lineWidth = fontSize * 0.25;
-    textCtx.strokeStyle = '#000000';
-    textCtx.strokeText("ASTRAL TRASH", cx, cy);
-
-    // Bright white fill (shader will RGB split this)
-    textCtx.fillStyle = '#FFFFFF';
-    textCtx.fillText("ASTRAL TRASH", cx, cy);
-
-    // Cute decorative stars
-    textCtx.font = `900 ${fontSize * 0.5}px "Arial Rounded MT Bold", sans-serif`;
-    textCtx.lineWidth = fontSize * 0.12;
-    
-    const starOffset = fontSize * 3.8;
-    const starYOffset = fontSize * 0.6;
-    
-    // Left star
-    textCtx.strokeText("✦", cx - starOffset, cy - starYOffset);
-    textCtx.fillText("✦", cx - starOffset, cy - starYOffset);
-    
-    // Right star
-    textCtx.strokeText("✦", cx + starOffset, cy + starYOffset);
-    textCtx.fillText("✦", cx + starOffset, cy + starYOffset);
-
-    textTex.needsUpdate = true;
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("WebGL Initialization or Render Failed:", e);
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
 }
