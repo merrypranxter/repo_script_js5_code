@@ -1,246 +1,249 @@
-try {
-    if (!canvas.__three) {
-        if (!ctx) throw new Error("WebGL 2 context not available");
+if (typeof THREE === 'undefined') return;
 
-        // 1. GENERATE THE "ASTRAL TRASH" TEXTURE (The Bureaucratic Print Failure)
-        // We render this offscreen with deliberate CMYK misregistration and heavy decorative mass
-        const tCanvas = document.createElement('canvas');
-        tCanvas.width = grid.width * 2; // Supersample for crispness before we destroy it
-        tCanvas.height = grid.height * 2;
-        const tCtx = tCanvas.getContext('2d');
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
+
+    const textCanvas = document.createElement('canvas');
+    textCanvas.width = 1024;
+    textCanvas.height = 1024;
+    const tctx = textCanvas.getContext('2d');
+    
+    tctx.fillStyle = '#000';
+    tctx.fillRect(0, 0, 1024, 1024);
+
+    tctx.strokeStyle = '#fff';
+    for (let i = 0; i < 15; i++) {
+        tctx.lineWidth = i % 3 === 0 ? 5 : 2;
+        tctx.beginPath();
+        tctx.arc(512, 512, 50 + i * 35, 0, Math.PI * 2);
+        tctx.setLineDash(i % 2 === 0 ? [10, 15] : []);
+        tctx.stroke();
+    }
+    tctx.setLineDash([]);
+
+    for (let i = 0; i < 36; i++) {
+        let angle = (i / 36) * Math.PI * 2;
+        tctx.beginPath();
+        tctx.moveTo(512 + Math.cos(angle) * 150, 512 + Math.sin(angle) * 150);
+        tctx.lineTo(512 + Math.cos(angle) * 450, 512 + Math.sin(angle) * 450);
+        tctx.lineWidth = i % 4 === 0 ? 4 : 1;
+        tctx.stroke();
+    }
+
+    tctx.fillStyle = '#fff';
+    tctx.textAlign = 'center';
+    tctx.textBaseline = 'middle';
+    tctx.font = 'italic 900 130px "Arial Black", Impact, sans-serif';
+    tctx.fillText("ASTRAL", 512, 400);
+    tctx.fillText("TRASH", 512, 624);
+
+    tctx.globalCompositeOperation = 'difference';
+    tctx.fillStyle = '#fff';
+    for (let i = 0; i < 40; i++) {
+        tctx.fillRect(Math.random() * 1024, Math.random() * 1024, Math.random() * 150, Math.random() * 15);
+    }
+    tctx.globalCompositeOperation = 'source-over';
+
+    const textTexture = new THREE.CanvasTexture(textCanvas);
+    textTexture.minFilter = THREE.LinearFilter;
+    textTexture.magFilter = THREE.LinearFilter;
+    textTexture.wrapS = THREE.ClampToEdgeWrapping;
+    textTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    
+    const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    orthoCamera.position.z = 1;
+
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_text: { value: textTexture }
+      },
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        in vec2 vUv;
+        out vec4 fragColor;
         
-        tCtx.fillStyle = '#000000';
-        tCtx.fillRect(0, 0, tCanvas.width, tCanvas.height);
+        uniform float u_time;
+        uniform vec2 u_resolution;
+        uniform sampler2D u_text;
         
-        const fontSize = Math.floor(tCanvas.height * 0.18);
-        tCtx.font = `900 italic ${fontSize}px "Arial Black", Impact, sans-serif`;
-        tCtx.textAlign = 'center';
-        tCtx.textBaseline = 'middle';
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
         
-        const cx = tCanvas.width / 2;
-        const cy = tCanvas.height / 2;
-        const offset = tCanvas.width * 0.008; // Registration error
-
-        tCtx.globalCompositeOperation = 'screen';
-
-        // Cyan Plate
-        tCtx.fillStyle = '#00ffff';
-        tCtx.fillText("ASTRAL", cx - offset, cy - fontSize * 0.6);
-        tCtx.fillText("TRASH", cx - offset, cy + fontSize * 0.6);
-
-        // Magenta Plate
-        tCtx.fillStyle = '#ff00ff';
-        tCtx.fillText("ASTRAL", cx + offset, cy - fontSize * 0.6);
-        tCtx.fillText("TRASH", cx + offset, cy + fontSize * 0.6);
-
-        // Yellow Plate
-        tCtx.fillStyle = '#ffff00';
-        tCtx.fillText("ASTRAL", cx, cy - fontSize * 0.6 + offset);
-        tCtx.fillText("TRASH", cx, cy + fontSize * 0.6 + offset);
-
-        // Key (White/Luma) Plate - slightly eroded
-        tCtx.globalCompositeOperation = 'source-over';
-        tCtx.fillStyle = '#ffffff';
-        tCtx.fillText("ASTRAL", cx, cy - fontSize * 0.6);
-        tCtx.fillText("TRASH", cx, cy + fontSize * 0.6);
-
-        const textTexture = new THREE.CanvasTexture(tCanvas);
-        textTexture.minFilter = THREE.LinearMipmapLinearFilter;
-        textTexture.magFilter = THREE.LinearFilter;
-
-        // 2. BUILD THE WET ENGINE (The Material Shader)
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        float snoise(vec3 v) {
+          const vec2  C = vec2(1.0/6.0, 1.0/3.0);
+          const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+          vec3 i  = floor(v + dot(v, C.yyy));
+          vec3 x0 = v - i + dot(i, C.xxx);
+          vec3 g = step(x0.yzx, x0.xyz);
+          vec3 l = 1.0 - g;
+          vec3 i1 = min( g.xyz, l.zxy );
+          vec3 i2 = max( g.xyz, l.zxy );
+          vec3 x1 = x0 - i1 + C.xxx;
+          vec3 x2 = x0 - i2 + C.yyy;
+          vec3 x3 = x0 - D.yyy;
+          i = mod289(i);
+          vec4 p = permute( permute( permute(
+                     i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                   + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
+                   + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+          float n_ = 0.142857142857;
+          vec3  ns = n_ * D.wyz - D.xzx;
+          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+          vec4 x_ = floor(j * ns.z);
+          vec4 y_ = floor(j - 7.0 * x_ );
+          vec4 x = x_ *ns.x + ns.yyyy;
+          vec4 y = y_ *ns.x + ns.yyyy;
+          vec4 h = 1.0 - abs(x) - abs(y);
+          vec4 b0 = vec4( x.xy, y.xy );
+          vec4 b1 = vec4( x.zw, y.zw );
+          vec4 s0 = floor(b0)*2.0 + 1.0;
+          vec4 s1 = floor(b1)*2.0 + 1.0;
+          vec4 sh = -step(h, vec4(0.0));
+          vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+          vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+          vec3 p0 = vec3(a0.xy,h.x);
+          vec3 p1 = vec3(a0.zw,h.y);
+          vec3 p2 = vec3(a1.xy,h.z);
+          vec3 p3 = vec3(a1.zw,h.w);
+          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+          m = m * m;
+          return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
+        }
         
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
+        float fbm(vec3 p) {
+            float v = 0.0;
+            float a = 0.5;
+            for(int i=0; i<5; i++) {
+                v += a * snoise(p);
+                p *= 2.0;
+                a *= 0.5;
             }
-        `;
-
-        const fragmentShader = `
-            in vec2 vUv;
-            out vec4 fragColor;
-
-            uniform float u_time;
-            uniform vec2 u_res;
-            uniform sampler2D u_text;
-
-            // --- THE MATH OF THE VOID ---
+            return v;
+        }
+        
+        float getMask(sampler2D tex, vec2 uv) {
+            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+            return texture(tex, uv).r;
+        }
+        
+        void main() {
+            vec2 uv = vUv;
             
-            float hash12(vec2 p) {
-                vec3 p3  = fract(vec3(p.xyx) * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.x + p3.y) * p3.z);
+            float tSlow = u_time * 0.1;
+            float tMed  = u_time * 0.5;
+            float tFast = u_time * 2.0;
+            
+            vec3 cCyan = vec3(0.0, 1.0, 1.0);
+            vec3 cMag  = vec3(1.0, 0.0, 1.0);
+            vec3 cYel  = vec3(1.0, 1.0, 0.0);
+            vec3 cBlk  = vec3(0.02, 0.01, 0.03);
+            
+            vec2 textUv = (uv - 0.5);
+            if (u_resolution.x > u_resolution.y) {
+                textUv.x *= u_resolution.x / u_resolution.y;
+            } else {
+                textUv.y *= u_resolution.y / u_resolution.x;
             }
+            textUv *= 1.2;
+            textUv += 0.5;
+            
+            float tear = step(0.98, fract(sin(floor(uv.y * 60.0) * 43.133 + tMed) * 12.345));
+            textUv.x += tear * 0.05 * sin(tFast * 20.0);
+            
+            vec3 warpSpace = vec3(uv * 4.0, tSlow);
+            float warpX = fbm(warpSpace);
+            float warpY = fbm(warpSpace + vec3(10.0));
+            vec2 warpedUv = uv + vec2(warpX, warpY) * 0.1;
+            
+            float structNoise = snoise(vec3(warpedUv * 12.0, tMed));
+            float ridges = 1.0 - abs(structNoise);
+            ridges = pow(ridges, 3.0);
+            
+            float shimmer = snoise(vec3(uv * 80.0, tFast));
+            
+            float caOffset = warpX * 0.015;
+            float tMaskR = getMask(u_text, textUv + vec2(caOffset, 0.0));
+            float tMaskG = getMask(u_text, textUv);
+            float tMaskB = getMask(u_text, textUv - vec2(caOffset, 0.0));
+            float textPresence = (tMaskR + tMaskG + tMaskB) / 3.0;
+            
+            float density = ridges * 0.6 + (warpX + warpY)*0.2 + textPresence * 0.4;
+            
+            vec3 col = cBlk;
+            
+            float cyanStrata = smoothstep(0.2, 0.5, density);
+            col = mix(col, cCyan * 0.6, cyanStrata);
+            
+            float magStrata = smoothstep(0.5, 0.75, density + structNoise * 0.2);
+            col = mix(col, cMag * 0.8, magStrata);
+            
+            float yelStrata = smoothstep(0.75, 1.0, density + shimmer * 0.1);
+            col = mix(col, cYel, yelStrata);
+            
+            float moire1 = sin(uv.x * 200.0 + warpX * 10.0);
+            float moire2 = sin(uv.y * 210.0 + warpY * 10.0 + tFast);
+            float moire = (moire1 * moire2) * 0.5 + 0.5;
+            col += cMag * moire * 0.15 * (1.0 - cyanStrata);
+            
+            col += cCyan * tMaskR * 0.7;
+            col += cMag  * tMaskG * 0.7;
+            col += cYel  * tMaskB * 0.7;
+            
+            float textDistort = getMask(u_text, textUv + vec2(sin(uv.y * 20.0 + tFast)*0.01));
+            col += vec3(1.0) * textDistort * 0.3 * smoothstep(0.5, 1.0, ridges);
+            
+            float grain = fract(sin(dot(uv + tFast, vec2(12.9898, 78.233))) * 43758.5453);
+            float dustMask = smoothstep(0.7, 1.0, shimmer) * (1.0 - textPresence * 0.5);
+            col += cYel * grain * dustMask * 1.0;
+            col -= grain * 0.15;
+            
+            float scanline = sin(uv.y * u_resolution.y * 3.14159);
+            col *= 0.95 + 0.05 * scanline;
+            
+            float vig = length(uv - 0.5);
+            col *= smoothstep(0.8, 0.2, vig);
+            
+            fragColor = vec4(col, 1.0);
+        }
+      `
+    });
 
-            vec2 hash22(vec2 p) {
-                vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-                p3 += dot(p3, p3.yzx + 33.33);
-                return fract((p3.xx + p3.yz) * p3.zy);
-            }
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
 
-            float noise(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                vec2 u = f * f * (3.0 - 2.0 * f);
-                return mix(mix(hash12(i + vec2(0.0, 0.0)), hash12(i + vec2(1.0, 0.0)), u.x),
-                           mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
-            }
-
-            float fbm(vec2 x) {
-                float v = 0.0;
-                float a = 0.5;
-                vec2 shift = vec2(100.0);
-                for (int i = 0; i < 5; ++i) {
-                    v += a * noise(x);
-                    x = x * 2.0 + shift;
-                    a *= 0.5;
-                }
-                return v;
-            }
-
-            // Magnetic Ferrofluid Spikes (Cellular Noise)
-            vec3 voronoi(vec2 x, float t) {
-                vec2 n = floor(x);
-                vec2 f = fract(x);
-                float m = 8.0;
-                vec2 mr;
-                for(int j = -1; j <= 1; j++) {
-                    for(int i = -1; i <= 1; i++) {
-                        vec2 g = vec2(float(i), float(j));
-                        vec2 o = hash22(n + g);
-                        o = 0.5 + 0.5 * sin(t + 6.2831853 * o);
-                        vec2 r = g + o - f;
-                        float d = dot(r, r);
-                        if(d < m) {
-                            m = d;
-                            mr = r;
-                        }
-                    }
-                }
-                return vec3(sqrt(m), mr);
-            }
-
-            mat2 rot(float a) {
-                float s = sin(a), c = cos(a);
-                return mat2(c, -s, s, c);
-            }
-
-            void main() {
-                // THREE TIME SCALES: Drift, Motion, Shimmer
-                float t_slow = u_time * 0.1;
-                float t_med  = u_time * 0.6;
-                float t_fast = u_time * 4.0;
-
-                vec2 uv = vUv;
-                
-                // 1. FAST SHIMMER: Machine hesitation & Glitch
-                // Quantize Y for horizontal scanline glitch
-                float scanline = floor(uv.y * u_res.y * 0.1);
-                float glitch = step(0.97, hash12(vec2(scanline, floor(t_fast * 2.0))));
-                vec2 textUV = uv + vec2(glitch * 0.05 * sin(t_fast), 0.0);
-
-                // 2. SLOW DRIFT: The Deep Fluid Carrier
-                vec2 q = vec2(fbm(uv * 3.0 + t_slow), fbm(uv * 3.0 + vec2(5.2, 1.3) - t_slow));
-                
-                // Text pulls the fluid (Gravity well logic)
-                vec4 rawText = texture(u_text, textUV + (q - 0.5) * 0.05); // Slight fluid warp on read
-                float textMass = max(rawText.r, max(rawText.g, rawText.b));
-                
-                // 3. MEDIUM MOTION: Ferrofluid Spikes & Interference
-                vec2 r = vec2(fbm(uv * 5.0 + 4.0 * q + t_med + textMass * 0.5), 
-                              fbm(uv * 5.0 + 4.0 * q + vec2(8.3, 2.8) - t_med));
-                              
-                float f = fbm(uv * 10.0 + 5.0 * r);
-                
-                // Voronoi magnetic spikes
-                vec3 v = voronoi(uv * 12.0 + r * 3.0, t_med);
-                float veins = smoothstep(0.1, 0.0, v.x); // Sharp ridges
-                float cells = v.x; // Cell interiors
-                
-                // --- PALETTE: Cyberdelic Neon & Void Black ---
-                vec3 voidBlack = vec3(0.02, 0.03, 0.04);
-                vec3 cyan = vec3(0.0, 1.0, 0.94);
-                vec3 mag = vec3(1.0, 0.0, 0.8);
-                vec3 yel = vec3(1.0, 0.9, 0.0);
-
-                // Build the base fluid substance
-                vec3 col = voidBlack;
-                col = mix(col, cyan * 0.4, smoothstep(0.3, 0.7, r.x));
-                col = mix(col, mag * 0.4, smoothstep(0.4, 0.8, r.y));
-                
-                // Spikes glow intensely
-                vec3 veinColor = mix(cyan, yel, f);
-                veinColor = mix(veinColor, mag, r.x);
-                col += veinColor * veins * (1.0 + textMass * 2.0); // Text excites the spikes
-                
-                // Integrate the "ASTRAL TRASH" text as a physical emulsion
-                vec3 textInk = rawText.rgb;
-                // The ink floats on the fluid, pooling in the Voronoi cells
-                vec3 pooledInk = textInk * (0.5 + 1.5 * cells) + textInk * f;
-                col = mix(col, pooledInk, smoothstep(0.1, 0.6, textMass));
-                
-                // --- PRINT ARTIFACTS: Halftone Screen & Grain ---
-                // Rotate grid slowly over time for moire-like liquid feel
-                vec2 gridUV = rot(0.5 + t_slow * 0.2) * uv * (u_res * 0.15); 
-                vec2 cellUV = fract(gridUV) - 0.5;
-                float dotDist = length(cellUV);
-                
-                // Luma calculation for halftone dot size
-                float luma = dot(col, vec3(0.299, 0.587, 0.114));
-                float radius = sqrt(luma) * 0.65;
-                float halftone = smoothstep(radius + 0.05, radius - 0.05, dotDist);
-                
-                // The ink eats into the void black where halftone drops off
-                col = mix(voidBlack * 0.5, col * 1.5, halftone);
-                
-                // Quantum Dust (Blue Noise approximation via high-freq hash)
-                float dust = hash12(uv * u_res + t_fast);
-                col += dust * 0.08 * vec3(1.0, 0.8, 0.9); // Slight warmth to the dust
-                
-                // Vignette / Lens degradation
-                float vig = length(vUv - 0.5);
-                col *= smoothstep(0.8, 0.3, vig);
-
-                fragColor = vec4(col, 1.0);
-            }
-        `;
-
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            vertexShader,
-            fragmentShader,
-            uniforms: {
-                u_time: { value: 0 },
-                u_res: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_text: { value: textTexture }
-            },
-            depthWrite: false,
-            depthTest: false
-        });
-
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-
-        canvas.__three = { renderer, scene, camera, material };
-    }
-
-    const { renderer, scene, camera, material } = canvas.__three;
-
-    // Update Vitality (Time & Resolution)
-    if (material && material.uniforms) {
-        if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-        if (material.uniforms.u_res) material.uniforms.u_res.value.set(grid.width, grid.height);
-    }
-
-    // Render the physical substance
-    renderer.setSize(grid.width, grid.height, false);
-    renderer.render(scene, camera);
-
-} catch (e) {
-    console.error("The Wet Engine Failed to Ignite:", e);
+    canvas.__three = { renderer, scene, camera: orthoCamera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material?.uniforms?.u_time) {
+  material.uniforms.u_time.value = time;
+}
+
+if (material?.uniforms?.u_resolution) {
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
