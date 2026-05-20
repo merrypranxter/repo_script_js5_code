@@ -1,230 +1,171 @@
-if (!canvas.__three) {
-    try {
-        if (!ctx) throw new Error("WebGL 2 context not available");
+try {
+    if (!ctx) throw new Error("WebGL context not available");
 
+    if (!canvas.__three) {
         const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-        // Create the "ASTRAL TRASH" text texture via Canvas 2D
-        const textCanvas = document.createElement('canvas');
-        textCanvas.width = 2048;
-        textCanvas.height = 2048;
-        const tCtx = textCanvas.getContext('2d');
-        
-        // Background black
-        tCtx.fillStyle = '#000000';
-        tCtx.fillRect(0, 0, 2048, 2048);
-        
-        // Typography Physics & Concrete Poetry
-        tCtx.textAlign = 'center';
-        tCtx.textBaseline = 'middle';
-        
-        // Main Text
-        tCtx.fillStyle = '#FFFFFF';
-        tCtx.font = '900 320px "Arial Black", Impact, sans-serif';
-        // Simulating typographic drag and compression chew
-        tCtx.fillText('ASTRAL', 1024, 800);
-        tCtx.fillText('TRASH', 1024, 1200);
-
-        // Terminal Residue / Text Debris (glitchcore)
-        tCtx.font = 'bold 40px Courier New, monospace';
-        tCtx.fillStyle = '#888888';
-        tCtx.fillText('// KINETIC_TYPE_STORM :: PARTICLE_SYSTEM_ACTIVE', 1024, 1450);
-        tCtx.fillText('// STRUCTURAL_COLOR :: THIN_FILM_INTERFERENCE', 1024, 1520);
-        tCtx.fillText('// ZENO_TUNNEL :: INFINITE_DESCENT_RATIO_0.618', 1024, 1590);
-        
-        // Decorative tracking marks
-        tCtx.font = '20px monospace';
-        for(let i=0; i<20; i++) {
-            tCtx.fillText(`[0x${(Math.random()*0xFFFF)|0}] SIGNAL_DENSITY: OVERLOADED`, 300, 100 + i*90);
-            tCtx.fillText(`ERR_CODE_${i}: PALETTE_RUPTURE`, 1748, 100 + i*90);
-        }
-
-        const textTexture = new THREE.CanvasTexture(textCanvas);
-        textTexture.minFilter = THREE.LinearMipMapLinearFilter;
-        textTexture.magFilter = THREE.LinearFilter;
-        textTexture.generateMipmaps = true;
-
         const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+
+        const tCanvas = document.createElement('canvas');
+        tCanvas.width = 2048;
+        tCanvas.height = 1024;
+        const tctx = tCanvas.getContext('2d');
+        
+        tctx.fillStyle = '#000000';
+        tctx.fillRect(0, 0, 2048, 1024);
+        
+        tctx.font = 'bold 280px "Arial Black", Impact, sans-serif';
+        tctx.textAlign = 'center';
+        tctx.textBaseline = 'middle';
+        tctx.lineJoin = 'round';
+
+        for(let i = 18; i >= 0; i--) {
+            tctx.lineWidth = i * 8 + 4;
+            tctx.strokeStyle = i % 2 === 0 ? '#FFFFFF' : '#000000';
+            tctx.strokeText("ASTRAL", 1024, 350);
+            tctx.strokeText("TRASH", 1024, 680);
+        }
+        
+        tctx.fillStyle = '#FFFFFF';
+        tctx.fillText("ASTRAL", 1024, 350);
+        tctx.fillText("TRASH", 1024, 680);
+
+        const tex = new THREE.CanvasTexture(tCanvas);
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
 
         const material = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
             uniforms: {
                 u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_textTex: { value: textTexture }
+                u_tex: { value: tex },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
             },
             vertexShader: `
                 out vec2 vUv;
                 void main() {
                     vUv = uv;
-                    gl_Position = vec4(position, 1.0);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
             `,
             fragmentShader: `
                 in vec2 vUv;
                 out vec4 fragColor;
-
+                
                 uniform float u_time;
+                uniform sampler2D u_tex;
                 uniform vec2 u_resolution;
-                uniform sampler2D u_textTex;
 
-                // Fast hash function
-                float hash(vec2 p) {
-                    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+                float random(in vec2 st) {
+                    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
                 }
 
-                // 2D Noise
-                float noise(vec2 p) {
-                    vec2 i = floor(p);
-                    vec2 f = fract(p);
-                    f = f * f * (3.0 - 2.0 * f);
-                    float a = hash(i);
-                    float b = hash(i + vec2(1.0, 0.0));
-                    float c = hash(i + vec2(0.0, 1.0));
-                    float d = hash(i + vec2(1.0, 1.0));
-                    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+                float noise(in vec2 st) {
+                    vec2 i = floor(st);
+                    vec2 f = fract(st);
+                    float a = random(i);
+                    float b = random(i + vec2(1.0, 0.0));
+                    float c = random(i + vec2(0.0, 1.0));
+                    float d = random(i + vec2(1.0, 1.0));
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
                 }
 
-                // Fractional Brownian Motion (Organic fungal/mycelial growth)
-                float fbm(vec2 p) {
-                    float v = 0.0;
-                    float a = 0.5;
-                    mat2 rot = mat2(0.866, -0.5, 0.5, 0.866);
-                    for (int i = 0; i < 5; i++) {
-                        v += a * noise(p);
-                        p = rot * p * 2.0;
-                        a *= 0.5;
+                float fbm(in vec2 st) {
+                    float value = 0.0;
+                    float amplitude = 0.5;
+                    for (int i = 0; i < 6; i++) {
+                        value += amplitude * noise(st);
+                        st *= 2.0;
+                        amplitude *= 0.5;
                     }
-                    return v;
-                }
-
-                // Kleinian Group / Hyperbolic spatial folding
-                vec2 fold(vec2 p) {
-                    float r2 = dot(p, p);
-                    return p / (r2 + 0.1); 
-                }
-
-                // The Material Heightmap
-                float map(vec2 p, float t_slow, float t_med) {
-                    // Base domain warping
-                    vec2 warp = vec2(fbm(p * 2.0 + t_slow), fbm(p * 2.0 - t_slow + 10.0));
-                    vec2 pw = mix(p, fold(p), 0.15) + warp * 0.3;
-
-                    // Zeno Tunnel - Infinite subdivision ridges
-                    float logBase = log(1.0 / 0.618); // Golden ratio descent
-                    float logDepth = log(length(pw) + 0.001) / logBase;
-                    float zeno = fract(logDepth - t_med);
-                    zeno = smoothstep(0.0, 0.1, zeno) * smoothstep(1.0, 0.8, zeno);
-
-                    // Text sampling with glitch offset (Pastel Identity Smear)
-                    vec2 texUv = vUv;
-                    // Apply compression chew / macroblock breakup to the text UVs
-                    vec2 blockUv = floor(texUv * 50.0) / 50.0;
-                    float glitch = step(0.95, hash(blockUv + floor(u_time * 8.0))) * 0.05;
-                    
-                    float textMask = texture(u_textTex, texUv + warp * 0.02 + vec2(glitch, 0.0)).r;
-
-                    // Combine structural elements into a physical substance thickness
-                    float h = fbm(pw * 5.0 + t_med * 0.5);
-                    h += zeno * 0.4;
-                    h += textMask * 1.5; // Text acts as thick raised material
-                    
-                    return h;
-                }
-
-                // Compute normal from heightmap (Structural Color Physics)
-                vec3 calcNormal(vec2 p, float t_slow, float t_med) {
-                    vec2 e = vec2(0.002, 0.0);
-                    float h = map(p, t_slow, t_med);
-                    vec3 n = normalize(vec3(
-                        map(p + e.xy, t_slow, t_med) - map(p - e.xy, t_slow, t_med),
-                        map(p + e.yx, t_slow, t_med) - map(p - e.yx, t_slow, t_med),
-                        0.05 // depth scale
-                    ));
-                    return n;
+                    return value;
                 }
 
                 void main() {
-                    // Coordinates
-                    vec2 uv = vUv * 2.0 - 1.0;
-                    uv.x *= u_resolution.x / u_resolution.y;
+                    float t_slow = u_time * 0.12;
+                    float t_med  = u_time * 0.45;
+                    float t_fast = u_time * 3.8;
 
-                    // Three simultaneous time scales
-                    float t_slow = u_time * 0.15;
-                    float t_med  = u_time * 0.8;
-                    float t_fast = u_time * 4.0;
+                    vec2 uv = vUv;
+                    vec2 st = uv;
+                    st.x *= u_resolution.x / u_resolution.y;
 
-                    // Compute material structure
-                    float h = map(uv, t_slow, t_med);
-                    vec3 n = calcNormal(uv, t_slow, t_med);
-                    vec3 viewDir = normalize(vec3(0.0, 0.0, 1.0));
+                    vec2 p = st * 3.5;
 
-                    // Thin-film interference (Structural Color)
-                    float cosTheta = max(0.0, dot(n, viewDir));
-                    float thickness = h * 800.0; // Assume 800nm max thickness
-                    float n_film = 1.56; // Chitin / Polymer refractive index
-                    
-                    // Optical path difference
-                    float pathDiff = 2.0 * n_film * thickness * sqrt(1.0 - pow(sin(acos(cosTheta))/n_film, 2.0));
-                    
-                    // Map interference to Neon CMY palette (Hyperpop Rupture)
-                    float phase = pathDiff * 0.005 + t_fast * 0.2;
-                    
-                    vec3 cmy = vec3(0.0);
-                    // Electric Cyan
-                    cmy = mix(cmy, vec3(0.0, 1.0, 1.0), smoothstep(0.3, 1.0, sin(phase)));
-                    // Hot Magenta
-                    cmy = mix(cmy, vec3(1.0, 0.0, 1.0), smoothstep(0.3, 1.0, sin(phase + 2.094)));
-                    // Acid Yellow
-                    cmy = mix(cmy, vec3(1.0, 1.0, 0.0), smoothstep(0.3, 1.0, sin(phase + 4.188)));
+                    vec2 q = vec2(fbm(p + vec2(t_slow, 0.0)), fbm(p + vec2(5.2, 1.3) - t_slow));
+                    vec2 r = vec2(fbm(p + 4.0 * q + vec2(1.7, 9.2) + t_med), fbm(p + 4.0 * q + vec2(8.3, 2.8) - t_med));
 
-                    // Void Black Contrast
-                    // Force deep shadows where material is thin or normal faces away
-                    float shadow = smoothstep(0.2, 0.8, cosTheta * (h * 0.5 + 0.5));
-                    vec3 color = cmy * shadow;
+                    float n = fbm(p + 6.0 * r);
 
-                    // Glitchcore Edge Buzz & Chromatic Aberration on Text
-                    vec2 texUv = vUv;
-                    float textR = texture(u_textTex, texUv + vec2(0.005, 0.0)).r;
-                    float textB = texture(u_textTex, texUv - vec2(0.005, 0.0)).r;
-                    float textEdge = abs(textR - textB);
-                    
-                    if (textEdge > 0.0) {
-                        float buzz = step(0.5, sin(uv.y * 100.0 + t_fast * 5.0));
-                        color = mix(color, vec3(1.0, 1.0, 1.0), textEdge * buzz);
+                    float moireX = sin((st.x + q.x) * 180.0 + t_fast);
+                    float moireY = sin((st.y + q.y) * 180.0 - t_fast);
+                    float shimmer = (moireX * moireY) * 0.5 + 0.5;
+
+                    float grain = random(uv + t_fast) * 0.18;
+
+                    vec3 voidBlk = vec3(0.03, 0.005, 0.05);
+                    vec3 neonCyan = vec3(0.0, 1.0, 0.85);
+                    vec3 neonMag  = vec3(1.0, 0.0, 0.9);
+                    vec3 neonYel  = vec3(0.95, 1.0, 0.0);
+
+                    vec3 mat = voidBlk;
+
+                    mat = mix(mat, neonCyan, smoothstep(0.25, 0.75, n));
+
+                    float magMask = smoothstep(0.3, 0.7, length(q));
+                    mat = mix(mat, neonMag, magMask * n);
+
+                    float yelMask = smoothstep(0.65, 0.95, r.y + shimmer * 0.25);
+                    mat = mix(mat, neonYel, yelMask);
+
+                    mat -= grain;
+
+                    vec2 warp = (r - 0.5) * 0.06;
+                    float tR = texture(u_tex, uv + warp * 0.7).r;
+                    float tG = texture(u_tex, uv + warp * 1.0).r;
+                    float tB = texture(u_tex, uv + warp * 1.3).r;
+
+                    float textLum = (tR + tG + tB) / 3.0;
+
+                    if (textLum > 0.02) {
+                        vec3 textMat = mix(neonYel, neonCyan, shimmer);
+                        textMat = mix(textMat, neonMag, fbm(p * 12.0 + t_med));
+
+                        vec3 textEdge = tR * neonCyan + tG * neonMag + tB * neonYel;
+
+                        mat = mix(mat, textMat, textLum * 0.85);
+                        
+                        float pulse = sin(u_time * 2.5) * 0.5 + 0.5;
+                        mat += textEdge * (0.8 + pulse * 0.6);
                     }
 
-                    // Fast detail shimmer / Signal Density Grain
-                    float grain = hash(uv + t_fast) * 0.15;
-                    color += grain * cmy;
+                    float dist = distance(uv, vec2(0.5));
+                    mat *= smoothstep(0.85, 0.25, dist);
 
-                    // Final void black crush
-                    float lum = dot(color, vec3(0.299, 0.587, 0.114));
-                    color = mix(vec3(0.01, 0.0, 0.02), color, smoothstep(0.15, 0.3, lum));
-
-                    fragColor = vec4(color, 1.0);
+                    fragColor = vec4(clamp(mat, 0.0, 1.0), 1.0);
                 }
             `
         });
 
         const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(mesh);
-
-        canvas.__three = { renderer, scene, camera, material, textTexture };
-    } catch (e) {
-        console.error("WebGL Initialization Failed:", e);
-        return;
+        canvas.__three = { renderer, scene, camera, material };
     }
+
+    const { renderer, scene, camera, material } = canvas.__three;
+
+    if (material && material.uniforms) {
+        if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+        if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
+
+} catch (e) {
+    console.error("Astral Trash rendering failed:", e);
 }
-
-const { renderer, scene, camera, material } = canvas.__three;
-
-if (material && material.uniforms && material.uniforms.u_time) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-}
-
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
