@@ -1,71 +1,75 @@
-if (!canvas.__three) {
-    try {
+try {
+    if (!canvas.__three) {
         if (!ctx) throw new Error("WebGL 2 context not available");
 
-        // FERAL DESIGN BRAIN: Build the structural seed.
-        // We render "ASTRAL TRASH" as a dense, topographical heightmap.
-        // The shader will ingest this, shatter it through a Kleinian fold,
-        // and crystallize it into a physical substance.
-        const tcv = document.createElement('canvas');
-        tcv.width = 1024;
-        tcv.height = 1024;
-        const tctx = tcv.getContext('2d');
-        
-        // Base gravity well
-        const grad = tctx.createRadialGradient(512, 512, 0, 512, 512, 600);
-        grad.addColorStop(0, '#444');
-        grad.addColorStop(1, '#000');
-        tctx.fillStyle = grad;
-        tctx.fillRect(0, 0, 1024, 1024);
+        // 1. GENERATE THE TEXTURE (KINETIC TYPE / MOCK ESOTERICA)
+        // We create a dense, highly symbolic 2D canvas to feed into the shader as a material map.
+        const texSize = 1024;
+        const textCanvas = document.createElement('canvas');
+        textCanvas.width = texSize;
+        textCanvas.height = texSize;
+        const tctx = textCanvas.getContext('2d');
 
-        // Zeno subdivision rings (mock esoterica)
-        tctx.strokeStyle = '#222';
-        for(let i=0; i<15; i++) {
-            tctx.lineWidth = 2 + i;
-            tctx.beginPath();
-            tctx.arc(512, 512, 50 + i * 35, 0, Math.PI * 2);
-            tctx.stroke();
-        }
+        // Void black base
+        tctx.fillStyle = '#000000';
+        tctx.fillRect(0, 0, texSize, texSize);
 
         tctx.textAlign = 'center';
         tctx.textBaseline = 'middle';
-        tctx.font = '900 160px "Arial Black", Impact, sans-serif';
 
-        // Topographic / Fungal text accumulation
-        for(let i = 25; i > 0; i--) {
-            tctx.lineWidth = i * 3;
-            const v = Math.floor((1.0 - i/25) * 255);
-            tctx.strokeStyle = `rgb(${v}, ${v}, ${v})`;
-            tctx.strokeText("ASTRAL", 512, 400);
-            tctx.strokeText("TRASH", 512, 620);
-        }
+        // Mock Esoterica: Large background pyramid (dim so it becomes a subtle phantom)
+        tctx.fillStyle = '#444444';
+        tctx.font = '400px serif';
+        tctx.fillText("⟁", texSize / 2, texSize / 2 + 50);
+
+        // Core Text: ASTRAL TRASH
+        tctx.fillStyle = '#FFFFFF';
+        tctx.font = '900 160px "Courier New", monospace';
         
-        tctx.fillStyle = '#fff';
-        tctx.fillText("ASTRAL", 512, 400);
-        tctx.fillText("TRASH", 512, 620);
+        // Brutalist compression (squeeze vertically)
+        tctx.save();
+        tctx.scale(1, 0.85);
+        tctx.fillText("ASTRAL", texSize / 2, 450);
+        tctx.fillText("TRASH", texSize / 2, 650);
+        tctx.restore();
 
-        // Interface debris / Ritual bureaucracy
-        tctx.font = 'bold 30px monospace';
-        tctx.fillStyle = '#666';
-        tctx.fillText("ERR_ZENO_LIMIT // HYPERBOLIC_DECAY", 512, 200);
-        tctx.fillText("STRUCTURAL_COLOR_BLEED // CMY_VOID", 512, 820);
+        // Sweet Corruption / Body Glyphs
+        tctx.font = '80px sans-serif';
+        tctx.fillText("💀", texSize / 2, 220); // Cute necrosis
+        tctx.fillText("👁", texSize / 2, 820); // The watcher
+        tctx.fillText("✧", 180, texSize / 2); // Sweet motif
+        tctx.fillText("✧", 844, texSize / 2);
 
-        const textTexture = new THREE.CanvasTexture(tcv);
-        textTexture.minFilter = THREE.LinearFilter;
-        textTexture.magFilter = THREE.LinearFilter;
+        // Interface Debris / Terminal Residue
+        tctx.font = 'bold 20px monospace';
+        tctx.textAlign = 'left';
+        for (let i = 0; i < 25; i++) {
+            const x = Math.random() * (texSize - 200);
+            const y = Math.random() * texSize;
+            tctx.fillText(Math.random() > 0.5 ? "> SYS_FAIL_0x" : "connection lost...", x, y);
+        }
+
+        const textTexture = new THREE.CanvasTexture(textCanvas);
         textTexture.wrapS = THREE.RepeatWrapping;
         textTexture.wrapT = THREE.RepeatWrapping;
+        textTexture.minFilter = THREE.LinearFilter;
+        textTexture.magFilter = THREE.LinearFilter;
 
+        // 2. SETUP THREE.JS ENVIRONMENT
         const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
         const scene = new THREE.Scene();
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
+        const geometry = new THREE.PlaneGeometry(2, 2);
+
+        // 3. THE ALCHEMICAL SHADER
+        // Combines Zeno Tunnel recursion, Structural Color (Thin Film), and Glitchcore RGB Phantoms.
         const material = new THREE.ShaderMaterial({
             glslVersion: THREE.GLSL3,
             uniforms: {
                 u_time: { value: 0 },
                 u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_textTex: { value: textTexture }
+                u_tex: { value: textTexture }
             },
             vertexShader: `
                 out vec2 vUv;
@@ -77,163 +81,151 @@ if (!canvas.__three) {
             fragmentShader: `
                 in vec2 vUv;
                 out vec4 fragColor;
-
+                
                 uniform float u_time;
                 uniform vec2 u_resolution;
-                uniform sampler2D u_textTex;
+                uniform sampler2D u_tex;
 
-                // Hash & Noise for fluid mechanics
-                float hash(vec2 p) {
-                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                // Hash & Noise Functions
+                float hash(vec2 p) { 
+                    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); 
                 }
-
+                
                 float noise(vec2 p) {
-                    vec2 i = floor(p);
+                    vec2 i = floor(p); 
                     vec2 f = fract(p);
                     f = f * f * (3.0 - 2.0 * f);
                     return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
                                mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
                 }
-
+                
                 float fbm(vec2 p) {
-                    float v = 0.0;
-                    float a = 0.5;
-                    for (int i = 0; i < 4; i++) {
-                        v += a * noise(p);
-                        p *= 2.0;
-                        a *= 0.5;
+                    float v = 0.0, a = 0.5;
+                    for (int i = 0; i < 5; i++) { 
+                        v += a * noise(p); 
+                        p *= 2.0; 
+                        a *= 0.5; 
                     }
                     return v;
                 }
 
-                // The Zeno-Kleinian Engine
-                float computeDensity(vec2 uv, float t_slow, float t_med) {
-                    vec2 z = uv * 2.0 - 1.0;
-                    z.x *= u_resolution.x / u_resolution.y;
-                    
-                    // Advection field
-                    vec2 warp = vec2(fbm(z * 2.0 + t_med), fbm(z * 2.0 - t_med + 10.0));
-                    z += warp * 0.15;
-                    
-                    // Sample the structural seed (text)
-                    float tx = texture(u_textTex, uv + warp * 0.02).r;
-                    
-                    float d = 0.0;
-                    float scale = 1.0;
-                    
-                    // Recursive spatial subdivision / folding
-                    for (int i = 0; i < 6; i++) {
-                        // The text density literally pulls the space apart
-                        z = abs(z) - vec2(0.05 + tx * 0.15, 0.15); 
-                        
-                        float r2 = dot(z, z);
-                        float k = clamp(1.0 / r2, 0.2, 2.5); // Spherical inversion
-                        z *= k;
-                        scale *= k;
-                        
-                        // Hyperbolic drift
-                        float theta = t_slow * 0.5;
-                        float c = cos(theta), s = sin(theta);
-                        z = vec2(z.x * c - z.y * s, z.x * s + z.y * c);
-                        
-                        z -= vec2(0.3, 0.2);
-                        
-                        d += abs(z.x) / scale;
-                    }
-                    
-                    return d * 0.6 + tx * 0.5;
-                }
-
-                // Convert pure math into physical substance
-                float getSurface(vec2 uv, float t_slow, float t_med) {
-                    float d = computeDensity(uv, t_slow, t_med);
-                    // Strata ribbons (Thin-film layers)
-                    return d + 0.05 * sin(d * 40.0 - t_med * 10.0);
+                // Structural Color: Inverted Cosine Palette for pure CMY Neon
+                // Maps continuous thickness to harsh cyan/magenta/yellow bands
+                vec3 cmyNeon(float t) {
+                    vec3 phase = vec3(0.0, 0.333, 0.667);
+                    vec3 col = 0.5 + 0.5 * cos(6.28318 * (t + phase));
+                    col = 1.0 - col; // Invert RGB to get CMY
+                    return smoothstep(0.2, 0.8, col); // Harsh contrast for physical plastic feel
                 }
 
                 void main() {
+                    vec2 uv = vUv;
+                    vec2 centeredUV = uv * 2.0 - 1.0;
+                    centeredUV.x *= u_resolution.x / u_resolution.y;
+                    
                     // THREE SIMULTANEOUS TIME SCALES
-                    float t_slow = u_time * 0.05;  // Global drift
-                    float t_med  = u_time * 0.25;  // Structural fluid motion
-                    float t_fast = u_time * 3.0;   // Chromatic shimmer / Glitch
-
-                    vec2 p = vUv;
+                    float t_slow = u_time * 0.05; // Global drift & Zeno spiral
+                    float t_med = u_time * 0.5;   // Structural fluid motion
+                    float t_fast = u_time * 15.0; // Detail shimmer & macroblock chew
+                    
+                    // --- LAYER 1: ZENO TUNNEL & THIN FILM STRUCTURE ---
                     
                     // Glitchcore Macroblock Breakup
-                    vec2 grid = floor(p * 25.0);
-                    if (hash(grid + floor(t_fast)) > 0.96) {
-                        p.x += (hash(grid) - 0.5) * 0.04;
+                    float blockNoise = noise(floor(centeredUV * 12.0) + floor(t_fast * 0.5));
+                    vec2 glitchUV = centeredUV;
+                    if (blockNoise > 0.85) {
+                        glitchUV.x += 0.03 * sin(t_fast);
+                        glitchUV.y += 0.015 * cos(t_fast * 0.8);
                     }
-
-                    // Compute physical surface map
-                    float d = getSurface(p, t_slow, t_med);
                     
-                    // Finite differences for Normal mapping (Tactile depth)
-                    float eps = 0.002;
-                    float dx = getSurface(p + vec2(eps, 0.0), t_slow, t_med) - d;
-                    float dy = getSurface(p + vec2(0.0, eps), t_slow, t_med) - d;
-                    vec3 normal = normalize(vec3(dx, dy, 0.03)); 
+                    float r = length(glitchUV) + 0.001;
+                    float a = atan(glitchUV.y, glitchUV.x);
                     
-                    // Lighting rig: Neon CMY
-                    vec3 l_cyan = normalize(vec3(-1.0, 1.0, 0.6));
-                    vec3 l_mag  = normalize(vec3(1.0, 1.0, 0.4));
-                    vec3 l_yel  = normalize(vec3(0.0, -1.0, 0.5));
+                    // Recursive Space: Zeno Logarithmic Depth (Golden Ratio 0.618)
+                    float zenoLog = log(r) / log(0.618);
+                    float zenoFract = fract(zenoLog + t_med);
+                    float twist = a + zenoLog * 0.3 + t_slow; 
                     
-                    float diff_c = max(0.0, dot(normal, l_cyan));
-                    float diff_m = max(0.0, dot(normal, l_mag));
-                    float diff_y = max(0.0, dot(normal, l_yel));
+                    vec2 tunnelUV = vec2(twist * 2.5, zenoFract * 3.0);
                     
-                    // CMY Accumulation
-                    vec3 col = vec3(0.0);
-                    col += vec3(0.0, 1.0, 1.0) * diff_c * pow(diff_c, 2.0);
-                    col += vec3(1.0, 0.0, 1.0) * diff_m * pow(diff_m, 2.0);
-                    col += vec3(1.0, 1.0, 0.0) * diff_y * pow(diff_y, 2.0);
+                    // Thin-Film Fluid Topography
+                    float filmThickness = fbm(tunnelUV * 1.5 + vec2(t_med, -t_med * 0.5));
+                    float iso = abs(fract(filmThickness * 5.0) - 0.5) * 2.0;
+                    float contour = smoothstep(0.2, 0.0, iso); // Sharp topographic bands
                     
-                    // Bragg Reflection / Structural Color Iridescence
-                    vec3 viewDir = vec3(0.0, 0.0, 1.0);
-                    float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 2.0);
-                    float filmPhase = d * 15.0 + fresnel * 10.0 + t_fast;
-                    vec3 iridescence = 0.5 + 0.5 * cos(filmPhase + vec3(0.0, 2.0, 4.0));
+                    vec3 cmy = cmyNeon(filmThickness * 2.0 + t_slow);
                     
-                    col = mix(col, iridescence * vec3(0.0, 1.0, 1.0), fresnel * 0.6);
+                    // Fast Grain / Shimmer (Physical Substance)
+                    float grain = fract(sin(dot(glitchUV + t_fast, vec2(12.9898, 78.233))) * 43758.5453);
                     
-                    // Void Black Dominance & Ambient Occlusion
-                    float ao = clamp(d * 1.5, 0.0, 1.0);
-                    col *= ao;
-                    col *= smoothstep(0.1, 0.6, d); // Eat into the void
+                    vec3 bgCol = cmy * contour * (0.5 + 0.5 * grain);
                     
-                    // Fast Shimmer / Dead Pixel Pollen
-                    float grain = hash(vUv * 1000.0 + t_fast);
-                    col += grain * 0.08 * vec3(0.0, 1.0, 1.0); 
+                    // Void Cavity Logic: Darken tunnel center & add structural shadows
+                    bgCol *= smoothstep(0.1, 0.5, r); 
+                    bgCol *= smoothstep(0.3, 0.7, fbm(tunnelUV * 3.0 + t_med));
                     
-                    // RGB Phantom Text Bleed
-                    float txR = texture(u_textTex, p + vec2(0.005 * sin(t_fast), 0.0)).r;
-                    float txB = texture(u_textTex, p - vec2(0.005 * sin(t_fast), 0.0)).b;
-                    vec3 textGlow = vec3(txR, 0.0, txB) * 1.5;
+                    // --- LAYER 2: KINETIC TYPE STORM & RGB PHANTOM ---
                     
-                    // Inject text glow where structural peaks exist
-                    col += textGlow * smoothstep(0.4, 1.0, d) * (0.8 + 0.2 * sin(t_fast * 2.0));
-
-                    fragColor = vec4(col, 1.0);
+                    vec2 textUV = uv;
+                    
+                    // Fluid Text Deformation ("Love is a fluid" concrete poetry logic)
+                    vec2 textWarp = vec2(fbm(textUV * 5.0 - t_med), fbm(textUV * 5.0 + t_med)) * 0.025;
+                    textUV += textWarp;
+                    
+                    // RGB Phantom Split (Phase-lag duplication)
+                    float split = 0.008 + 0.012 * sin(t_med * 3.0) + (blockNoise > 0.9 ? 0.03 : 0.0);
+                    float texR = texture(u_tex, textUV + vec2(split, 0.0)).r;
+                    float texG = texture(u_tex, textUV + vec2(-split*0.5, split*0.866)).r;
+                    float texB = texture(u_tex, textUV + vec2(-split*0.5, -split*0.866)).r;
+                    
+                    // Transduce RGB masks directly into Neon CMY
+                    vec3 textCol = texR * vec3(0.0, 1.0, 1.0) + // R -> Cyan
+                                   texG * vec3(1.0, 0.0, 1.0) + // G -> Magenta
+                                   texB * vec3(1.0, 1.0, 0.0);  // B -> Yellow
+                                   
+                    // --- LAYER 3: ALCHEMICAL COMPOSITE ---
+                    
+                    float textCore = texR * texG * texB; // Where all channels overlap = pure white in source
+                    float anyText = clamp(texR + texG + texB, 0.0, 1.0);
+                    
+                    // The text acts as a destructive mask on the background, 
+                    // but its core burns a void black hole into the fluid.
+                    vec3 finalCol = bgCol * (1.0 - anyText);
+                    
+                    // Add the chromatic text fringes
+                    finalCol += textCol * (1.0 - textCore);
+                    
+                    // Edge Buzz: Compression damage static strictly on the typography edges
+                    float edgeBuzz = anyText * (1.0 - textCore);
+                    finalCol += edgeBuzz * grain * vec3(1.0) * 0.2;
+                    
+                    // Final Void Black clamping to ensure harshness
+                    finalCol = max(finalCol, vec3(0.0));
+                    
+                    fragColor = vec4(finalCol, 1.0);
                 }
             `
         });
 
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        const mesh = new THREE.Mesh(geometry, material);
         scene.add(mesh);
-        
+
         canvas.__three = { renderer, scene, camera, material };
-    } catch (e) {
-        console.error("Feral Math Initialization Failed:", e);
-        return;
     }
+
+    const { renderer, scene, camera, material } = canvas.__three;
+
+    // Update Uniforms safely
+    if (material && material.uniforms) {
+        if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+        if (material.uniforms.u_resolution) {
+            material.uniforms.u_resolution.value.set(grid.width, grid.height);
+        }
+    }
+
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
+
+} catch (error) {
+    console.error("The Alchemical Engine Failed:", error);
 }
-
-const { renderer, scene, camera, material } = canvas.__three;
-
-if (material && material.uniforms && material.uniforms.u_time) {
-    material.uniforms.u_time.value = time;
-}
-
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
