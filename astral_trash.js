@@ -1,228 +1,244 @@
 try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+    if (!canvas.__three) {
+        if (!ctx) throw new Error("WebGL 2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
-
-    const tCanvas = document.createElement('canvas');
-    tCanvas.width = 2048;
-    tCanvas.height = 2048;
-    const tctx = tCanvas.getContext('2d');
-
-    tctx.fillStyle = '#000000';
-    tctx.fillRect(0, 0, 2048, 2048);
-
-    function drawAlchemicalText(blurAmt, alpha) {
-      tctx.filter = `blur(${blurAmt}px)`;
-      tctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      tctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-      tctx.textAlign = 'center';
-      tctx.textBaseline = 'middle';
-      tctx.font = 'bold 280px "Arial Black", sans-serif';
-      
-      tctx.fillText("ASTRAL", 1024, 850);
-      tctx.fillText("TRASH", 1024, 1180);
-
-      tctx.lineWidth = 12;
-      tctx.beginPath();
-      tctx.arc(1024, 1024, 850, 0, Math.PI * 2);
-      tctx.stroke();
-      
-      tctx.lineWidth = 4;
-      tctx.beginPath();
-      tctx.arc(1024, 1024, 820, 0, Math.PI * 2);
-      tctx.stroke();
-
-      tctx.fillRect(1024 - 8, 80, 16, 180);
-      tctx.fillRect(1024 - 8, 1788, 16, 180);
-      tctx.fillRect(80, 1024 - 8, 180, 16);
-      tctx.fillRect(1788, 1024 - 8, 180, 16);
-
-      tctx.font = '120px serif';
-      tctx.fillText("✧", 1024, 550);
-      tctx.fillText("✧", 1024, 1480);
-    }
-
-    drawAlchemicalText(80, 0.15);
-    drawAlchemicalText(40, 0.3);
-    drawAlchemicalText(15, 0.6);
-    drawAlchemicalText(2, 1.0);
-
-    const textTexture = new THREE.CanvasTexture(tCanvas);
-    textTexture.minFilter = THREE.LinearFilter;
-    textTexture.magFilter = THREE.LinearFilter;
-    textTexture.generateMipmaps = false;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_text: { value: textTexture }
-      },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
+        // --- DECORATIVE TEXTURE GENERATION ---
+        // Generates the "ASTRAL TRASH" text as a structural mask
+        const tCanvas = document.createElement('canvas');
+        tCanvas.width = 2048;
+        tCanvas.height = 1024;
+        const tCtx = tCanvas.getContext('2d');
         
-        in vec2 vUv;
-        out vec4 fragColor;
+        // Void Black Base
+        tCtx.fillStyle = '#000000';
+        tCtx.fillRect(0, 0, 2048, 1024);
 
-        uniform float u_time;
-        uniform vec2 u_resolution;
-        uniform sampler2D u_text;
+        // Core Typography
+        tCtx.textAlign = 'center';
+        tCtx.textBaseline = 'middle';
+        tCtx.font = 'italic 900 200px "Arial Black", Impact, sans-serif';
 
-        #define PI 3.14159265359
+        // Layer 1: Blurred Aura / Phosphor Bloom
+        tCtx.filter = 'blur(15px)';
+        tCtx.fillStyle = '#FFFFFF';
+        tCtx.fillText("ASTRAL TRASH", 1024, 512);
 
-        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
-        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+        // Layer 2: Sharp Core
+        tCtx.filter = 'none';
+        tCtx.fillText("ASTRAL TRASH", 1024, 512);
 
-        float snoise(vec3 v) {
-          const vec2 C = vec2(1.0/6.0, 1.0/3.0);
-          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-          vec3 i  = floor(v + dot(v, C.yyy));
-          vec3 x0 = v - i + dot(i, C.xxx);
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min(g.xyz, l.zxy);
-          vec3 i2 = max(g.xyz, l.zxy);
-          vec3 x1 = x0 - i1 + C.xxx;
-          vec3 x2 = x0 - i2 + C.yyy;
-          vec3 x3 = x0 - D.yyy;
-          i = mod289(i);
-          vec4 p = permute(permute(permute(
-                     i.z + vec4(0.0, i1.z, i2.z, 1.0))
-                   + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-                   + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-          float n_ = 0.142857142857;
-          vec3 ns = n_ * D.wyz - D.xzx;
-          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_);
-          vec4 x = x_ * ns.x + ns.yyyy;
-          vec4 y = y_ * ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-          vec4 b0 = vec4(x.xy, y.xy);
-          vec4 b1 = vec4(x.zw, y.zw);
-          vec4 s0 = floor(b0) * 2.0 + 1.0;
-          vec4 s1 = floor(b1) * 2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-          vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
-          vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
-          vec3 p0 = vec3(a0.xy, h.x);
-          vec3 p1 = vec3(a0.zw, h.y);
-          vec3 p2 = vec3(a1.xy, h.z);
-          vec3 p3 = vec3(a1.zw, h.w);
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-          vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 105.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+        // Layer 3: Misregistered Strokes (Print Damage / Moiré prep)
+        tCtx.lineWidth = 6;
+        tCtx.strokeStyle = '#FFFFFF';
+        tCtx.strokeText("ASTRAL TRASH", 1040, 520);
+        
+        tCtx.lineWidth = 2;
+        tCtx.strokeText("ASTRAL TRASH", 1000, 500);
+
+        // Layer 4: Structural Scars / Crystalline Fractures
+        tCtx.lineWidth = 3;
+        for (let i = 0; i < 300; i++) {
+            tCtx.beginPath();
+            const x = Math.random() * 2048;
+            const y = Math.random() * 1024;
+            tCtx.moveTo(x, y);
+            // Draw sharp, angular lines resembling origami creases
+            if (Math.random() > 0.5) {
+                tCtx.lineTo(x + (Math.random() - 0.5) * 200, y);
+            } else {
+                tCtx.lineTo(x, y + (Math.random() - 0.5) * 200);
+            }
+            tCtx.strokeStyle = Math.random() > 0.8 ? '#000000' : '#FFFFFF';
+            tCtx.stroke();
         }
 
-        float fbm(vec3 p) {
-          float v = 0.0;
-          float a = 0.5;
-          for (int i = 0; i < 5; i++) {
-            v += a * snoise(p);
-            p *= 2.0;
-            a *= 0.5;
-          }
-          return v;
-        }
+        const textTex = new THREE.CanvasTexture(tCanvas);
+        // NearestFilter to preserve sharp, glitched pixel edges (Datamosh vibe)
+        textTex.minFilter = THREE.NearestFilter;
+        textTex.magFilter = THREE.NearestFilter;
 
-        void main() {
-          float t_slow = u_time * 0.08;
-          float t_med  = u_time * 0.4;
-          float t_fast = u_time * 2.5;
+        // --- WEBGL SETUP ---
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+        camera.position.z = 1;
 
-          vec2 uv = vUv;
-          vec2 p = uv * 2.0 - 1.0;
-          p.x *= u_resolution.x / u_resolution.y;
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
 
-          vec2 e = vec2(1.0 / 2048.0, 0.0);
-          float txt = texture(u_text, uv).r;
-          float txtE = texture(u_text, uv + e.xy).r;
-          float txtW = texture(u_text, uv - e.xy).r;
-          float txtN = texture(u_text, uv + e.yx).r;
-          float txtS = texture(u_text, uv - e.yx).r;
-          vec2 force = vec2(txtE - txtW, txtN - txtS);
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
 
-          vec2 matP = p * 3.5;
-          matP -= force * 18.0 * (0.8 + 0.2 * sin(t_slow));
+            uniform float u_time;
+            uniform vec2 u_resolution;
+            uniform sampler2D u_text;
 
-          float f1 = fbm(vec3(matP + force * 3.0, t_slow));
-          vec2 dw = vec2(
-            fbm(vec3(matP + f1, t_med)),
-            fbm(vec3(matP - f1, t_med + 10.0))
-          );
+            // Pseudo-random hash for structural noise
+            vec3 hash33(vec3 p) {
+                p = vec3( dot(p, vec3(127.1, 311.7, 74.7)),
+                          dot(p, vec3(269.5, 183.3, 246.1)),
+                          dot(p, vec3(113.5, 271.9, 124.6)));
+                return fract(sin(p) * 43758.5453123);
+            }
 
-          float f2 = fbm(vec3(matP + dw * 5.0, t_slow * 1.5));
+            // Chebyshev Voronoi for crystalline/bismuth geometry
+            float crystalNoise(vec3 x) {
+                vec3 p = floor(x);
+                vec3 f = fract(x);
+                float res = 100.0;
+                for(int k = -1; k <= 1; k++) {
+                    for(int j = -1; j <= 1; j++) {
+                        for(int i = -1; i <= 1; i++) {
+                            vec3 b = vec3(float(i), float(j), float(k));
+                            vec3 r = vec3(b) - f + hash33(p + b);
+                            // L-infinity metric forces rectilinear, sharp facets
+                            float d = max(max(abs(r.x), abs(r.y)), abs(r.z));
+                            res = min(res, d);
+                        }
+                    }
+                }
+                return res;
+            }
 
-          float ridge = 1.0 - abs(f2);
-          ridge = pow(ridge, 14.0);
+            // Origami fold logic: sharp ridges from continuous signals
+            float fold(float x) {
+                return abs(fract(x) - 0.5) * 2.0;
+            }
 
-          float angle = atan(dw.y, dw.x);
-          float bucket = mod(floor((angle / (2.0 * PI) + 0.5 + t_slow * 0.3) * 3.0), 3.0);
-          
-          vec3 neon;
-          if (bucket < 0.5) neon = vec3(0.0, 1.0, 1.0);
-          else if (bucket < 1.5) neon = vec3(1.0, 0.0, 1.0);
-          else neon = vec3(1.0, 1.0, 0.0);
+            // Fractal Brownian Motion using folded crystal noise
+            float origamiFBM(vec3 p) {
+                float f = 0.0;
+                float amp = 0.5;
+                for(int i = 0; i < 4; i++) {
+                    f += amp * fold(crystalNoise(p));
+                    p *= 2.0;
+                    amp *= 0.5;
+                }
+                return f;
+            }
 
-          float shimmer = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233)) + t_fast) * 43758.5453);
-          neon *= 0.5 + 1.0 * shimmer;
+            void main() {
+                // 1. THREE SIMULTANEOUS TIME SCALES
+                float t_slow = u_time * 0.1;  // Continental drift / deep structure
+                float t_med  = u_time * 0.5;  // Fluid reaction-diffusion / folding
+                float t_fast = u_time * 12.0; // High-frequency shimmer / glitch
 
-          vec3 col = vec3(0.01, 0.005, 0.01) * max(0.0, fbm(vec3(matP * 2.0, t_slow)));
+                vec2 uv = vUv;
 
-          float aura = smoothstep(0.0, 0.7, txt);
-          col += neon * ridge * (aura * 3.0 + 0.15);
+                // --- FAST: DAMAGE & MACROBLOCKING ---
+                // Horizontal tearing
+                float tear = step(0.98, fract(sin(uv.y * 200.0 + t_fast) * 43758.5453));
+                uv.x += tear * 0.05 * sin(t_fast);
 
-          float core = smoothstep(0.65, 0.95, txt);
-          float coreMask = core * smoothstep(0.3, 0.7, f2 + 0.4);
-          col = mix(col, neon * (0.9 + 0.5 * shimmer), coreMask);
+                // Macroblock quantization (Datamosh prediction failure)
+                vec2 blockUV = floor(uv * vec2(40.0, 20.0)) / vec2(40.0, 20.0);
+                float blockGlitch = step(0.96, hash33(vec3(blockUV, floor(t_fast))).x);
+                vec2 baseUv = mix(uv, blockUV, blockGlitch * 0.8);
 
-          vec2 pollenP = p * 120.0 + dw * 8.0;
-          float pSeed = fract(sin(dot(floor(pollenP), vec2(12.9898, 78.233))) * 43758.5453);
-          float pActive = step(0.994, pSeed);
-          float pBlink = step(0.5, fract(pSeed * 123.45 + t_fast));
-          col += neon * pActive * pBlink * aura * 4.0;
+                // --- SLOW & MEDIUM: CRYSTALLINE SUBSTANCE ---
+                vec3 p = vec3(baseUv * 5.0, t_slow);
+                
+                // Domain warping
+                vec3 warp = vec3(
+                    origamiFBM(p + vec3(1.0, 2.0, 3.0) * t_med),
+                    origamiFBM(p + vec3(4.0, 5.0, 6.0) * t_med),
+                    origamiFBM(p + vec3(7.0, 8.0, 9.0) * t_med)
+                );
 
-          float vig = 1.0 - dot(p, p) * 0.15;
-          col *= smoothstep(0.0, 1.0, vig);
+                // Deep material depth
+                float depth = origamiFBM(p + warp * 2.5);
 
-          fragColor = vec4(col, 1.0);
-        }
-      `
-    });
+                // Compute normal via finite difference for physical volume
+                float eps = 0.005;
+                float dx = origamiFBM(p + warp * 2.5 + vec3(eps, 0.0, 0.0)) - depth;
+                float dy = origamiFBM(p + warp * 2.5 + vec3(0.0, eps, 0.0)) - depth;
+                vec3 normal = normalize(vec3(dx, dy, 0.08));
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
+                // --- TEXTURE READ & BIREFRINGENCE ---
+                // Distort text UVs using material normal to simulate refraction
+                vec2 textUv = baseUv + normal.xy * 0.04;
+                float textMask = texture(u_text, textUv).r;
 
-    canvas.__three = { renderer, scene, camera, material };
-  }
+                // Value combining physical depth and textual intrusion
+                float val = depth + textMask * 0.4;
 
-  const { renderer, scene, camera, material } = canvas.__three;
-  
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) {
-      material.uniforms.u_resolution.value.set(grid.width, grid.height);
+                // --- NEON CMYK COLOR MAPPING ---
+                vec3 cCyan = vec3(0.0, 1.0, 1.0);
+                vec3 cMag  = vec3(1.0, 0.0, 1.0);
+                vec3 cYel  = vec3(1.0, 1.0, 0.0);
+                vec3 cBlk  = vec3(0.0, 0.0, 0.0);
+
+                // Print Moiré / Halftone interference
+                float halftone = step(0.5, sin(uv.x * u_resolution.x * 0.6) * sin(uv.y * u_resolution.y * 0.6));
+
+                vec3 col = cBlk;
+                if (val > 0.85) {
+                    col = cCyan;
+                } else if (val > 0.70) {
+                    col = mix(cMag, cCyan, halftone);
+                } else if (val > 0.55) {
+                    col = mix(cYel, cBlk, halftone);
+                }
+
+                // --- SHIMMER & SPECULARITY ---
+                // Fast granular noise (film grain / sensor noise)
+                float shimmer = hash33(vec3(uv * 1000.0, t_fast)).x;
+                col += cCyan * shimmer * 0.15 * (1.0 - textMask);
+
+                // Specular lighting highlighting the origami folds
+                vec3 lightDir = normalize(vec3(sin(t_med), cos(t_med), 1.0));
+                float spec = pow(max(dot(reflect(-lightDir, normal), vec3(0.0, 0.0, 1.0)), 0.0), 24.0);
+                col += vec3(1.0) * spec * 0.8;
+
+                // --- CHROMATIC ABERRATION / PHOSPHOR BLOOM ON TEXT ---
+                // Pull separated channels from the text mask for a glowing glitch effect
+                float textR = texture(u_text, textUv + vec2(0.015 * sin(t_fast), 0.0)).r;
+                float textB = texture(u_text, textUv - vec2(0.015 * cos(t_fast), 0.0)).r;
+                
+                // Emissive neon bleed over the void
+                col += vec3(textR, 0.0, textB) * 0.6 * (1.0 + blockGlitch);
+
+                // Edge Vignette
+                float dist = length(vUv - 0.5);
+                col *= smoothstep(0.9, 0.3, dist);
+
+                fragColor = vec4(col, 1.0);
+            }
+        `;
+
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                u_text: { value: textTex }
+            },
+            vertexShader,
+            fragmentShader
+        });
+
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+
+        canvas.__three = { renderer, scene, camera, material };
     }
-  }
 
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
+    const { renderer, scene, camera, material } = canvas.__three;
+
+    if (material && material.uniforms) {
+        material.uniforms.u_time.value = time;
+        material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
+
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
+
 } catch (e) {
-  console.error("WebGL Initialization Failed:", e);
+    console.error("WebGL Initialization Failed:", e);
 }
