@@ -1,234 +1,211 @@
 try {
-    if (!canvas.__three) {
-        if (!ctx) throw new Error("WebGL2 context not available");
+  if (!canvas.__three) {
+    if (!ctx) throw new Error("WebGL2 context required");
 
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(45, grid.width / grid.height, 0.1, 1000);
-        camera.position.z = 1.0;
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+    camera.position.z = 1;
 
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
 
-        const fragmentShader = `
-            in vec2 vUv;
-            out vec4 fragColor;
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
 
-            uniform float u_time;
-            uniform vec2 u_resolution;
-            uniform vec2 u_mouse;
+      #define PI 3.14159265359
 
-            // --- ASHIMA 3D SIMPLEX NOISE ---
-            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-            vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-            vec4 permute(vec4 x) { return mod289(((x*34.0)+10.0)*x); }
-            vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+      // --- COLOR SYSTEMS: OKLCh to sRGB ---
+      // Perceptually uniform color space conversion for mineral gradients
+      vec3 oklch2srgb(vec3 c) {
+          float L = c.x;
+          float C = c.y;
+          float h = c.z * PI / 180.0;
+          
+          float a = C * cos(h);
+          float b = C * sin(h);
+          
+          float l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+          float m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+          float s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+          
+          float l = l_ * l_ * l_;
+          float m = m_ * m_ * m_;
+          float s = s_ * s_ * s_;
+          
+          vec3 rgb = vec3(
+               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+          );
+          
+          // Gamma encode
+          vec3 srgb = mix(
+              rgb * 12.92,
+              1.055 * pow(max(rgb, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055,
+              step(0.0031308, rgb)
+          );
+          return clamp(srgb, 0.0, 1.0);
+      }
 
-            float snoise(vec3 v) {
-                const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
-                const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-                vec3 i  = floor(v + dot(v, C.yyy) );
-                vec3 x0 = v - i + dot(i, C.xxx) ;
-                vec3 g = step(x0.yzx, x0.xyz);
-                vec3 l = 1.0 - g;
-                vec3 i1 = min( g.xyz, l.zxy );
-                vec3 i2 = max( g.xyz, l.zxy );
-                vec3 x1 = x0 - i1 + C.xxx;
-                vec3 x2 = x0 - i2 + C.yyy;
-                vec3 x3 = x0 - D.yyy;
-                i = mod289(i); 
-                vec4 p = permute( permute( permute( 
-                            i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-                          + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
-                          + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
-                float n_ = 0.142857142857;
-                vec3  ns = n_ * D.wyz - D.xzx;
-                vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-                vec4 x_ = floor(j * ns.z);
-                vec4 y_ = floor(j - 7.0 * x_ );
-                vec4 x = x_ *ns.x + ns.yyyy;
-                vec4 y = y_ *ns.x + ns.yyyy;
-                vec4 h = 1.0 - abs(x) - abs(y);
-                vec4 b0 = vec4( x.xy, y.xy );
-                vec4 b1 = vec4( x.zw, y.zw );
-                vec4 s0 = floor(b0)*2.0 + 1.0;
-                vec4 s1 = floor(b1)*2.0 + 1.0;
-                vec4 sh = -step(h, vec4(0.0));
-                vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
-                vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
-                vec3 p0 = vec3(a0.xy,h.x);
-                vec3 p1 = vec3(a0.zw,h.y);
-                vec3 p2 = vec3(a1.xy,h.z);
-                vec3 p3 = vec3(a1.zw,h.w);
-                vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-                p0 *= norm.x;
-                p1 *= norm.y;
-                p2 *= norm.z;
-                p3 *= norm.w;
-                vec4 m = max(0.5 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-                m = m * m;
-                return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
-            }
+      // --- NOISE FIELDS: Value FBM & Domain Warp ---
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
 
-            // --- CURL NOISE APHASIA ---
-            // Divergence-free vector field to advect the sacred geometry
-            vec2 curlNoise(vec2 p, float t) {
-                float eps = 0.05;
-                float n1 = snoise(vec3(p.x, p.y + eps, t));
-                float n2 = snoise(vec3(p.x, p.y - eps, t));
-                float n3 = snoise(vec3(p.x + eps, p.y, t));
-                float n4 = snoise(vec3(p.x - eps, p.y, t));
-                return vec2(n1 - n2, n4 - n3) / (2.0 * eps);
-            }
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+              mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+              mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+              u.y
+          );
+      }
 
-            // --- PENTAGRID EVALUATION (ISLAMIC TILING) ---
-            // Reconstructs the Darb-i Imam quasicrystalline scaffold
-            vec2 evalPentagrid(vec2 p, float sp, float gammaOff) {
-                float dLine = 1e9;
-                float iSum = 0.0;
-                for(int k = 0; k < 5; k++){
-                    float a = float(k) * 3.14159265359 / 5.0;
-                    vec2 n = vec2(cos(a), sin(a));
-                    float proj = dot(p, n)/sp + float(k+1)/10.0 + gammaOff;
-                    float d = abs(fract(proj + 0.5) - 0.5) * sp;
-                    dLine = min(dLine, d);
-                    iSum += floor(proj + 0.5);
-                }
-                return vec2(dLine, iSum);
-            }
+      float fbm(vec2 p) {
+          float f = 0.0;
+          float w = 0.5;
+          for (int i = 0; i < 5; i++) {
+              f += w * noise(p);
+              p *= 2.0;
+              w *= 0.5;
+          }
+          return f;
+      }
 
-            // --- BISMUTH / NEON ACID PALETTE ---
-            vec3 palette(float t) {
-                vec3 a = vec3(0.5, 0.5, 0.5);
-                vec3 b = vec3(0.5, 0.5, 0.5);
-                vec3 c = vec3(2.0, 1.0, 1.0);
-                vec3 d = vec3(0.5, 0.2, 0.25);
-                return a + b * cos(6.2831853 * (c * t + d));
-            }
+      void main() {
+          vec2 uv = (vUv - 0.5) * 2.0;
+          uv.x *= u_resolution.x / u_resolution.y;
 
-            void main() {
-                // Normalize and scale coordinates
-                vec2 uv = (vUv - 0.5) * u_resolution.xy / u_resolution.y;
-                vec2 p = uv * 6.0;
-                
-                // Slow rotation
-                float rot = u_time * 0.05;
-                mat2 mRot = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
-                p = mRot * p;
+          float r = length(uv);
+          
+          // THE WEIRD MECHANISM: Autophagic Memory Splicing
+          // Sacred geometry is pure at the center, but as it radiates outward,
+          // the coordinate manifold is infected by fungal/mineral domain warp.
+          float corruption = smoothstep(0.3, 2.5, r);
+          
+          vec2 p = uv * 4.0; // Base scale
+          
+          // Hostile Coordinates: FBM domain warp that increases with distance
+          float t_warp = u_time * 0.15;
+          vec2 warp = vec2(
+              fbm(p + t_warp),
+              fbm(p + vec2(5.2, 1.3) - t_warp)
+          ) * 2.0 - 1.0;
+          
+          p += warp * corruption * 3.0; // The structure rots into biology at the edges
 
-                float r = length(p);
+          // --- ISLAMIC TILING: 10-Fold Quasiperiodic Pentagrid ---
+          float sp = 1.0; 
+          sp += 0.15 * sin(u_time * 0.5 + r * 3.0) * corruption; // The grid breathes where corrupted
+          
+          float allD = 1e9;
+          float sumI = 0.0;
+          
+          for (int k = 0; k < 5; k++) {
+              float a = float(k) * PI / 5.0;
+              float g = float(k + 1) / 10.0;
+              vec2 n = vec2(cos(a), sin(a));
+              
+              float proj = dot(p, n) / sp + g;
+              float d = abs(fract(proj + 0.5) - 0.5) * sp;
+              
+              allD = min(allD, d);
+              sumI += floor(proj + 0.5);
+          }
 
-                // Mouse interaction: Repel entropy
-                float mouseDist = length(uv - u_mouse);
-                float divineAura = smoothstep(0.8, 0.0, mouseDist) * 2.0;
+          // --- MINERAL LITHOGENESIS: Azurite, Malachite, & Bone ---
+          // Use the pentagrid index sum to determine the "tile" mineral type
+          float tileType = mod(sumI, 10.0);
+          float mineralMix = fbm(p * 1.5 + u_time * 0.05);
+          
+          vec3 baseLCH;
+          if (tileType < 3.0) {
+              // Azurite (Deep Lapis Blue)
+              baseLCH = vec3(0.35, 0.16, 260.0 + mineralMix * 20.0);
+          } else if (tileType < 7.0) {
+              // Malachite (Emerald/Forest Green)
+              baseLCH = vec3(0.45, 0.12, 145.0 + mineralMix * 25.0);
+              // Botryoidal banding specific to malachite zones
+              float banding = sin(fbm(p * 5.0) * 40.0 - u_time * 2.0);
+              baseLCH.x += banding * 0.06 * corruption;
+          } else {
+              // Bone & Rust (Weathered Stucco/Oxide)
+              baseLCH = vec3(0.65, 0.08, 50.0 + mineralMix * 30.0);
+          }
+          
+          vec3 bgColor = oklch2srgb(baseLCH);
 
-                // The Breathing Boundary of Entropy
-                // Sacred geometry in the center, feral curl noise at the edges
-                float entropyEdge = 1.8 + sin(u_time * 0.4) * 0.5 + divineAura;
-                
-                // Two levels of decay (Stratigraphic Autophagy)
-                float warpStrCoarse = smoothstep(entropyEdge, entropyEdge + 3.0, r) * 1.5;
-                float warpStrFine = smoothstep(entropyEdge - 1.0, entropyEdge + 2.0, r) * 2.5;
+          // --- SHINY SYSTEMS: Bismuth / Gold Strapwork Veins ---
+          // Shine occupies structure. The lines are iridescent metallic veins.
+          float lineW = 0.035 + 0.015 * sin(u_time * 1.2 + r * 4.0);
+          float lineMask = 1.0 - smoothstep(lineW - 0.015, lineW + 0.015, allD);
+          
+          // Bismuth Iridescence: Hue shifts rapidly based on distance to core and grid index
+          float veinHue = u_time * 45.0 + allD * 600.0 + sumI * 18.0;
+          vec3 veinLCH = vec3(0.85, 0.15, mod(veinHue, 360.0));
+          vec3 veinColor = oklch2srgb(veinLCH);
+          
+          // Deep Volumetric Glow (Thermal Bloom) bleeding from the cracks
+          float glow = 0.008 / (allD * allD + 0.001);
+          vec3 glowColor = oklch2srgb(vec3(0.6, 0.25, mod(veinHue, 360.0))) * glow * (1.0 + corruption * 0.5);
 
-                // Advect coordinates
-                vec2 curl = curlNoise(p * 0.3, u_time * 0.15);
-                vec2 pCoarse = p + curl * warpStrCoarse;
-                vec2 pFine = p + curl * warpStrFine;
+          // Compositing
+          vec3 finalColor = mix(bgColor, veinColor, lineMask);
+          finalColor += glowColor * 0.8;
+          
+          // Vignette & Abyssal Rendering at the absolute edges
+          finalColor *= 1.0 - smoothstep(1.2, 2.8, r);
+          
+          // Glitch Prophet: Introduce rare NaNs/burnout flashes near the edge
+          float glitch = step(0.98, hash(uv + u_time)) * corruption;
+          finalColor = mix(finalColor, vec3(1.0), glitch * 0.5);
 
-                // Evaluate the two-scale Darb-i Imam grid
-                float PHI2 = 2.6180339887;
-                vec2 pgCoarse = evalPentagrid(pCoarse, 1.0, 0.0);
-                vec2 pgFine = evalPentagrid(pFine, 1.0 / PHI2, 0.1);
+          fragColor = vec4(finalColor, 1.0);
+      }
+    `;
 
-                // --- LITHOGENESIS & COLOR FIELDS ---
-                
-                // Base tile color: Azurite to Malachite reaction front
-                float mixedIndex = mod(pgCoarse.y + pgFine.y, 5.0);
-                vec3 azurite = vec3(0.02, 0.05, 0.25);
-                vec3 malachite = vec3(0.05, 0.4, 0.2);
-                vec3 tileColor = mix(azurite, malachite, mixedIndex / 4.0);
-                
-                // Dissolve to Cosmic Void at the edges
-                float voidMix = smoothstep(entropyEdge + 0.5, entropyEdge + 4.0, r);
-                vec3 cosmicVoid = vec3(0.04, 0.0, 0.08);
-                tileColor = mix(tileColor, cosmicVoid, voidMix);
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
+    });
 
-                // Strapwork lines glow
-                float glowCoarse = 0.02 / (pgCoarse.x * pgCoarse.x + 0.002);
-                float glowFine = 0.008 / (pgFine.x * pgFine.x + 0.001);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
 
-                // Bismuth iridescence on the coarse grid
-                vec3 colorCoarse = palette(r * 0.15 - u_time * 0.1 + mixedIndex * 0.1); 
-                // Gilded ivory/gold on the fine grid
-                vec3 colorFine = vec3(0.9, 0.75, 0.2); 
+    canvas.__three = { renderer, scene, camera, material };
+  }
 
-                vec3 finalColor = tileColor;
-                
-                // Apply emissive lines (dimming them as they enter the void)
-                float structuralIntegrity = 1.0 - (voidMix * 0.8);
-                finalColor += colorCoarse * glowCoarse * structuralIntegrity;
-                finalColor += colorFine * glowFine * structuralIntegrity;
+  const { renderer, scene, camera, material } = canvas.__three;
 
-                // Fungal / Eldritch bioluminescence in the void
-                float voidNoise = snoise(vec3(p * 1.5 - curl * 2.0, u_time * 0.2)) * 0.5 + 0.5;
-                vec3 toxicGrowth = vec3(0.2, 0.9, 0.4);
-                finalColor += toxicGrowth * voidNoise * voidMix * smoothstep(0.8, 1.0, voidNoise) * 1.5;
-
-                // Vignette
-                finalColor *= 1.0 - dot(uv, uv) * 0.25;
-
-                // ACES Tonemapping approximation
-                finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
-
-                fragColor = vec4(finalColor, 1.0);
-            }
-        `;
-
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            vertexShader,
-            fragmentShader,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_mouse: { value: new THREE.Vector2(0, 0) }
-            },
-            depthWrite: false,
-            depthTest: false
-        });
-
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-
-        canvas.__three = { renderer, scene, camera, material };
+  if (material && material.uniforms) {
+    material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) {
+      material.uniforms.u_resolution.value.set(grid.width, grid.height);
     }
+  }
 
-    const { renderer, scene, camera, material } = canvas.__three;
+  renderer.setSize(grid.width, grid.height, false);
+  renderer.render(scene, camera);
 
-    if (material && material.uniforms) {
-        material.uniforms.u_time.value = time;
-        material.uniforms.u_resolution.value.set(grid.width, grid.height);
-        
-        // Map mouse to UV space (-0.5 to 0.5, aspect corrected)
-        let mx = 0;
-        let my = 0;
-        if (mouse) {
-            mx = (mouse.x / grid.width) - 0.5;
-            my = -(mouse.y / grid.height) + 0.5;
-            mx *= grid.width / grid.height;
-        }
-        material.uniforms.u_mouse.value.set(mx, my);
-    }
-
-    renderer.setSize(grid.width, grid.height, false);
-    renderer.render(scene, camera);
-
-} catch (e) {
-    console.error("WebGL Feral Initialization Failed:", e);
-    // Silent fallback to avoid crashing the whole pipeline
+} catch (err) {
+  console.error("The Feral Brain encountered a compilation hemorrhage:", err);
 }
