@@ -1,176 +1,170 @@
 try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL context not available");
+  if (!ctx) throw new Error("WebGL 2 context not available");
 
+  // Initialize Three.js if not already present
+  if (!canvas.__three) {
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+
+    // Create a hidden 2D canvas to generate the typographic heightmap
     const textCanvas = document.createElement('canvas');
-    textCanvas.width = 2048;
+    textCanvas.width = 1024;
     textCanvas.height = 1024;
     const tCtx = textCanvas.getContext('2d');
+    
+    // Fill void black
+    tCtx.fillStyle = '#000000';
+    tCtx.fillRect(0, 0, 1024, 1024);
 
-    tCtx.fillStyle = '#000';
-    tCtx.fillRect(0, 0, 2048, 1024);
-
-    const cx = 1024;
-    const cy = 512;
-
-    tCtx.strokeStyle = '#444';
-    tCtx.lineWidth = 8;
-    for (let i = 0; i < 6; i++) {
-      let angle = (i * Math.PI) / 3;
+    // Draw underlying sacred geometry (cymatic rings)
+    tCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    tCtx.lineWidth = 2;
+    for (let i = 0; i < 15; i++) {
       tCtx.beginPath();
-      tCtx.arc(cx + Math.cos(angle) * 300, cy + Math.sin(angle) * 300, 300, 0, Math.PI * 2);
+      tCtx.arc(512, 512, i * 35 + 20, 0, Math.PI * 2);
       tCtx.stroke();
     }
 
+    // Typography physics: Render text as a topological SDF via concentric strokes
     tCtx.textAlign = 'center';
     tCtx.textBaseline = 'middle';
-    tCtx.font = '900 260px "Impact", "Arial Black", sans-serif';
+    tCtx.font = '900 160px "Arial Black", Impact, sans-serif';
+    tCtx.lineJoin = 'round';
 
-    tCtx.filter = 'blur(80px)';
-    tCtx.fillStyle = '#333';
-    tCtx.fillText("ASTRAL TRASH", cx, cy);
+    const words = ["ASTRAL", "TRASH"];
+    const yOffsets = [420, 600];
 
-    tCtx.filter = 'blur(25px)';
-    tCtx.fillStyle = '#888';
-    tCtx.fillText("ASTRAL TRASH", cx, cy);
-
-    tCtx.filter = 'blur(4px)';
-    tCtx.fillStyle = '#FFF';
-    tCtx.fillText("ASTRAL TRASH", cx, cy);
-
-    tCtx.filter = 'none';
-    tCtx.fillStyle = '#000';
-    tCtx.fillRect(0, cy - 25, 2048, 50);
-
-    tCtx.fillStyle = '#FFF';
-    tCtx.font = 'bold 36px "Courier New", monospace';
-    tCtx.letterSpacing = '24px';
-    tCtx.fillText("METRIC COMPETITION // FERROFLUID SHOEGAZE", cx, cy);
+    // Build the "mountain" of the text
+    for (let i = 20; i > 0; i--) {
+      tCtx.lineWidth = i * 6;
+      tCtx.strokeStyle = `rgba(255, 255, 255, ${0.05 + (20 - i) * 0.002})`;
+      words.forEach((word, idx) => tCtx.strokeText(word, 512, yOffsets[idx]));
+    }
+    
+    // Core bright text
+    tCtx.fillStyle = '#FFFFFF';
+    words.forEach((word, idx) => tCtx.fillText(word, 512, yOffsets[idx]));
 
     const textTexture = new THREE.CanvasTexture(textCanvas);
     textTexture.minFilter = THREE.LinearFilter;
     textTexture.magFilter = THREE.LinearFilter;
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    // Fragment Shader: Feral Math & Structural Color
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
+
+      uniform float u_time;
+      uniform sampler2D u_text;
+      uniform vec2 u_resolution;
+
+      // Hash & Noise
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+
+      // Fractional Brownian Motion (Nebula / Fluid dynamics)
+      float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          for (int i = 0; i < 6; i++) {
+              v += a * noise(p);
+              p *= 2.0;
+              a *= 0.5;
+          }
+          return v;
+      }
+
+      void main() {
+          // Normalize UV and aspect ratio
+          vec2 uv = vUv;
+          vec2 aspect_uv = (uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0) + 0.5;
+
+          // 3 Simultaneous Time Scales
+          float t_slow = u_time * 0.05;
+          float t_med  = u_time * 0.5;
+          float t_fast = u_time * 8.0;
+
+          // 1. MACROBLOCK GLITCH (Damage Aesthetics)
+          float grid_size = 30.0;
+          vec2 block_uv = floor(uv * grid_size) / grid_size;
+          float glitch_trig = step(0.96, hash(block_uv + floor(t_med * 3.0)));
+          vec2 uv_distort = uv + vec2(glitch_trig * 0.04 * sin(t_fast), 0.0);
+
+          // 2. DOMAIN WARPING (Fluid Deformation)
+          vec2 q = vec2(fbm(uv_distort * 4.0 + t_slow), fbm(uv_distort * 4.0 + vec2(1.7, 4.6) - t_slow));
+          vec2 r = vec2(fbm(uv_distort * 4.0 + 4.0 * q + t_med), fbm(uv_distort * 4.0 + 4.0 * q + vec2(8.3, 2.8) - t_med));
+          vec2 uv_flow = uv_distort + r * 0.06;
+
+          // 3. KINETIC TYPE TOPOGRAPHY (Sampling text with Chroma Bleed)
+          float txt_r = texture(u_text, uv_flow + vec2(0.006, 0.0)).r;
+          float txt_g = texture(u_text, uv_flow).r;
+          float txt_b = texture(u_text, uv_flow - vec2(0.006, 0.0)).r;
+          float txt_mask = (txt_r + txt_g + txt_b) / 3.0;
+
+          // 4. CYMATICS (Sacred Geometry Resonance)
+          float dist = length(aspect_uv - vec2(0.5));
+          float cymatic = sin(dist * 150.0 - t_med * 12.0) * exp(-dist * 3.5);
+
+          // 5. THIN FILM / BRAGG REFLECTION (Structural Color)
+          // Compute perceived optical thickness based on layered math
+          float thickness = r.x * 1.8 + txt_mask * 2.5 + cymatic * 0.4;
+
+          // Interference phase shift for Neon CMY palette
+          vec3 cmy;
+          cmy.x = 0.5 + 0.5 * cos(thickness * 3.14159 + 0.0);    // R
+          cmy.y = 0.5 + 0.5 * cos(thickness * 3.14159 + 2.094);  // G
+          cmy.z = 0.5 + 0.5 * cos(thickness * 3.14159 + 4.188);  // B
+          cmy = 1.0 - cmy; // Invert to subtractive CMY
+
+          // Stark quantization for brutal neon contrast
+          cmy = smoothstep(0.35, 0.65, cmy);
+
+          // 6. VOID BLACK MASKING
+          float void_noise = fbm(uv_flow * 12.0 - t_slow * 3.0);
+          float visibility = smoothstep(0.4, 0.6, void_noise);
+          
+          // The text burns through the void organically
+          visibility = max(visibility, smoothstep(0.1, 0.6, txt_mask));
+
+          vec3 final_color = cmy * visibility;
+
+          // 7. CHROMATIC ABERRATION ON TEXT EDGES
+          final_color += vec3(0.0, 1.0, 1.0) * txt_r * 0.6 * (1.0 - visibility); // Cyan fringe
+          final_color += vec3(1.0, 0.0, 1.0) * txt_b * 0.6 * (1.0 - visibility); // Magenta fringe
+
+          // 8. SENSOR DAMAGE (Micro Shimmer / Hot & Dead Pixels)
+          float grain = hash(gl_FragCoord.xy + t_fast);
+          float dead_pixel = step(0.985, grain);
+          float hot_pixel = step(0.996, fract(grain * 12.34));
+
+          final_color -= dead_pixel; // Punch deep black holes
+          final_color += hot_pixel * vec3(1.0, 1.0, 0.0); // Inject neon yellow sparks
+
+          fragColor = vec4(clamp(final_color, 0.0, 1.0), 1.0);
+      }
+    `;
 
     const vertexShader = `
       out vec2 vUv;
       void main() {
         vUv = uv;
         gl_Position = vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform sampler2D u_text;
-
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
-
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        vec2 u = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-      }
-
-      float fbm(vec2 p) {
-        float f = 0.0;
-        float a = 0.5;
-        for (int i = 0; i < 6; i++) {
-          f += a * noise(p);
-          p *= 2.0;
-          a *= 0.5;
-        }
-        return f;
-      }
-
-      vec3 oklab_to_srgb(vec3 c) {
-        float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
-        float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
-        float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
-
-        float l = l_ * l_ * l_;
-        float m = m_ * m_ * m_;
-        float s = s_ * s_ * s_;
-
-        vec3 rgb = vec3(
-           4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-        );
-
-        vec3 srgb = mix(
-          rgb * 12.92,
-          1.055 * pow(max(rgb, 0.0), vec3(1.0 / 2.4)) - 0.055,
-          step(0.0031308, rgb)
-        );
-        return clamp(srgb, 0.0, 1.0);
-      }
-
-      vec3 oklch_to_oklab(float L, float C, float h) {
-        return vec3(L, C * cos(h), C * sin(h));
-      }
-
-      void main() {
-        vec2 p = vUv * 2.0 - 1.0;
-        p.x *= u_resolution.x / u_resolution.y;
-
-        float t_slow = u_time * 0.1;
-        float t_med = u_time * 0.8;
-        float t_fast = u_time * 4.0;
-
-        vec2 drift = vec2(fbm(p * 1.2 + t_slow), fbm(p * 1.2 - t_slow + 10.0));
-        vec2 p_warp = p + (drift - 0.5) * 0.3;
-
-        float txt_r = texture(u_text, vUv + (drift - 0.5) * 0.015 + vec2(0.008, 0.0)).r;
-        float txt_g = texture(u_text, vUv + (drift - 0.5) * 0.015).r;
-        float txt_b = texture(u_text, vUv + (drift - 0.5) * 0.015 - vec2(0.008, 0.0)).r;
-        float txt = txt_g; 
-
-        float d_l2 = length(p_warp);
-        float d_linf = max(abs(p_warp.x), abs(p_warp.y));
-        float metric = mix(d_l2, d_linf, txt * 1.5); 
-
-        float freq = 24.0 + txt * 12.0;
-        float phase = metric * freq - t_med * (1.0 + txt * 3.0);
-        float cymatic = sin(phase) * cos(p_warp.x * 12.0 + t_med) * sin(p_warp.y * 12.0 - t_med);
-        
-        float spikes = exp(-abs(sin(cymatic * 3.1415)) * (5.0 - txt * 3.0));
-
-        float moire = sin(p.x * 200.0 + t_fast) * cos(p.y * 200.0 - t_fast);
-        float grain = hash(vUv * 250.0 + u_time);
-
-        float density = spikes * 0.7 + fbm(p_warp * 8.0 + t_slow) * 0.4 + moire * 0.05 * txt;
-
-        float L = 0.05 + density * 0.65 + txt * 0.25; 
-        
-        float hue_angle = d_l2 * 4.0 + t_slow * 2.0 + txt * 3.0 + density * 4.0;
-        float C = 0.28 + txt * 0.12; 
-        
-        vec3 lab = oklch_to_oklab(L, C, hue_angle);
-        vec3 col = oklab_to_srgb(lab);
-
-        col.r += txt_r * 0.3 * spikes;
-        col.b += txt_b * 0.3 * spikes;
-        
-        vec3 halation = oklab_to_srgb(oklch_to_oklab(0.7, 0.3, hue_angle + 1.0));
-        col += halation * txt * smoothstep(0.4, 1.0, density) * 0.6;
-
-        col += (grain - 0.5) * 0.12;
-
-        col *= smoothstep(0.0, 0.5, density + 0.15 + txt * 0.2);
-
-        fragColor = vec4(col, 1.0);
       }
     `;
 
@@ -190,19 +184,21 @@ try {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
 
-    canvas.__three = { renderer, scene, camera, material };
+    canvas.__three = { renderer, scene, camera, material, textTexture };
   }
 
   const { renderer, scene, camera, material } = canvas.__three;
 
+  // Update uniforms
   if (material && material.uniforms) {
     material.uniforms.u_time.value = time;
     material.uniforms.u_resolution.value.set(grid.width, grid.height);
   }
 
+  // Render procedure
   renderer.setSize(grid.width, grid.height, false);
   renderer.render(scene, camera);
 
-} catch (e) {
-  console.error("WebGL Initialization or Render Failed:", e);
+} catch (err) {
+  console.error("The feral math collapsed:", err);
 }
