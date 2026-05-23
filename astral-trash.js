@@ -1,181 +1,208 @@
 try {
   if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+    if (!ctx) throw new Error("WebGL context not available");
+
+    const textCanvas = document.createElement('canvas');
+    textCanvas.width = 2048;
+    textCanvas.height = 1024;
+    const tCtx = textCanvas.getContext('2d');
+
+    tCtx.fillStyle = '#000';
+    tCtx.fillRect(0, 0, 2048, 1024);
+
+    const cx = 1024;
+    const cy = 512;
+
+    tCtx.strokeStyle = '#444';
+    tCtx.lineWidth = 8;
+    for (let i = 0; i < 6; i++) {
+      let angle = (i * Math.PI) / 3;
+      tCtx.beginPath();
+      tCtx.arc(cx + Math.cos(angle) * 300, cy + Math.sin(angle) * 300, 300, 0, Math.PI * 2);
+      tCtx.stroke();
+    }
+
+    tCtx.textAlign = 'center';
+    tCtx.textBaseline = 'middle';
+    tCtx.font = '900 260px "Impact", "Arial Black", sans-serif';
+
+    tCtx.filter = 'blur(80px)';
+    tCtx.fillStyle = '#333';
+    tCtx.fillText("ASTRAL TRASH", cx, cy);
+
+    tCtx.filter = 'blur(25px)';
+    tCtx.fillStyle = '#888';
+    tCtx.fillText("ASTRAL TRASH", cx, cy);
+
+    tCtx.filter = 'blur(4px)';
+    tCtx.fillStyle = '#FFF';
+    tCtx.fillText("ASTRAL TRASH", cx, cy);
+
+    tCtx.filter = 'none';
+    tCtx.fillStyle = '#000';
+    tCtx.fillRect(0, cy - 25, 2048, 50);
+
+    tCtx.fillStyle = '#FFF';
+    tCtx.font = 'bold 36px "Courier New", monospace';
+    tCtx.letterSpacing = '24px';
+    tCtx.fillText("METRIC COMPETITION // FERROFLUID SHOEGAZE", cx, cy);
+
+    const textTexture = new THREE.CanvasTexture(textCanvas);
+    textTexture.minFilter = THREE.LinearFilter;
+    textTexture.magFilter = THREE.LinearFilter;
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    const textCanvas = document.createElement('canvas');
-    textCanvas.width = 1024;
-    textCanvas.height = 1024;
-    const tCtx = textCanvas.getContext('2d');
-    
-    tCtx.fillStyle = '#000';
-    tCtx.fillRect(0, 0, 1024, 1024);
-    tCtx.translate(512, 512);
-    tCtx.textAlign = 'center';
-    tCtx.textBaseline = 'middle';
-    
-    tCtx.strokeStyle = '#555';
-    tCtx.lineWidth = 3;
-    for(let i = 0; i < 12; i++) {
-        tCtx.beginPath();
-        tCtx.arc(Math.cos(i * Math.PI / 6) * 200, Math.sin(i * Math.PI / 6) * 200, 200, 0, Math.PI * 2);
-        tCtx.stroke();
-    }
-    
-    for(let i = 0; i < 6; i++) {
-        tCtx.beginPath();
-        tCtx.moveTo(Math.cos(i * Math.PI / 3) * 400, Math.sin(i * Math.PI / 3) * 400);
-        tCtx.lineTo(Math.cos((i+2) * Math.PI / 3) * 400, Math.sin((i+2) * Math.PI / 3) * 400);
-        tCtx.stroke();
-    }
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
 
-    tCtx.font = '900 150px "Arial Black", Impact, sans-serif';
-    tCtx.lineWidth = 2;
-    tCtx.strokeStyle = '#fff';
-    
-    for(let i = 12; i > 0; i--) {
-        tCtx.strokeText('ASTRAL', 0, -90 - i * 4);
-        tCtx.strokeText('TRASH',  0,  90 + i * 4);
-    }
-    
-    tCtx.fillStyle = '#fff';
-    tCtx.fillText('ASTRAL', 0, -90);
-    tCtx.fillText('TRASH',  0,  90);
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
 
-    const textTex = new THREE.CanvasTexture(textCanvas);
-    textTex.minFilter = THREE.LinearFilter;
-    textTex.magFilter = THREE.LinearFilter;
+      uniform float u_time;
+      uniform vec2 u_resolution;
+      uniform sampler2D u_text;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+      }
+
+      float fbm(vec2 p) {
+        float f = 0.0;
+        float a = 0.5;
+        for (int i = 0; i < 6; i++) {
+          f += a * noise(p);
+          p *= 2.0;
+          a *= 0.5;
+        }
+        return f;
+      }
+
+      vec3 oklab_to_srgb(vec3 c) {
+        float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
+        float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
+        float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
+
+        float l = l_ * l_ * l_;
+        float m = m_ * m_ * m_;
+        float s = s_ * s_ * s_;
+
+        vec3 rgb = vec3(
+           4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        );
+
+        vec3 srgb = mix(
+          rgb * 12.92,
+          1.055 * pow(max(rgb, 0.0), vec3(1.0 / 2.4)) - 0.055,
+          step(0.0031308, rgb)
+        );
+        return clamp(srgb, 0.0, 1.0);
+      }
+
+      vec3 oklch_to_oklab(float L, float C, float h) {
+        return vec3(L, C * cos(h), C * sin(h));
+      }
+
+      void main() {
+        vec2 p = vUv * 2.0 - 1.0;
+        p.x *= u_resolution.x / u_resolution.y;
+
+        float t_slow = u_time * 0.1;
+        float t_med = u_time * 0.8;
+        float t_fast = u_time * 4.0;
+
+        vec2 drift = vec2(fbm(p * 1.2 + t_slow), fbm(p * 1.2 - t_slow + 10.0));
+        vec2 p_warp = p + (drift - 0.5) * 0.3;
+
+        float txt_r = texture(u_text, vUv + (drift - 0.5) * 0.015 + vec2(0.008, 0.0)).r;
+        float txt_g = texture(u_text, vUv + (drift - 0.5) * 0.015).r;
+        float txt_b = texture(u_text, vUv + (drift - 0.5) * 0.015 - vec2(0.008, 0.0)).r;
+        float txt = txt_g; 
+
+        float d_l2 = length(p_warp);
+        float d_linf = max(abs(p_warp.x), abs(p_warp.y));
+        float metric = mix(d_l2, d_linf, txt * 1.5); 
+
+        float freq = 24.0 + txt * 12.0;
+        float phase = metric * freq - t_med * (1.0 + txt * 3.0);
+        float cymatic = sin(phase) * cos(p_warp.x * 12.0 + t_med) * sin(p_warp.y * 12.0 - t_med);
+        
+        float spikes = exp(-abs(sin(cymatic * 3.1415)) * (5.0 - txt * 3.0));
+
+        float moire = sin(p.x * 200.0 + t_fast) * cos(p.y * 200.0 - t_fast);
+        float grain = hash(vUv * 250.0 + u_time);
+
+        float density = spikes * 0.7 + fbm(p_warp * 8.0 + t_slow) * 0.4 + moire * 0.05 * txt;
+
+        float L = 0.05 + density * 0.65 + txt * 0.25; 
+        
+        float hue_angle = d_l2 * 4.0 + t_slow * 2.0 + txt * 3.0 + density * 4.0;
+        float C = 0.28 + txt * 0.12; 
+        
+        vec3 lab = oklch_to_oklab(L, C, hue_angle);
+        vec3 col = oklab_to_srgb(lab);
+
+        col.r += txt_r * 0.3 * spikes;
+        col.b += txt_b * 0.3 * spikes;
+        
+        vec3 halation = oklab_to_srgb(oklch_to_oklab(0.7, 0.3, hue_angle + 1.0));
+        col += halation * txt * smoothstep(0.4, 1.0, density) * 0.6;
+
+        col += (grain - 0.5) * 0.12;
+
+        col *= smoothstep(0.0, 0.5, density + 0.15 + txt * 0.2);
+
+        fragColor = vec4(col, 1.0);
+      }
+    `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_textTex: { value: textTex }
+        u_text: { value: textTexture }
       },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        in vec2 vUv;
-        out vec4 fragColor;
-
-        uniform float u_time;
-        uniform vec2 u_resolution;
-        uniform sampler2D u_textTex;
-
-        #define PI 3.14159265359
-
-        float hash(vec2 p) {
-            p = fract(p * vec2(127.1, 311.7));
-            p += dot(p, p + 19.19);
-            return fract(p.x * p.y);
-        }
-
-        float noise(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            vec2 u = f * f * (3.0 - 2.0 * f);
-            return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-                       mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-        }
-
-        float fbm(vec2 p) {
-            float f = 0.0;
-            float a = 0.5;
-            mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
-            for(int i = 0; i < 5; i++) {
-                f += a * noise(p);
-                p = rot * p * 2.0;
-                a *= 0.5;
-            }
-            return f;
-        }
-
-        void main() {
-            vec2 uv = vUv;
-            vec2 st = (uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
-            
-            float t_slow = u_time * 0.03;
-            float t_med  = u_time * 0.15;
-            float t_fast = u_time * 1.2;
-
-            float textBase = texture(u_textTex, uv).r;
-
-            vec2 q = vec2(fbm(st * 2.5 + t_slow), fbm(st * 2.5 + vec2(1.7, 4.2) - t_slow));
-            vec2 r = vec2(fbm(st * 5.0 + q * 2.0 + t_med), fbm(st * 5.0 + q * 2.0 - t_med));
-            
-            vec2 warped_st = st + r * 0.15 + (q - 0.5) * textBase * 0.25;
-            vec2 warped_uv = uv + r * 0.06 + (q - 0.5) * textBase * 0.08;
-            
-            float textWarped = texture(u_textTex, warped_uv).r;
-
-            float radius = length(warped_st);
-            float angle = atan(warped_st.y, warped_st.x);
-            float chladni = sin(radius * 35.0 - t_fast) * cos(angle * 8.0 + t_med);
-            chladni = smoothstep(0.0, 0.5, abs(chladni));
-
-            float thickness = fbm(warped_st * 4.0) * 2.5 + chladni * 0.8 + textWarped * 2.2;
-            
-            float gridA = sin(warped_st.x * 120.0 + t_fast * 2.0);
-            float gridB = sin(warped_st.y * 120.0 - t_fast * 2.0);
-            float moire = smoothstep(0.7, 1.0, abs(gridA * gridB));
-
-            float material = fract(thickness * 1.2 + moire * 0.3 + t_slow);
-
-            vec3 cyan = vec3(0.0, 1.0, 0.9);
-            vec3 mag  = vec3(1.0, 0.0, 0.8);
-            vec3 yel  = vec3(1.0, 0.9, 0.0);
-            vec3 voidBlack = vec3(0.01, 0.0, 0.02);
-            
-            vec3 color = mix(cyan, mag, smoothstep(0.0, 0.5, material));
-            color = mix(color, yel, smoothstep(0.5, 1.0, material));
-
-            float spikes = pow(abs(sin(fbm(st * 8.0 + r) * 18.0)), 5.0);
-            float voidMask = smoothstep(0.35, 0.75, thickness - moire * 0.6);
-            
-            vec3 finalColor = mix(voidBlack, color * (1.0 + moire * 0.6), voidMask * spikes);
-
-            float textEdge = smoothstep(0.1, 0.5, textWarped) - smoothstep(0.5, 0.9, textWarped);
-            finalColor += mag * textEdge * 2.5 * (1.0 + sin(t_fast * 3.0) * 0.4);
-            
-            vec3 textCore = mix(cyan, yel, fract(t_med + radius * 4.0));
-            finalColor = mix(finalColor, textCore * (1.5 + moire), textWarped * smoothstep(0.6, 1.0, material));
-
-            float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233)) + u_time) * 43758.5453);
-            finalColor += grain * 0.08 * voidMask;
-
-            float vig = 1.0 - smoothstep(0.4, 1.5, length(st));
-            finalColor *= vig;
-
-            fragColor = vec4(finalColor, 1.0);
-        }
-      `
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
-    
+
     canvas.__three = { renderer, scene, camera, material };
   }
 
   const { renderer, scene, camera, material } = canvas.__three;
 
-  if (material?.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  if (material && material.uniforms) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
   }
 
   renderer.setSize(grid.width, grid.height, false);
   renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("WebGL Initialization Failed:", e);
+  console.error("WebGL Initialization or Render Failed:", e);
 }
