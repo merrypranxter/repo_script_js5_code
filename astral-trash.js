@@ -1,184 +1,198 @@
 try {
-  if (!ctx) throw new Error("WebGL 2 context not available");
-
-  // Initialize Three.js if not already present
   if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    if (!ctx) throw new Error("WebGL 2 context not available");
+
+    // 1. Generate Feral SDF Text via Offscreen Canvas
+    // We use Canvas 2D to create a rich, multi-pass mask that acts as our base substance topology.
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = 1024;
+    offCanvas.height = 1024;
+    const octx = offCanvas.getContext('2d', { willReadFrequently: true });
+
+    octx.fillStyle = '#000000';
+    octx.fillRect(0, 0, 1024, 1024);
+
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    // Using an aggressive, brutalist font stack
+    octx.font = '900 180px "Impact", "Arial Black", sans-serif';
+
+    // Pass 1: Massive blur to create the outer SDF gradient (the "halo" of the substance)
+    octx.shadowColor = '#FFFFFF';
+    octx.shadowBlur = 60;
+    octx.fillStyle = '#FFFFFF';
+    octx.fillText("ASTRAL", 512, 380);
+    octx.fillText("TRASH", 512, 620);
+
+    // Pass 2: Mid-level topological shelf
+    octx.shadowBlur = 20;
+    octx.fillStyle = '#888888';
+    octx.fillText("ASTRAL", 512, 380);
+    octx.fillText("TRASH", 512, 620);
+
+    // Pass 3: Hard core + physical damage cuts
+    octx.shadowBlur = 0;
+    octx.fillStyle = '#FFFFFF';
+    octx.fillText("ASTRAL", 512, 380);
+    octx.fillText("TRASH", 512, 620);
     
+    // Add structural "glitch" slices to the mask
+    octx.fillStyle = '#000000';
+    for(let i = 0; i < 15; i++) {
+        let y = Math.random() * 1024;
+        let h = Math.random() * 8 + 2;
+        octx.fillRect(0, y, 1024, h);
+    }
+
+    const textTexture = new THREE.CanvasTexture(offCanvas);
+    textTexture.minFilter = THREE.LinearFilter;
+    textTexture.magFilter = THREE.LinearFilter;
+    textTexture.wrapS = THREE.ClampToEdgeWrapping;
+    textTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    // 2. Initialize Three.js
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
 
-    // Create a hidden 2D canvas to generate the typographic heightmap
-    const textCanvas = document.createElement('canvas');
-    textCanvas.width = 1024;
-    textCanvas.height = 1024;
-    const tCtx = textCanvas.getContext('2d');
-    
-    // Fill void black
-    tCtx.fillStyle = '#000000';
-    tCtx.fillRect(0, 0, 1024, 1024);
-
-    // Draw underlying sacred geometry (cymatic rings)
-    tCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    tCtx.lineWidth = 2;
-    for (let i = 0; i < 15; i++) {
-      tCtx.beginPath();
-      tCtx.arc(512, 512, i * 35 + 20, 0, Math.PI * 2);
-      tCtx.stroke();
-    }
-
-    // Typography physics: Render text as a topological SDF via concentric strokes
-    tCtx.textAlign = 'center';
-    tCtx.textBaseline = 'middle';
-    tCtx.font = '900 160px "Arial Black", Impact, sans-serif';
-    tCtx.lineJoin = 'round';
-
-    const words = ["ASTRAL", "TRASH"];
-    const yOffsets = [420, 600];
-
-    // Build the "mountain" of the text
-    for (let i = 20; i > 0; i--) {
-      tCtx.lineWidth = i * 6;
-      tCtx.strokeStyle = `rgba(255, 255, 255, ${0.05 + (20 - i) * 0.002})`;
-      words.forEach((word, idx) => tCtx.strokeText(word, 512, yOffsets[idx]));
-    }
-    
-    // Core bright text
-    tCtx.fillStyle = '#FFFFFF';
-    words.forEach((word, idx) => tCtx.fillText(word, 512, yOffsets[idx]));
-
-    const textTexture = new THREE.CanvasTexture(textCanvas);
-    textTexture.minFilter = THREE.LinearFilter;
-    textTexture.magFilter = THREE.LinearFilter;
-
-    // Fragment Shader: Feral Math & Structural Color
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      uniform float u_time;
-      uniform sampler2D u_text;
-      uniform vec2 u_resolution;
-
-      // Hash & Noise
-      float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
-      }
-
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-          float a = hash(i);
-          float b = hash(i + vec2(1.0, 0.0));
-          float c = hash(i + vec2(0.0, 1.0));
-          float d = hash(i + vec2(1.0, 1.0));
-          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      }
-
-      // Fractional Brownian Motion (Nebula / Fluid dynamics)
-      float fbm(vec2 p) {
-          float v = 0.0;
-          float a = 0.5;
-          for (int i = 0; i < 6; i++) {
-              v += a * noise(p);
-              p *= 2.0;
-              a *= 0.5;
-          }
-          return v;
-      }
-
-      void main() {
-          // Normalize UV and aspect ratio
-          vec2 uv = vUv;
-          vec2 aspect_uv = (uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0) + 0.5;
-
-          // 3 Simultaneous Time Scales
-          float t_slow = u_time * 0.05;
-          float t_med  = u_time * 0.5;
-          float t_fast = u_time * 8.0;
-
-          // 1. MACROBLOCK GLITCH (Damage Aesthetics)
-          float grid_size = 30.0;
-          vec2 block_uv = floor(uv * grid_size) / grid_size;
-          float glitch_trig = step(0.96, hash(block_uv + floor(t_med * 3.0)));
-          vec2 uv_distort = uv + vec2(glitch_trig * 0.04 * sin(t_fast), 0.0);
-
-          // 2. DOMAIN WARPING (Fluid Deformation)
-          vec2 q = vec2(fbm(uv_distort * 4.0 + t_slow), fbm(uv_distort * 4.0 + vec2(1.7, 4.6) - t_slow));
-          vec2 r = vec2(fbm(uv_distort * 4.0 + 4.0 * q + t_med), fbm(uv_distort * 4.0 + 4.0 * q + vec2(8.3, 2.8) - t_med));
-          vec2 uv_flow = uv_distort + r * 0.06;
-
-          // 3. KINETIC TYPE TOPOGRAPHY (Sampling text with Chroma Bleed)
-          float txt_r = texture(u_text, uv_flow + vec2(0.006, 0.0)).r;
-          float txt_g = texture(u_text, uv_flow).r;
-          float txt_b = texture(u_text, uv_flow - vec2(0.006, 0.0)).r;
-          float txt_mask = (txt_r + txt_g + txt_b) / 3.0;
-
-          // 4. CYMATICS (Sacred Geometry Resonance)
-          float dist = length(aspect_uv - vec2(0.5));
-          float cymatic = sin(dist * 150.0 - t_med * 12.0) * exp(-dist * 3.5);
-
-          // 5. THIN FILM / BRAGG REFLECTION (Structural Color)
-          // Compute perceived optical thickness based on layered math
-          float thickness = r.x * 1.8 + txt_mask * 2.5 + cymatic * 0.4;
-
-          // Interference phase shift for Neon CMY palette
-          vec3 cmy;
-          cmy.x = 0.5 + 0.5 * cos(thickness * 3.14159 + 0.0);    // R
-          cmy.y = 0.5 + 0.5 * cos(thickness * 3.14159 + 2.094);  // G
-          cmy.z = 0.5 + 0.5 * cos(thickness * 3.14159 + 4.188);  // B
-          cmy = 1.0 - cmy; // Invert to subtractive CMY
-
-          // Stark quantization for brutal neon contrast
-          cmy = smoothstep(0.35, 0.65, cmy);
-
-          // 6. VOID BLACK MASKING
-          float void_noise = fbm(uv_flow * 12.0 - t_slow * 3.0);
-          float visibility = smoothstep(0.4, 0.6, void_noise);
-          
-          // The text burns through the void organically
-          visibility = max(visibility, smoothstep(0.1, 0.6, txt_mask));
-
-          vec3 final_color = cmy * visibility;
-
-          // 7. CHROMATIC ABERRATION ON TEXT EDGES
-          final_color += vec3(0.0, 1.0, 1.0) * txt_r * 0.6 * (1.0 - visibility); // Cyan fringe
-          final_color += vec3(1.0, 0.0, 1.0) * txt_b * 0.6 * (1.0 - visibility); // Magenta fringe
-
-          // 8. SENSOR DAMAGE (Micro Shimmer / Hot & Dead Pixels)
-          float grain = hash(gl_FragCoord.xy + t_fast);
-          float dead_pixel = step(0.985, grain);
-          float hot_pixel = step(0.996, fract(grain * 12.34));
-
-          final_color -= dead_pixel; // Punch deep black holes
-          final_color += hot_pixel * vec3(1.0, 1.0, 0.0); // Inject neon yellow sparks
-
-          fragColor = vec4(clamp(final_color, 0.0, 1.0), 1.0);
-      }
-    `;
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
-
+    // 3. The Lithogenic / Cymatic Shader
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_text: { value: textTexture }
+        u_textMask: { value: textTexture }
       },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        uniform sampler2D u_textMask;
+        uniform float u_time;
+        uniform vec2 u_resolution;
+
+        // Hardware-level glitch/entropy hash
+        float hash(vec2 p) { 
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); 
+        }
+
+        // Value noise for structural foundation
+        float noise(vec2 p) {
+            vec2 i = floor(p); 
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+                mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), 
+                f.y
+            );
+        }
+
+        // Fractal Brownian Motion (Domain Warping)
+        float fbm(vec2 p, float t) {
+            float v = 0.0; 
+            float a = 0.5;
+            p += t * 0.2;
+            for(int i = 0; i < 5; i++) {
+                v += a * noise(p);
+                // Rotate and scale to break grid alignment
+                p = p * 2.0 * mat2(0.8, -0.6, 0.6, 0.8);
+                a *= 0.5;
+            }
+            return v;
+        }
+
+        // Divergence-free curl noise (Fluid Advection)
+        vec2 curl(vec2 p, float t) {
+            float e = 0.01;
+            float dx = fbm(p + vec2(e, 0.0), t) - fbm(p - vec2(e, 0.0), t);
+            float dy = fbm(p + vec2(0.0, e), t) - fbm(p - vec2(0.0, e), t);
+            return vec2(dy, -dx);
+        }
+
+        void main() {
+            // Three simultaneous time scales
+            float t_slow = u_time * 0.15;   // Tectonic drift / domain warp
+            float t_med  = u_time * 0.8;    // Structural motion / fluid flow
+            float t_fast = u_time * 4.0;    // Detail shimmer / interference
+
+            // Aspect-corrected UVs for noise, normalized [0,1] for texture
+            vec2 uv = vUv;
+            vec2 aspectUv = (uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0) + 0.5;
+
+            // DAMAGE AESTHETICS: Macroblocking & Sync Instability
+            // Quantize UVs in specific regions based on medium-time hash
+            vec2 block_uv = floor(uv * 40.0) / 40.0;
+            float block_noise = hash(block_uv + floor(t_med * 2.0));
+            if(block_noise > 0.94) {
+                uv = mix(uv, block_uv, 0.8);
+                aspectUv = mix(aspectUv, block_uv, 0.8);
+            }
+
+            // MORPHOGENESIS: Curl advection pushing the substrate
+            vec2 flow = curl(aspectUv * 3.0, t_slow);
+            vec2 warped_uv = uv + flow * 0.08;
+
+            // CHROMATIC ABERRATION & TEXT SAMPLING
+            // The text acts as a physical boundary condition (SDF thickness map)
+            float maskR = texture(u_textMask, warped_uv + flow * 0.012).r;
+            float maskG = texture(u_textMask, warped_uv).r;
+            float maskB = texture(u_textMask, warped_uv - flow * 0.012).r;
+            float mask = (maskR + maskG + maskB) / 3.0;
+
+            // LITHOGENESIS & STRUCTURAL COLOR
+            // Calculate a local "thickness" based on the text SDF and cymatic noise
+            float structure = fbm(aspectUv * 12.0 - flow, t_med);
+            float thickness = mask * 15.0 + structure * 6.0;
+
+            // Thin-film interference simulation (Bragg reflection approximation)
+            // Using incommensurate frequencies for CMY neon channels
+            float c_phase = thickness * 1.1 + t_fast * 0.2;
+            float m_phase = thickness * 1.4 + 2.0 + t_fast * 0.25;
+            float y_phase = thickness * 1.8 + 4.0 + t_fast * 0.3;
+
+            float c_val = 0.5 + 0.5 * sin(c_phase);
+            float m_val = 0.5 + 0.5 * sin(m_phase);
+            float y_val = 0.5 + 0.5 * sin(y_phase);
+
+            // Base Palette: Void Black with CMY Neons
+            vec3 col = vec3(0.0);
+            
+            // Inject color modulated by the channel-split mask to emphasize aberration
+            col += vec3(0.0, 1.0, 1.0) * pow(c_val, 2.5) * maskR; // Cyan
+            col += vec3(1.0, 0.0, 1.0) * pow(m_val, 2.5) * maskG; // Magenta
+            col += vec3(1.0, 1.0, 0.0) * pow(y_val, 2.5) * maskB; // Yellow
+
+            // MINERAL ALCHEMY: Sharp interference ridges (Agate/Malachite domain warp)
+            float ridge = abs(fbm(warped_uv * 10.0, -t_slow));
+            float sharp = 0.003 / (ridge + 0.001);
+            // Apply ridges mostly where the mask exists
+            col += vec3(0.0, 1.0, 1.0) * sharp * mask * 0.6;
+
+            // DAMAGE: Film Grain / High-frequency shimmer
+            float grain = hash(uv * u_resolution + t_fast);
+            col *= 0.85 + 0.3 * grain;
+
+            // VOID BLACK FALLOFF: The substance only exists where mask or heavy structure is
+            float void_mask = smoothstep(0.02, 0.25, mask + structure * 0.15);
+            col *= void_mask;
+
+            // PHOSPHOR BLOOM: Add an over-exposed hot core to the thickest parts of the text
+            float core_bloom = smoothstep(0.6, 0.9, mask);
+            col += vec3(1.0, 0.2, 1.0) * core_bloom * 0.4;
+
+            // Final clamp to prevent crazy overdrive, though some clipping adds to the neon look
+            fragColor = vec4(clamp(col, 0.0, 1.2), 1.0);
+        }
+      `
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
@@ -189,16 +203,16 @@ try {
 
   const { renderer, scene, camera, material } = canvas.__three;
 
-  // Update uniforms
   if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) {
+      material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    }
   }
 
-  // Render procedure
   renderer.setSize(grid.width, grid.height, false);
   renderer.render(scene, camera);
 
-} catch (err) {
-  console.error("The feral math collapsed:", err);
+} catch (e) {
+  console.error("Feral Lithogenesis Initialization Failed:", e);
 }
