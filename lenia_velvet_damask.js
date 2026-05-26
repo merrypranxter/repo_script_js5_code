@@ -1,239 +1,273 @@
 try {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+  if (!ctx) throw new Error("WebGL 2 context not available");
 
-    if (!canvas.__three) {
-        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-        const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        
-        const vertexShader = `
-            out vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
+  if (!canvas.__three) {
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+    renderer.autoClear = false;
 
-        const fragmentShader = `
-            in vec2 vUv;
-            out vec4 fragColor;
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const simScene = new THREE.Scene();
+    const renderScene = new THREE.Scene();
+    const geometry = new THREE.PlaneGeometry(2, 2);
 
-            uniform float u_time;
-            uniform vec2 u_resolution;
-            uniform vec2 u_mouse;
+    const fboOpts = {
+      format: THREE.RGBAFormat,
+      type: THREE.HalfFloatType,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+      stencilBuffer: false
+    };
 
-            // Hash & Noise for organic warps and sparkles
-            float hash(vec2 p) {
-                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-            }
+    let fboA = new THREE.WebGLRenderTarget(grid.width, grid.height, fboOpts);
+    let fboB = new THREE.WebGLRenderTarget(grid.width, grid.height, fboOpts);
 
-            float noise(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                vec2 u = f * f * (3.0 - 2.0 * f);
-                return mix(
-                    mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-                    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
-                    u.y
-                );
-            }
+    const simVert = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
 
-            float fbm(vec2 p) {
-                float v = 0.0;
-                float a = 0.5;
-                for (int i = 0; i < 4; i++) {
-                    v += a * noise(p);
-                    p *= 2.0;
-                    a *= 0.5;
-                }
-                return v;
-            }
+    const simFrag = `
+      precision highp float;
+      in vec2 vUv;
+      out vec4 fragColor;
 
-            // Fake Lenia continuous scalar field using metaballs & FBM
-            float getU(vec2 p) {
-                float t = u_time * 0.15;
-                float U = 0.0;
-                
-                // Base structural anchors for the damask lattice
-                U += 1.2 * exp(-length(p - vec2(0.5)) * 3.0);
-                U += 1.0 * exp(-length(p - vec2(0.0)) * 4.5);
-                U += 1.0 * exp(-length(p - vec2(1.0)) * 4.5);
+      uniform sampler2D u_tex;
+      uniform vec2 u_res;
+      uniform float u_time;
+      uniform vec2 u_mouse;
+      uniform vec2 u_mouseDir;
+      uniform float u_isPressed;
 
-                // Orbiting / dividing biological blobs (fission/fusion)
-                vec2 p1 = vec2(0.5 + 0.25 * sin(t * 1.3), 0.5 + 0.25 * cos(t * 1.7));
-                vec2 p2 = vec2(0.5 + 0.30 * cos(t * 1.1), 0.5 + 0.15 * sin(t * 1.9));
-                vec2 p3 = vec2(0.5 + 0.15 * sin(t * 2.3), 0.5 + 0.30 * cos(t * 0.7));
+      void main() {
+        vec2 texel = 1.0 / u_res;
 
-                U += 1.1 * exp(-pow(length(p - p1), 2.0) * 18.0);
-                U += 1.0 * exp(-pow(length(p - p2), 2.0) * 22.0);
-                U += 0.9 * exp(-pow(length(p - p3), 2.0) * 26.0);
-
-                // Warp coordinates for organic membrane feel
-                vec2 noise_uv = p * 4.0 - t * 0.5;
-                U += fbm(noise_uv) * 0.3;
-
-                return U;
-            }
-
-            // Maps the scalar field to biological morphology and physical height
-            vec2 mapLayer(vec2 uv) {
-                vec2 scaled_uv = uv * 2.5; // Damask scale
-                
-                // Continuous symmetry folding for textile repeats
-                vec2 p = abs(fract(scaled_uv) * 2.0 - 1.0);
-                
-                // Diagonal mirror for classic jacquard/damask structure
-                if (p.x > p.y) p = p.yx;
-
-                float U = getU(p);
-
-                // Lenia-style growth functions G(U) to extract rings/membranes
-                float halo     = exp(-pow(U - 0.40, 2.0) / 0.03);
-                float membrane = exp(-pow(U - 0.65, 2.0) / 0.015);
-                float core     = exp(-pow(U - 0.90, 2.0) / 0.02);
-                float accent   = exp(-pow(U - 1.15, 2.0) / 0.008);
-
-                // Height map construction
-                float height = halo * 0.15 + membrane * 0.4 + core * 0.8 + accent * 1.0;
-
-                // Micro-weave texture for velvet pile
-                float weave = (sin(uv.x * 500.0) * sin(uv.y * 500.0)) * 0.015;
-                height += weave;
-
-                return vec2(height, U);
-            }
-
-            // Compute surface normals via finite differences
-            vec3 getNormal(vec2 uv) {
-                float eps = 0.002;
-                float h0 = mapLayer(uv).x;
-                float hx = mapLayer(uv + vec2(eps, 0.0)).x;
-                float hy = mapLayer(uv + vec2(0.0, eps)).x;
-                return normalize(vec3(h0 - hx, h0 - hy, eps * 3.0));
-            }
-
-            void main() {
-                vec2 uv = vUv;
-                vec2 aspect_uv = uv;
-                aspect_uv.x *= u_resolution.x / u_resolution.y;
-
-                // Mouse interaction - Velvet brushing
-                vec2 mouse_uv = u_mouse;
-                mouse_uv.x *= u_resolution.x / u_resolution.y;
-                vec2 m_diff = aspect_uv - mouse_uv;
-                float m_dist = length(m_diff);
-                float m_brush = exp(-m_dist * 6.0); // Brush influence radius
-
-                // Evaluate geometry and biology
-                vec2 mat = mapLayer(aspect_uv);
-                float h = mat.x;
-                float U = mat.y;
-
-                vec3 N = getNormal(aspect_uv);
-                vec3 V = normalize(vec3(0.0, 0.0, 1.0)); // Camera
-                vec3 L = normalize(vec3(sin(u_time * 0.4) * 0.6, cos(u_time * 0.3) * 0.6, 0.7)); // Moving light
-
-                // Velvet nap vector (anisotropic tangent)
-                vec3 nap = normalize(vec3(0.0, 1.0, 0.1));
-                // Mouse reverses nap and reveals hidden layers
-                nap = normalize(mix(nap, vec3(m_diff * 5.0, 0.2), m_brush));
-
-                // Lighting Math
-                float NdotL = max(0.0, dot(N, L));
-                float NdotV = max(0.0, dot(N, V));
-
-                // Velvet asperity scattering (grazing rim light)
-                float rim = smoothstep(0.0, 1.0, 1.0 - NdotV);
-                rim = pow(rim, 2.5) * 1.5;
-
-                // Anisotropic specular highlight
-                vec3 H_vec = normalize(L + V);
-                float TdotH = dot(nap, H_vec);
-                float aniso = exp(-pow(TdotH, 2.0) / 0.03) * 1.5;
-
-                // Colors
-                vec3 velvetBase = vec3(0.05, 0.0, 0.12); // Deep UV
-                vec3 velvetLit  = vec3(0.4, 0.0, 0.6);   // Hot purple sheen
-
-                // Lenia Organism Colors (extracted via Gaussian growth maps)
-                float halo     = exp(-pow(U - 0.40, 2.0) / 0.03);
-                float membrane = exp(-pow(U - 0.65, 2.0) / 0.015);
-                float core     = exp(-pow(U - 0.90, 2.0) / 0.02);
-                float accent   = exp(-pow(U - 1.15, 2.0) / 0.008);
-
-                vec3 bioColor = vec3(0.0);
-                bioColor += halo * vec3(0.0, 0.8, 1.0);       // Cyan
-                bioColor += membrane * vec3(0.6, 1.0, 0.0);   // Acid Green
-                bioColor += core * vec3(1.0, 0.0, 0.6);       // Hot Magenta
-                bioColor += accent * vec3(1.0, 0.6, 0.0) * (0.8 + 0.2 * sin(u_time * 8.0)); // Pulsing Orange
-
-                // Blend velvet base with biological motif
-                float motifMask = clamp(halo + membrane + core + accent, 0.0, 1.0);
-
-                // Hidden patterns revealed by the mouse brush
-                float hiddenPattern = exp(-pow(U - 0.52, 2.0) / 0.004) * m_brush;
-                bioColor += hiddenPattern * vec3(0.8, 1.0, 1.0);
-                motifMask = max(motifMask, hiddenPattern);
-
-                vec3 baseColor = mix(velvetBase, bioColor, motifMask * 0.85);
-
-                // Apply lighting
-                vec3 finalColor = baseColor * (NdotL * 0.5 + 0.5); // Diffuse
-                finalColor += velvetLit * rim * (1.0 - motifMask * 0.6); // Velvet edge, suppressed on motifs
-                finalColor += aniso * mix(vec3(0.7, 0.3, 1.0), vec3(1.0, 0.8, 0.9), motifMask); // Sheen
-
-                // Sparkle Dust (View-dependent microfacets)
-                float sparkle_seed = dot(floor(aspect_uv * 700.0), vec2(12.9898, 78.233));
-                float sparkle_noise = fract(sin(sparkle_seed) * 43758.5453);
-                float view_sparkle = step(0.98, fract(sparkle_noise + u_time * 0.2 + NdotV * 5.0));
-                float sparkle = view_sparkle * rim * max(motifMask, 0.2); // Concentrated on motifs and edges
-                finalColor += sparkle * vec3(1.0, 1.0, 1.0) * 1.5;
-
-                // Vignette
-                float vig = length(vUv - 0.5);
-                finalColor *= smoothstep(0.8, 0.2, vig);
-
-                // Output with slight contrast boost
-                fragColor = vec4(pow(finalColor, vec3(0.9)), 1.0);
-            }
-        `;
-
-        const material = new THREE.ShaderMaterial({
-            glslVersion: THREE.GLSL3,
-            vertexShader,
-            fragmentShader,
-            uniforms: {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-                u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
-            }
-        });
-
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(mesh);
-
-        canvas.__three = { renderer, scene, camera, material };
-    }
-
-    const { renderer, scene, camera, material } = canvas.__three;
-
-    if (material && material.uniforms) {
-        material.uniforms.u_time.value = time;
-        material.uniforms.u_resolution.value.set(grid.width, grid.height);
-        
-        // Update mouse position, defaulting to center if uninitialized
-        let mx = 0.5;
-        let my = 0.5;
-        if (mouse && mouse.x !== undefined && mouse.y !== undefined) {
-            mx = mouse.x / grid.width;
-            my = 1.0 - (mouse.y / grid.height); // Flip Y for WebGL
+        // Initialization
+        if (u_time < 0.2) {
+          vec2 p = vUv * 6.0;
+          float n = fract(sin(dot(floor(p), vec2(127.1, 311.7))) * 43758.5453);
+          float d = length(fract(p) - 0.5);
+          float vInit = (d < 0.25) ? n * 0.8 : 0.0;
+          fragColor = vec4(1.0, vInit, 0.0, 1.0);
+          return;
         }
-        material.uniforms.u_mouse.value.set(mx, my);
-    }
 
-    renderer.setSize(grid.width, grid.height, false);
-    renderer.render(scene, camera);
+        vec4 c = texture(u_tex, vUv);
+        float u = c.r;
+        float v = c.g;
+        vec2 nap = c.ba;
+
+        // 9-tap Laplacian for smoother, Lenia-like organic curves
+        vec2 N = vec2(0.0, texel.y);
+        vec2 E = vec2(texel.x, 0.0);
+        vec2 S = vec2(0.0, -texel.y);
+        vec2 W = vec2(-texel.x, 0.0);
+        vec2 NE = vec2(texel.x, texel.y);
+        vec2 NW = vec2(-texel.x, texel.y);
+        vec2 SE = vec2(texel.x, -texel.y);
+        vec2 SW = vec2(-texel.x, -texel.y);
+
+        float lapU = texture(u_tex, vUv + N).r + texture(u_tex, vUv + S).r +
+                     texture(u_tex, vUv + E).r + texture(u_tex, vUv + W).r +
+                     0.5 * (texture(u_tex, vUv + NE).r + texture(u_tex, vUv + NW).r +
+                            texture(u_tex, vUv + SE).r + texture(u_tex, vUv + SW).r) - 6.0 * u;
+
+        float lapV = texture(u_tex, vUv + N).g + texture(u_tex, vUv + S).g +
+                     texture(u_tex, vUv + E).g + texture(u_tex, vUv + W).g +
+                     0.5 * (texture(u_tex, vUv + NE).g + texture(u_tex, vUv + NW).g +
+                            texture(u_tex, vUv + SE).g + texture(u_tex, vUv + SW).g) - 6.0 * v;
+
+        // Gray-Scott parameters tuned for intricate Damask mazes
+        float Du = 0.209;
+        float Dv = 0.105;
+        float F = 0.026;
+        float K = 0.053;
+
+        float uvv = u * v * v;
+        float du = Du * lapU - uvv + F * (1.0 - u);
+        float dv = Dv * lapV + uvv - (F + K) * v;
+
+        u += du * 1.2;
+        v += dv * 1.2;
+
+        // Enforce Damask Symmetry (Wallpaper P4M-ish constraints)
+        vec2 tileUv = fract(vUv * 2.0);
+        vec2 localMirrorUv = abs(tileUv * 2.0 - 1.0); 
+        vec2 globalMirrorUv = (floor(vUv * 2.0) + localMirrorUv) / 2.0;
+        vec4 tileSym = texture(u_tex, globalMirrorUv);
+        
+        vec2 globalSymUv = abs(vUv * 2.0 - 1.0);
+        vec4 globSym = texture(u_tex, globalSymUv);
+
+        // Gently pull the simulation toward symmetry to maintain textile structure
+        u = mix(u, (tileSym.r + globSym.r) * 0.5, 0.008);
+        v = mix(v, (tileSym.g + globSym.g) * 0.5, 0.008);
+
+        // Mouse brush interaction (disturbs organisms and sets velvet nap)
+        if (u_isPressed > 0.5) {
+            vec2 aspect = vec2(u_res.x / u_res.y, 1.0);
+            float dist = length((vUv - u_mouse) * aspect);
+            if (dist < 0.04) {
+                v = min(v + 0.4, 1.0);
+                vec2 targetNap = length(u_mouseDir) > 0.0001 ? normalize(u_mouseDir) : vec2(0.0, 1.0);
+                nap = mix(nap, targetNap, 0.15);
+            }
+        }
+
+        // Slowly relax nap back to default downward direction
+        nap = normalize(mix(nap, vec2(0.0, -1.0), 0.005));
+
+        fragColor = vec4(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0), nap.x, nap.y);
+      }
+    `;
+
+    const renderFrag = `
+      precision highp float;
+      in vec2 vUv;
+      out vec4 fragColor;
+
+      uniform sampler2D u_tex;
+      uniform vec2 u_res;
+      uniform float u_time;
+
+      void main() {
+        vec2 texel = 1.0 / u_res;
+        vec4 state = texture(u_tex, vUv);
+        float u = state.r;
+        float v = state.g;
+        vec2 nap = state.ba;
+
+        // Calculate surface normal from CA inhibitor gradient
+        float vN = texture(u_tex, vUv + vec2(0.0, texel.y)).g;
+        float vS = texture(u_tex, vUv - vec2(0.0, texel.y)).g;
+        float vE = texture(u_tex, vUv + vec2(texel.x, 0.0)).g;
+        float vW = texture(u_tex, vUv - vec2(texel.x, 0.0)).g;
+
+        vec3 N = normalize(vec3((vW - vE) * 15.0, (vS - vN) * 15.0, 1.0));
+        vec3 V = vec3(0.0, 0.0, 1.0);
+        vec3 L = normalize(vec3(0.3, 0.5, 0.8)); 
+
+        // Velvet Anisotropy: shift normal by the nap direction
+        vec3 shiftedN = normalize(N + vec3(nap.x, nap.y, 0.0) * 0.6);
+        float NdotV = max(dot(N, V), 0.0);
+        float shiftedNdotV = max(dot(shiftedN, V), 0.0);
+
+        // Velvet Rim lighting (brightest at grazing angles relative to nap)
+        float rim = pow(1.0 - shiftedNdotV, 2.2);
+        float diffuse = max(dot(N, L), 0.0);
+        float spec = pow(max(dot(reflect(-L, shiftedN), V), 0.0), 16.0);
+
+        // Palette
+        vec3 colBase = vec3(0.06, 0.01, 0.15);  // Deep UV velvet
+        vec3 colRim  = vec3(0.4, 0.0, 0.8);     // Violet sheen
+        vec3 colMotif = vec3(1.0, 0.0, 0.5);    // Hot magenta
+        vec3 colHalo  = vec3(0.0, 0.9, 1.0);    // Cyan halo
+        
+        // Biological activity markers
+        float rate = u * v * v;
+        vec3 colGrowth = mix(vec3(0.6, 1.0, 0.0), vec3(1.0, 0.6, 0.0), smoothstep(0.002, 0.015, rate));
+
+        // Masks
+        float motifMask = smoothstep(0.15, 0.4, v);
+        float haloMask = smoothstep(0.4, 0.1, u) * (1.0 - motifMask);
+        float flashMask = smoothstep(0.001, 0.01, rate) * motifMask;
+
+        // Composition
+        vec3 albedo = colBase;
+        albedo = mix(albedo, colHalo, haloMask * 0.7);
+        albedo = mix(albedo, colMotif, motifMask);
+        albedo = mix(albedo, colGrowth, flashMask);
+
+        // Lighting application
+        vec3 color = albedo * (diffuse * 0.5 + 0.5) + colRim * rim * 1.5 + spec * flashMask;
+
+        // Sparkle Dust (Microfacets on raised pile)
+        vec2 seed = vUv * u_res;
+        float noise = fract(sin(dot(seed, vec2(12.9898, 78.233))) * 43758.5453);
+        float sparkThresh = 0.97 - (shiftedNdotV * 0.02);
+        float sparkle = step(sparkThresh, noise) * pow(shiftedNdotV, 3.0) * smoothstep(0.1, 0.6, v);
+        color += vec3(1.0, 0.9, 1.0) * sparkle * 2.5;
+
+        // Vignette
+        color *= smoothstep(0.0, 1.0, 1.2 - length(vUv - 0.5) * 0.8);
+
+        fragColor = vec4(color, 1.0);
+      }
+    `;
+
+    const simMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: simVert,
+      fragmentShader: simFrag,
+      uniforms: {
+        u_tex: { value: null },
+        u_res: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_time: { value: 0 },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) },
+        u_mouseDir: { value: new THREE.Vector2(0, 0) },
+        u_isPressed: { value: 0 }
+      }
+    });
+
+    const renderMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: simVert,
+      fragmentShader: renderFrag,
+      uniforms: {
+        u_tex: { value: null },
+        u_res: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_time: { value: 0 }
+      }
+    });
+
+    const simMesh = new THREE.Mesh(geometry, simMat);
+    simScene.add(simMesh);
+
+    const renderMesh = new THREE.Mesh(geometry, renderMat);
+    renderScene.add(renderMesh);
+
+    canvas.__three = {
+      renderer, camera, simScene, renderScene, simMat, renderMat,
+      fboA, fboB,
+      mouseState: { last: new THREE.Vector2(0.5, 0.5) }
+    };
+  }
+
+  const { renderer, camera, simScene, renderScene, simMat, renderMat, mouseState } = canvas.__three;
+  let { fboA, fboB } = canvas.__three;
+
+  if (fboA.width !== grid.width || fboA.height !== grid.height) {
+    fboA.setSize(grid.width, grid.height);
+    fboB.setSize(grid.width, grid.height);
+    simMat.uniforms.u_res.value.set(grid.width, grid.height);
+    renderMat.uniforms.u_res.value.set(grid.width, grid.height);
+  }
+
+  const currentMouse = new THREE.Vector2(mouse.x / grid.width, 1.0 - mouse.y / grid.height);
+  const mouseDir = new THREE.Vector2().subVectors(currentMouse, mouseState.last);
+  mouseState.last.copy(currentMouse);
+
+  simMat.uniforms.u_time.value = time;
+  simMat.uniforms.u_mouse.value = currentMouse;
+  simMat.uniforms.u_mouseDir.value = mouseDir;
+  simMat.uniforms.u_isPressed.value = mouse.isPressed ? 1.0 : 0.0;
+  simMat.uniforms.u_tex.value = fboA.texture;
+
+  renderer.setRenderTarget(fboB);
+  renderer.render(simScene, camera);
+
+  canvas.__three.fboA = fboB;
+  canvas.__three.fboB = fboA;
+
+  renderMat.uniforms.u_time.value = time;
+  renderMat.uniforms.u_tex.value = fboB.texture;
+
+  renderer.setRenderTarget(null);
+  renderer.render(renderScene, camera);
 
 } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
+  console.error("Lenia Velvet Damask Initialization Failed:", e);
 }
