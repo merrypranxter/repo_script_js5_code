@@ -1,182 +1,61 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JS5 Sketch Gallery</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RepoScripter new since last time</title>
 <style>
-  body{background:#000;color:#0ff;font:14px/1.6 'Courier New',monospace;padding:24px;margin:0}
-  h1{color:#fff;margin-bottom:16px;letter-spacing:3px;font-size:18px}
-  ul{list-style:none;padding:0;column-count:3;column-gap:16px}
-  @media(max-width:900px){ul{column-count:2}}
-  @media(max-width:560px){ul{column-count:1}}
-  li{break-inside:avoid;margin-bottom:6px;display:flex;align-items:center;gap:8px}
-  a{color:#0ff;text-decoration:none}
-  a:hover{color:#fff;text-decoration:underline}
-  .tag{font-size:10px;color:#0f08;background:#0f01;border:1px solid #0f03;
-       border-radius:2px;padding:0 4px}
-  .tag.webgl{color:#f0f8;background:#f0f1;border-color:#f0f3}
-  p{color:#0ff6;font-size:11px;margin-bottom:16px}
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #09000f;
+    color: #f4f0ff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    padding: 32px;
+  }
+  a { color: #77ffff; text-decoration-thickness: 1px; }
+  li { margin: 8px 0; }
+  span {
+    color: #ffc2ff;
+    opacity: .75;
+    font-size: 12px;
+    margin-left: 8px;
+  }
+  .note {
+    max-width: 900px;
+    line-height: 1.5;
+    opacity: .85;
+  }
+  code {
+    background: rgba(255,255,255,.08);
+    padding: 2px 5px;
+    border-radius: 5px;
+  }
 </style>
 </head>
 <body>
-<h1>JS5 SKETCH GALLERY</h1>
-<p>149 sketches &mdash; click any to open standalone. Press <strong>H</strong> inside a sketch to hide HUD.</p>
+<h1>RepoScripter: new since last time</h1>
+<p class="note">
+Base commit from the last pack: <code>af70c2297f5f3ed55decf1362189f6e607c0bdfb</code>.
+These wrappers use the working RepoScripter runtime: correct Canvas2D/WebGL detection, safe <code>source + "\n"</code> compilation,
+Save PNG, Reset, and HUD Hide/H that disappears completely with no visible “show” leftover.
+</p>
+<p class="note">These load the current matching JS source from GitHub raw URLs, so internet is required.</p>
 <ul>
-    <li><a href="11d-time-crystal.html">11d-time-crystal</a><span class="tag">2D</span></li>
-    <li><a href="acid-bloom.html">acid-bloom</a><span class="tag">WebGL</span></li>
-    <li><a href="acid-fractals.html">acid-fractals</a><span class="tag">WebGL</span></li>
-    <li><a href="acid-matrix-glitch.html">acid-matrix-glitch</a><span class="tag">WebGL</span></li>
-    <li><a href="acid-slime.html">acid-slime</a><span class="tag">2D</span></li>
-    <li><a href="acidic-analog-glitch.html">acidic-analog-glitch</a><span class="tag">WebGL</span></li>
-    <li><a href="acidic-palette.html">acidic-palette</a><span class="tag">WebGL</span></li>
-    <li><a href="acidic-vhs-decay.html">acidic-vhs-decay</a><span class="tag">WebGL</span></li>
-    <li><a href="acidic-vhs-rot.html">acidic-vhs-rot</a><span class="tag">WebGL</span></li>
-    <li><a href="amber-phosphor.html">amber-phosphor</a><span class="tag">WebGL</span></li>
-    <li><a href="amber_ripple.html">amber_ripple</a><span class="tag">2D</span></li>
-    <li><a href="analog_decay.html">analog_decay</a><span class="tag">WebGL</span></li>
-    <li><a href="anu.html">anu</a><span class="tag">2D</span></li>
-    <li><a href="aperiodic_flux.html">aperiodic_flux</a><span class="tag">2D</span></li>
-    <li><a href="astral-vhs.html">astral-vhs</a><span class="tag">2D</span></li>
-    <li><a href="astral_doctrine.html">astral_doctrine</a><span class="tag">2D</span></li>
-    <li><a href="biolum-terraces.html">biolum-terraces</a><span class="tag">WebGL</span></li>
-    <li><a href="bold-interactive.html">bold-interactive</a><span class="tag">2D</span></li>
-    <li><a href="bold-repo-art.html">bold-repo-art</a><span class="tag">2D</span></li>
-    <li><a href="bright-automata.html">bright-automata</a><span class="tag">2D</span></li>
-    <li><a href="chroma-diffusion.html">chroma-diffusion</a><span class="tag">WebGL</span></li>
-    <li><a href="cobalt-scanline.html">cobalt-scanline</a><span class="tag">WebGL</span></li>
-    <li><a href="cobalt_scan.html">cobalt_scan</a><span class="tag">WebGL</span></li>
-    <li><a href="colorful-fractals.html">colorful-fractals</a><span class="tag">WebGL</span></li>
-    <li><a href="colorful-moire.html">colorful-moire</a><span class="tag">WebGL</span></li>
-    <li><a href="crt-poincare.html">crt-poincare</a><span class="tag">WebGL</span></li>
-    <li><a href="cthulhu-awakens.html">cthulhu-awakens</a><span class="tag">2D</span></li>
-    <li><a href="cthulhu.html">cthulhu</a><span class="tag">2D</span></li>
-    <li><a href="cthulu-awakens.html">cthulu-awakens</a><span class="tag">2D</span></li>
-    <li><a href="cyan_matrix.html">cyan_matrix</a><span class="tag">2D</span></li>
-    <li><a href="deco-bg.html">deco-bg</a><span class="tag">2D</span></li>
-    <li><a href="degraded-signal.html">degraded-signal</a><span class="tag">WebGL</span></li>
-    <li><a href="dmt.html">dmt</a><span class="tag">2D</span></li>
-    <li><a href="do-it-sizes.html">do-it-sizes</a><span class="tag">2D</span></li>
-    <li><a href="doit.html">doit</a><span class="tag">2D</span></li>
-    <li><a href="dynamic-art.html">dynamic-art</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-design.html">dynamic-design</a><span class="tag">2D</span></li>
-    <li><a href="dynamic-git-art.html">dynamic-git-art</a><span class="tag">2D</span></li>
-    <li><a href="dynamic-interactive-design.html">dynamic-interactive-design</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-interactive.html">dynamic-interactive</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-mashup.html">dynamic-mashup</a><span class="tag">2D</span></li>
-    <li><a href="dynamic-math.html">dynamic-math</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-moire.html">dynamic-moire</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-rd.html">dynamic-rd</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-repo-art.html">dynamic-repo-art</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-repo.html">dynamic-repo</a><span class="tag">WebGL</span></li>
-    <li><a href="dynamic-repos.html">dynamic-repos</a><span class="tag">2D</span></li>
-    <li><a href="emerald-tablets.html">emerald-tablets</a><span class="tag">2D</span></li>
-    <li><a href="fabric-damage.html">fabric-damage</a><span class="tag">WebGL</span></li>
-    <li><a href="fractaldance.html">fractaldance</a><span class="tag">WebGL</span></li>
-    <li><a href="git-art.html">git-art</a><span class="tag">WebGL</span></li>
-    <li><a href="git-blend.html">git-blend</a><span class="tag">2D</span></li>
-    <li><a href="git-flow.html">git-flow</a><span class="tag">WebGL</span></li>
-    <li><a href="git-interactive.html">git-interactive</a><span class="tag">2D</span></li>
-    <li><a href="git-manifold.html">git-manifold</a><span class="tag">WebGL</span></li>
-    <li><a href="github-art.html">github-art</a><span class="tag">WebGL</span></li>
-    <li><a href="github-dynamic-art.html">github-dynamic-art</a><span class="tag">WebGL</span></li>
-    <li><a href="github-dynamic.html">github-dynamic</a><span class="tag">2D</span></li>
-    <li><a href="github-interactive.html">github-interactive</a><span class="tag">WebGL</span></li>
-    <li><a href="haunted_crt.html">haunted_crt</a><span class="tag">WebGL</span></li>
-    <li><a href="haunted_monitor.html">haunted_monitor</a><span class="tag">WebGL</span></li>
-    <li><a href="hey_dirk.html">hey_dirk</a><span class="tag">2D</span></li>
-    <li><a href="hyperbolic-led.html">hyperbolic-led</a><span class="tag">WebGL</span></li>
-    <li><a href="hyperbolic-subpixel.html">hyperbolic-subpixel</a><span class="tag">WebGL</span></li>
-    <li><a href="interactive-art.html">interactive-art</a><span class="tag">WebGL</span></li>
-    <li><a href="interactive-design.html">interactive-design</a><span class="tag">WebGL</span></li>
-    <li><a href="kiyo-quasicrystal.html">kiyo-quasicrystal</a><span class="tag">WebGL</span></li>
-    <li><a href="led-moire.html">led-moire</a><span class="tag">WebGL</span></li>
-    <li><a href="led-pulse.html">led-pulse</a><span class="tag">WebGL</span></li>
-    <li><a href="living-fabric.html">living-fabric</a><span class="tag">WebGL</span></li>
-    <li><a href="lorenz_gray_scott.html">lorenz_gray_scott</a><span class="tag">WebGL</span></li>
-    <li><a href="lovecraft-mythos.html">lovecraft-mythos</a><span class="tag">2D</span></li>
-    <li><a href="lv426.html">lv426</a><span class="tag">2D</span></li>
-    <li><a href="magenta-glitch-tape.html">magenta-glitch-tape</a><span class="tag">WebGL</span></li>
-    <li><a href="magenta-tape-glitch.html">magenta-tape-glitch</a><span class="tag">WebGL</span></li>
-    <li><a href="math-choreography.html">math-choreography</a><span class="tag">2D</span></li>
-    <li><a href="math-dynamics.html">math-dynamics</a><span class="tag">WebGL</span></li>
-    <li><a href="math_blueprint.html">math_blueprint</a><span class="tag">WebGL</span></li>
-    <li><a href="maximalist_weird.html">maximalist_weird</a><span class="tag">2D</span></li>
-    <li><a href="mckenna-mushroom.html">mckenna-mushroom</a><span class="tag">2D</span></li>
-    <li><a href="mckenna-nouveau.html">mckenna-nouveau</a><span class="tag">2D</span></li>
-    <li><a href="moire-art.html">moire-art</a><span class="tag">WebGL</span></li>
-    <li><a href="moire-dna.html">moire-dna</a><span class="tag">2D</span></li>
-    <li><a href="moire-interference.html">moire-interference</a><span class="tag">WebGL</span></li>
-    <li><a href="moire-point.html">moire-point</a><span class="tag">WebGL</span></li>
-    <li><a href="moire-star.html">moire-star</a><span class="tag">WebGL</span></li>
-    <li><a href="moire.html">moire</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-grain.html">neon-grain</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-heartbeat.html">neon-heartbeat</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-life.html">neon-life</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-moire-stars.html">neon-moire-stars</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-pulse-grid.html">neon-pulse-grid</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-pulse.html">neon-pulse</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-subpixel-pulse.html">neon-subpixel-pulse</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-substance.html">neon-substance</a><span class="tag">WebGL</span></li>
-    <li><a href="neon-tentacle.html">neon-tentacle</a><span class="tag">2D</span></li>
-    <li><a href="neon-void-grain.html">neon-void-grain</a><span class="tag">WebGL</span></li>
-    <li><a href="neon_quasicrystal.html">neon_quasicrystal</a><span class="tag">WebGL</span></li>
-    <li><a href="non-euclidean.html">non-euclidean</a><span class="tag">WebGL</span></li>
-    <li><a href="noneuc-crystal.html">noneuc-crystal</a><span class="tag">2D</span></li>
-    <li><a href="noneucl_tess.html">noneucl_tess</a><span class="tag">WebGL</span></li>
-    <li><a href="noneuclid.html">noneuclid</a><span class="tag">WebGL</span></li>
-    <li><a href="noneuclidean-art.html">noneuclidean-art</a><span class="tag">2D</span></li>
-    <li><a href="noneuclidean.html">noneuclidean</a><span class="tag">WebGL</span></li>
-    <li><a href="novelty.html">novelty</a><span class="tag">2D</span></li>
-    <li><a href="quasicrystal-dissolve.html">quasicrystal-dissolve</a><span class="tag">WebGL</span></li>
-    <li><a href="quasicrystal-oscillator.html">quasicrystal-oscillator</a><span class="tag">WebGL</span></li>
-    <li><a href="quasicrystal.html">quasicrystal</a><span class="tag">WebGL</span></li>
-    <li><a href="quasicrystal_cycle.html">quasicrystal_cycle</a><span class="tag">WebGL</span></li>
-    <li><a href="quasicrystal_flux.html">quasicrystal_flux</a><span class="tag">WebGL</span></li>
-    <li><a href="quasicycle.html">quasicycle</a><span class="tag">WebGL</span></li>
-    <li><a href="quasifunk.html">quasifunk</a><span class="tag">WebGL</span></li>
-    <li><a href="red_cctv.html">red_cctv</a><span class="tag">WebGL</span></li>
-    <li><a href="repo-art.html">repo-art</a><span class="tag">WebGL</span></li>
-    <li><a href="repo-ascii.html">repo-ascii</a><span class="tag">2D</span></li>
-    <li><a href="repo-design.html">repo-design</a><span class="tag">2D</span></li>
-    <li><a href="repo-dynamic.html">repo-dynamic</a><span class="tag">WebGL</span></li>
-    <li><a href="repo-flow.html">repo-flow</a><span class="tag">WebGL</span></li>
-    <li><a href="repo-fusion.html">repo-fusion</a><span class="tag">2D</span></li>
-    <li><a href="repo-visual.html">repo-visual</a><span class="tag">2D</span></li>
-    <li><a href="repo-viz.html">repo-viz</a><span class="tag">WebGL</span></li>
-    <li><a href="rgb_subpixels.html">rgb_subpixels</a><span class="tag">WebGL</span></li>
-    <li><a href="sacred-geometry.html">sacred-geometry</a><span class="tag">WebGL</span></li>
-    <li><a href="screendoor.html">screendoor</a><span class="tag">WebGL</span></li>
-    <li><a href="slime-moire.html">slime-moire</a><span class="tag">WebGL</span></li>
-    <li><a href="slime-party.html">slime-party</a><span class="tag">2D</span></li>
-    <li><a href="structural-moire.html">structural-moire</a><span class="tag">WebGL</span></li>
-    <li><a href="subpixel-grid.html">subpixel-grid</a><span class="tag">WebGL</span></li>
-    <li><a href="subpixel-moire.html">subpixel-moire</a><span class="tag">WebGL</span></li>
-    <li><a href="subpixel_grid.html">subpixel_grid</a><span class="tag">WebGL</span></li>
-    <li><a href="synergy.html">synergy</a><span class="tag">WebGL</span></li>
-    <li><a href="thoth-atlantis.html">thoth-atlantis</a><span class="tag">2D</span></li>
-    <li><a href="timewave.html">timewave</a><span class="tag">2D</span></li>
-    <li><a href="vhs-coral.html">vhs-coral</a><span class="tag">WebGL</span></li>
-    <li><a href="vhs-glitch.html">vhs-glitch</a><span class="tag">2D</span></li>
-    <li><a href="vhs-pause.html">vhs-pause</a><span class="tag">WebGL</span></li>
-    <li><a href="vhs_crt_glitch.html">vhs_crt_glitch</a><span class="tag">WebGL</span></li>
-    <li><a href="vhs_glitch.html">vhs_glitch</a><span class="tag">2D</span></li>
-    <li><a href="vhs_pause.html">vhs_pause</a><span class="tag">WebGL</span></li>
-    <li><a href="vibrant-diffusion.html">vibrant-diffusion</a><span class="tag">WebGL</span></li>
-    <li><a href="vibrant-rd.html">vibrant-rd</a><span class="tag">WebGL</span></li>
-    <li><a href="vibrant_rd.html">vibrant_rd</a><span class="tag">WebGL</span></li>
-    <li><a href="violet-curl-waves.html">violet-curl-waves</a><span class="tag">WebGL</span></li>
-    <li><a href="vivid-diffusion.html">vivid-diffusion</a><span class="tag">WebGL</span></li>
-    <li><a href="vivid-maximalist.html">vivid-maximalist</a><span class="tag">WebGL</span></li>
-    <li><a href="vivid-rd.html">vivid-rd</a><span class="tag">WebGL</span></li>
-    <li><a href="vivid_maximalist.html">vivid_maximalist</a><span class="tag">WebGL</span></li>
-    <li><a href="wild-diffusion.html">wild-diffusion</a><span class="tag">WebGL</span></li>
-    <li><a href="wild_diffusion.html">wild_diffusion</a><span class="tag">WebGL</span></li>
+<li><a href="astral-trash.html">astral-trash</a> <span>added</span></li>
+<li><a href="astral_trash.html">astral_trash</a> <span>added</span></li>
+<li><a href="derek-sux-material.html">derek-sux-material</a> <span>added</span></li>
+<li><a href="derek_sux_texture.html">derek_sux_texture</a> <span>added</span></li>
+<li><a href="g2-holonomy.html">g2-holonomy</a> <span>added</span></li>
+<li><a href="g2-membrane.html">g2-membrane</a> <span>added</span></li>
+<li><a href="hyperbolic-reef.html">hyperbolic-reef</a> <span>added</span></li>
+<li><a href="neon-biomorph.html">neon-biomorph</a> <span>added</span></li>
+<li><a href="neon-cute-texture.html">neon-cute-texture</a> <span>added</span></li>
+<li><a href="neon-substance.html">neon-substance</a> <span>modified</span></li>
+<li><a href="neon-void-derek-sux.html">neon-void-derek-sux</a> <span>added</span></li>
+<li><a href="neon-void-grain.html">neon-void-grain</a> <span>modified</span></li>
+<li><a href="neon-void-substance.html">neon-void-substance</a> <span>added</span></li>
+<li><a href="urcute_texture.html">urcute_texture</a> <span>added</span></li>
 </ul>
-<script>
-document.querySelectorAll('.tag').forEach(el=>{
-  if(el.textContent==='WebGL') el.classList.add('webgl');
-});
-</script>
 </body>
 </html>

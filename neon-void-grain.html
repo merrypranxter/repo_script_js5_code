@@ -1,185 +1,197 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>neon-void-grain</title>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{width:100%;height:100%;overflow:hidden;background:#000}
-canvas{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
-#hud{
-  position:fixed;top:12px;left:12px;z-index:9999;
-  background:rgba(0,0,0,0.82);border:1px solid #0ff;
-  border-radius:4px;color:#0ff;
-  font:12px/1.5 'Courier New',monospace;
-  padding:8px 10px;min-width:180px;
-  box-shadow:0 0 14px #0ff4;
-  user-select:none;
-}
-#hud-name{font-size:11px;color:#fff;margin-bottom:4px;letter-spacing:1px}
-#hud-status{font-size:10px;color:#0ff9;margin-bottom:6px;min-height:14px;word-break:break-word}
-#hud-btns{display:flex;gap:5px;flex-wrap:wrap}
-#hud-btns button{
-  background:none;border:1px solid #0ff6;color:#0ff;
-  font:11px 'Courier New',monospace;padding:2px 7px;
-  border-radius:2px;cursor:pointer;
-}
-#hud-btns button:hover{background:#0ff2;border-color:#0ff}
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; }
+  canvas { display:block; width:100vw; height:100vh; background:#000; }
+  #hud {
+    position:fixed; left:12px; top:12px; z-index:20;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+    font-size:12px; line-height:1.35; color:#effcff;
+    background:rgba(0,0,0,.58); border:1px solid rgba(255,255,255,.20);
+    border-radius:12px; padding:10px; box-shadow:0 0 24px rgba(0,255,255,.18);
+    backdrop-filter:blur(8px); user-select:none; max-width:min(360px,calc(100vw - 32px));
+  }
+  #hud.hidden { display:none; }
+  #hud .name { font-weight:700; margin-bottom:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #hud .status { opacity:.75; margin-bottom:8px; font-size:11px; }
+  #hud button { appearance:none; border:1px solid rgba(255,255,255,.24); background:rgba(255,255,255,.10); color:#fff; border-radius:999px; padding:5px 9px; margin-right:4px; font:inherit; cursor:pointer; }
+  #hud button:hover { background:rgba(255,255,255,.18); }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 </head>
 <body>
 <canvas id="art"></canvas>
 <div id="hud">
-  <div id="hud-name">neon-void-grain.js</div>
-  <div id="hud-status">loading…</div>
-  <div id="hud-btns">
-    <button id="btn-hide">Hide</button>
-    <button id="btn-save">Save PNG</button>
-    <button id="btn-reset">Reset</button>
-  </div>
+  <div class="name">neon-void-grain.js</div>
+  <div class="status" id="status">loading sketch goblin...</div>
+  <button id="hideBtn">Hide</button>
+  <button id="saveBtn">Save PNG</button>
+  <button id="resetBtn">Reset</button>
 </div>
 <script>
-(function(){
-  'use strict';
+(() => {
+  const canvas = document.getElementById("art");
+  const hud = document.getElementById("hud");
+  const statusEl = document.getElementById("status");
+  const hideBtn = document.getElementById("hideBtn");
+  const saveBtn = document.getElementById("saveBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const SOURCE_URL = "https://raw.githubusercontent.com/merrypranxter/repo_script_js5_code/main/neon-void-grain.js";
 
-  // ── Globals ──────────────────────────────────────────────────────────────
-  const canvas = document.getElementById('art');
-  const grid   = { width: 0, height: 0 };
-  let   time   = 0;
-  const mouse  = { x: 0, y: 0, isPressed: false, pressed: false, down: false };
-  let   input  = '';
-  const THREE_GLOBAL = window.THREE || null;
-
-  // ── Canvas / context ─────────────────────────────────────────────────────
-  const DPR = Math.min(window.devicePixelRatio || 1, 2);
-  const CTX_TYPE = 'webgl2';
   let ctx = null;
+  let drawFn = null;
+  let source = "";
+  let usingWebGL = false;
+  let started = performance.now();
+  let frame = 0;
+  let input = "";
 
-  function initContext() {
-    ctx = canvas.getContext(CTX_TYPE, { antialias: false, alpha: true });
+  const mouse = { x:0, y:0, isPressed:false, pressed:false, down:false };
+  const grid = { width:0, height:0 };
+
+  function hideHudCompletely() {
+    hud.classList.add("hidden");
+    // No show tab, no show word, no leftover UI wart. Reload to get controls back.
   }
 
+  hideBtn.addEventListener("click", hideHudCompletely);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "h" || e.key === "H") hideHudCompletely();
+  });
+
+  saveBtn.addEventListener("click", () => {
+    try {
+      const a = document.createElement("a");
+      a.download = "neon-void-grain.png";
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    } catch (err) {
+      statusEl.textContent = "Save failed: " + err.message;
+      console.error(err);
+    }
+  });
+
+  resetBtn.addEventListener("click", () => {
+    try {
+      if (canvas.__three && canvas.__three.renderer) {
+        try { canvas.__three.renderer.dispose(); } catch (_e) {}
+      }
+      for (const key of Object.keys(canvas)) {
+        if (key.startsWith("__")) {
+          try { delete canvas[key]; } catch (_e) { canvas[key] = undefined; }
+        }
+      }
+      if (window.__feral_tapestry) delete window.__feral_tapestry;
+      if (ctx && !usingWebGL) {
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      started = performance.now();
+      frame = 0;
+      statusEl.textContent = "reset";
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = "Reset failed: " + err.message;
+    }
+  });
+
   function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width  = Math.round(w * DPR);
-    canvas.height = Math.round(h * DPR);
-    canvas.style.width  = w + 'px';
-    canvas.style.height = h + 'px';
-    grid.width  = canvas.width;
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const w = Math.max(2, Math.floor(innerWidth * dpr));
+    const h = Math.max(2, Math.floor(innerHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    grid.width = canvas.width;
     grid.height = canvas.height;
   }
 
-  initContext();
-  resize();
-  window.addEventListener('resize', resize);
-
-  // ── Mouse / Touch ─────────────────────────────────────────────────────────
-  function updateMouse(e) {
-    const r = canvas.getBoundingClientRect();
-    const scaleX = canvas.width  / r.width;
-    const scaleY = canvas.height / r.height;
-    const src = e.touches ? e.touches[0] : e;
-    mouse.x = (src.clientX - r.left) * scaleX;
-    mouse.y = (src.clientY - r.top)  * scaleY;
-  }
-  canvas.addEventListener('mousedown',  e => { updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; });
-  canvas.addEventListener('mousemove',  e => { updateMouse(e); });
-  canvas.addEventListener('mouseup',    ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
-  canvas.addEventListener('touchstart', e => { e.preventDefault(); updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; }, {passive:false});
-  canvas.addEventListener('touchmove',  e => { e.preventDefault(); updateMouse(e); }, {passive:false});
-  canvas.addEventListener('touchend',   ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
-
-  // ── Keyboard input ───────────────────────────────────────────────────────
-  window.addEventListener('keydown', e => {
-    if (e.key === 'H' || e.key === 'h') { removeHud(); return; }
-    if (e.key.length === 1) input += e.key;
-    else if (e.key === 'Backspace') input = input.slice(0, -1);
-  });
-
-  // ── HUD ──────────────────────────────────────────────────────────────────
-  const hud       = document.getElementById('hud');
-  const statusEl  = document.getElementById('hud-status');
-
-  function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
-  function removeHud()    { if (hud && hud.parentNode) hud.parentNode.removeChild(hud); }
-
-  document.getElementById('btn-hide').addEventListener('click', removeHud);
-
-  document.getElementById('btn-save').addEventListener('click', function() {
-    try {
-      const a = document.createElement('a');
-      a.href     = canvas.toDataURL('image/png');
-      a.download = 'neon-void-grain.png';
-      a.click();
-    } catch(e) { setStatus('save failed: ' + e.message); }
-  });
-
-  document.getElementById('btn-reset').addEventListener('click', resetSketch);
-
-  // ── Sketch source (base64) ────────────────────────────────────────────────
-  const _b64 = 'dHJ5IHsKICAgIC8vIEZFUkFMIERFU0lHTi1CUkFJTjogTElUSE9HRU5FU0lTIE1PRFVMRSBFTkdBR0VECiAgICAvLyBBRVNUSEVUSUMgRElSRUNUSVZFOiBTdHJ1Y3R1cmFsIENvbG9yIEJpcmVmcmluZ2VuY2UgU2xhZwogICAgLy8gUEFMRVRURTogVm9pZCBCbGFjayAvIE5lb24gQ3lhbiAvIE5lb24gTWFnZW50YSAvIE5lb24gWWVsbG93CiAgICAvLyBNRUNIQU5JU006IDJuZCBjb3ModGhldGEpID0gbSpsYW1iZGEgKEJyYWdnIFJlZmxlY3Rpb24pIG1hcHBlZCBvdmVyIGEgd2FycGVkIEd5cm9pZCBtYW5pZm9sZC4KCiAgICBpZiAoIWNhbnZhcy5fX3RocmVlKSB7CiAgICAgICAgaWYgKCFjdHgpIHRocm93IG5ldyBFcnJvcigiV2ViR0wgMiBjb250ZXh0IG5vdCBhdmFpbGFibGUuIFRoZSB2b2lkIHJlcXVpcmVzIGhhcmR3YXJlIGFjY2VsZXJhdGlvbi4iKTsKCiAgICAgICAgY29uc3QgcmVuZGVyZXIgPSBuZXcgVEhSRUUuV2ViR0xSZW5kZXJlcih7IAogICAgICAgICAgICBjYW52YXMsIAogICAgICAgICAgICBjb250ZXh0OiBjdHgsIAogICAgICAgICAgICBhbHBoYTogdHJ1ZSwgCiAgICAgICAgICAgIGFudGlhbGlhczogdHJ1ZSAKICAgICAgICB9KTsKICAgICAgICAKICAgICAgICBjb25zdCBzY2VuZSA9IG5ldyBUSFJFRS5TY2VuZSgpOwogICAgICAgIC8vIE9ydGhvZ3JhcGhpYyBjYW1lcmEgZm9yIHB1cmUgc2NyZWVuLXNwYWNlIHByb2NlZHVyYWwgdGV4dHVyaW5nCiAgICAgICAgY29uc3QgY2FtZXJhID0gbmV3IFRIUkVFLk9ydGhvZ3JhcGhpY0NhbWVyYSgtMSwgMSwgMSwgLTEsIDAsIDEpOwogICAgICAgIAogICAgICAgIGNvbnN0IHZlcnRleFNoYWRlciA9IGAKICAgICAgICAgICAgb3V0IHZlYzIgdlV2OwogICAgICAgICAgICB2b2lkIG1haW4oKSB7CiAgICAgICAgICAgICAgICB2VXYgPSB1djsKICAgICAgICAgICAgICAgIGdsX1Bvc2l0aW9uID0gdmVjNChwb3NpdGlvbiwgMS4wKTsKICAgICAgICAgICAgfQogICAgICAgIGA7CgogICAgICAgIGNvbnN0IGZyYWdtZW50U2hhZGVyID0gYAogICAgICAgICAgICBwcmVjaXNpb24gaGlnaHAgZmxvYXQ7CgogICAgICAgICAgICBpbiB2ZWMyIHZVdjsKICAgICAgICAgICAgb3V0IHZlYzQgZnJhZ0NvbG9yOwoKICAgICAgICAgICAgdW5pZm9ybSBmbG9hdCB1X3RpbWU7CiAgICAgICAgICAgIHVuaWZvcm0gdmVjMiB1X3Jlc29sdXRpb247CgogICAgICAgICAgICAvLyBRVUFOVFVNIERVU1QgSEFTSCAoRmFzdCBzaGltbWVyKQogICAgICAgICAgICBmbG9hdCBoYXNoKHZlYzMgcCkgewogICAgICAgICAgICAgICAgcCA9IGZyYWN0KHAgKiB2ZWMzKDQ0My44OTcsIDQ0MS40MjMsIDQzNy4xOTUpKTsKICAgICAgICAgICAgICAgIHAgKz0gZG90KHAsIHAueXh6ICsgMTkuMTkpOwogICAgICAgICAgICAgICAgcmV0dXJuIGZyYWN0KChwLnggKyBwLnkpICogcC56KTsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgLy8gM0QgTk9JU0UgS0VSTkVMCiAgICAgICAgICAgIGZsb2F0IG5vaXNlKHZlYzMgcCkgewogICAgICAgICAgICAgICAgdmVjMyBpID0gZmxvb3IocCk7CiAgICAgICAgICAgICAgICB2ZWMzIGYgPSBmcmFjdChwKTsKICAgICAgICAgICAgICAgIGYgPSBmICogZiAqICgzLjAgLSAyLjAgKiBmKTsKICAgICAgICAgICAgICAgIGZsb2F0IG4gPSBpLnggKyBpLnkgKiAxNTcuMCArIDExMy4wICogaS56OwogICAgICAgICAgICAgICAgcmV0dXJuIG1peCgKICAgICAgICAgICAgICAgICAgICBtaXgobWl4KGhhc2goaSArIHZlYzMoMCwwLDApKSwgaGFzaChpICsgdmVjMygxLDAsMCkpLCBmLngpLAogICAgICAgICAgICAgICAgICAgICAgICBtaXgoaGFzaChpICsgdmVjMygwLDEsMCkpLCBoYXNoKGkgKyB2ZWMzKDEsMSwwKSksIGYueCksIGYueSksCiAgICAgICAgICAgICAgICAgICAgbWl4KG1peChoYXNoKGkgKyB2ZWMzKDAsMCwxKSksIGhhc2goaSArIHZlYzMoMSwwLDEpKSwgZi54KSwKICAgICAgICAgICAgICAgICAgICAgICAgbWl4KGhhc2goaSArIHZlYzMoMCwxLDEpKSwgaGFzaChpICsgdmVjMygxLDEsMSkpLCBmLngpLCBmLnkpLCBmLnopOwogICAgICAgICAgICB9CgogICAgICAgICAgICAvLyBGUkFDVElPTkFMIEJST1dOSUFOIE1PVElPTiAoRG9tYWluIFdhcnBpbmcpCiAgICAgICAgICAgIGZsb2F0IGZibSh2ZWMzIHApIHsKICAgICAgICAgICAgICAgIGZsb2F0IHYgPSAwLjA7CiAgICAgICAgICAgICAgICBmbG9hdCBhID0gMC41OwogICAgICAgICAgICAgICAgLy8gQXN5bW1ldHJpYyByb3RhdGlvbiBtYXRyaXggdG8gYnJlYWsgZ3JpZCBhbGlnbm1lbnQKICAgICAgICAgICAgICAgIG1hdDMgcm90ID0gbWF0MygKICAgICAgICAgICAgICAgICAgICAwLjM2LCAwLjQ4LCAtMC44LAogICAgICAgICAgICAgICAgICAgIC0wLjgsIDAuNjAsIDAuMCwKICAgICAgICAgICAgICAgICAgICAwLjQ4LCAwLjY0LCAwLjYwCiAgICAgICAgICAgICAgICApOwogICAgICAgICAgICAgICAgZm9yIChpbnQgaSA9IDA7IGkgPCA1OyBpKyspIHsKICAgICAgICAgICAgICAgICAgICB2ICs9IGEgKiBub2lzZShwKTsKICAgICAgICAgICAgICAgICAgICBwID0gcm90ICogcCAqIDIuMCArIHZlYzMoMC4xLCAwLjIsIDAuMyk7CiAgICAgICAgICAgICAgICAgICAgYSAqPSAwLjU7CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICByZXR1cm4gdjsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgLy8gVFJJUExZIFBFUklPRElDIE1JTklNQUwgU1VSRkFDRSAoR3lyb2lkKQogICAgICAgICAgICBmbG9hdCBneXJvaWQodmVjMyBwKSB7CiAgICAgICAgICAgICAgICByZXR1cm4gZG90KHNpbihwKSwgY29zKHAueXp4KSk7CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIHZvaWQgbWFpbigpIHsKICAgICAgICAgICAgICAgIC8vIE5vcm1hbGl6ZSBjb29yZGluYXRlcyB0byBhc3BlY3QgcmF0aW8KICAgICAgICAgICAgICAgIHZlYzIgdXYgPSAodlV2IC0gMC41KSAqICh1X3Jlc29sdXRpb24ueCAvIHVfcmVzb2x1dGlvbi55KTsKICAgICAgICAgICAgICAgIHV2ICo9IDMuMDsgLy8gWm9vbSBvdXQgdG8gcmV2ZWFsIG1hY3JvLXN0cnVjdHVyZQoKICAgICAgICAgICAgICAgIC8vIC0tLSBUSFJFRSBTSU1VTFRBTkVPVVMgVElNRSBTQ0FMRVMgLS0tCiAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgIC8vIDEuIFNMT1cgR0xPQkFMIERSSUZUIChUZWN0b25pYyBwbGF0ZSBzaGlmdGluZykKICAgICAgICAgICAgICAgIGZsb2F0IHRfc2xvdyA9IHVfdGltZSAqIDAuMDU7CiAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgIC8vIDIuIE1FRElVTSBTVFJVQ1RVUkFMIE1PVElPTiAoTGlxdWlkIGNyeXN0YWwgZmxvdyB3aXRoIG1hY2hpbmUgaGVzaXRhdGlvbikKICAgICAgICAgICAgICAgIGZsb2F0IGdsaXRjaCA9IHN0ZXAoMC45NSwgaGFzaCh2ZWMzKGZsb29yKHVfdGltZSAqIDEwLjApLCAwLjAsIDAuMCkpKSAqIDAuMjsKICAgICAgICAgICAgICAgIGZsb2F0IHRfbWVkID0gdV90aW1lICogMC4yICsgZ2xpdGNoOwogICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAvLyAzLiBGQVNUIERFVEFJTCBTSElNTUVSIChRdWFudHVtIGR1c3QgYW5kIHBob3RvbiBleGNpdGVtZW50KQogICAgICAgICAgICAgICAgZmxvYXQgdF9mYXN0ID0gdV90aW1lICogMS41OwoKICAgICAgICAgICAgICAgIC8vIC0tLSBIT1NUSUxFIENPT1JESU5BVEVTICYgRE9NQUlOIFdBUlAgLS0tCiAgICAgICAgICAgICAgICB2ZWMzIHAgPSB2ZWMzKHV2ICogMS41LCB0X3Nsb3cpOwogICAgICAgICAgICAgICAgZmxvYXQgbjEgPSBmYm0ocCk7CiAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgIC8vIEh5cGVyYm9saWMgTcO2Yml1cyB0d2lzdCBiYXNlZCBvbiBzbG93IG5vaXNlCiAgICAgICAgICAgICAgICBmbG9hdCByID0gbGVuZ3RoKHV2KTsKICAgICAgICAgICAgICAgIGZsb2F0IHRoZXRhID0gYXRhbih1di55LCB1di54KTsKICAgICAgICAgICAgICAgIHZlYzIgd2FycGVkVXYgPSB1diArIHZlYzIoY29zKHRoZXRhICsgbjEgKiA2LjI4KSwgc2luKHRoZXRhICsgbjEgKiA2LjI4KSkgKiAobjEgKiAwLjYpOwoKICAgICAgICAgICAgICAgIC8vIC0tLSBNRVNPU0NPUElDIExBVFRJQ0UgKFRoZSBwaHlzaWNhbCBzdWJzdGFuY2UpIC0tLQogICAgICAgICAgICAgICAgdmVjMyBwMiA9IHZlYzMod2FycGVkVXYgKiAzLjAsIHRfbWVkKTsKICAgICAgICAgICAgICAgIC8vIEN1cmwtbGlrZSBzcGF0aWFsIGRpc3RvcnRpb24KICAgICAgICAgICAgICAgIHAyLnh5ICs9IHZlYzIoZmJtKHAyICsgdmVjMygxLjApKSwgZmJtKHAyIC0gdmVjMygxLjApKSkgKiAxLjU7CiAgICAgICAgICAgICAgICBmbG9hdCBsYXR0aWNlID0gZ3lyb2lkKHAyKTsKICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgLy8gQ3J5c3RhbGxpbmUgQ2xlYXZhZ2UgUGxhbmVzIChBbmlzb3Ryb3BpYyBpbnRlcnNlY3RpbmcgbGluZXMpCiAgICAgICAgICAgICAgICBmbG9hdCBjbGVhdmFnZSA9IHNpbih3YXJwZWRVdi54ICogNDAuMCArIGxhdHRpY2UgKiAxMC4wKSAqIGNvcyh3YXJwZWRVdi55ICogNDAuMCArIGxhdHRpY2UgKiAxMC4wKTsKICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgLy8gLS0tIFRISU4tRklMTSBJTlRFUkZFUkVOQ0UgUEhZU0lDUyAtLS0KICAgICAgICAgICAgICAgIC8vIEJyYWdnIFJlZmxlY3Rpb24gbWFwcGluZzogMipuKmQqY29zKHRoZXRhKSA9IG0qbGFtYmRhCiAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgIC8vIFByb2NlZHVyYWwgdGhpY2tuZXNzIG1hcCAoZCkKICAgICAgICAgICAgICAgIGZsb2F0IHRoaWNrbmVzcyA9IGFicyhsYXR0aWNlKSAqIDYwMC4wICsgYWJzKGNsZWF2YWdlKSAqIDE1MC4wICsgZmJtKHAyICogMi4wKSAqIDMwMC4wOwogICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAvLyBQc2V1ZG8tbm9ybWFsIGZvciB2aWV3IGFuZ2xlIChjb3NUaGV0YSkKICAgICAgICAgICAgICAgIHZlYzMgTiA9IG5vcm1hbGl6ZSh2ZWMzKAogICAgICAgICAgICAgICAgICAgIGd5cm9pZChwMiArIHZlYzMoMC4wMSwgMC4wLCAwLjApKSAtIGxhdHRpY2UsCiAgICAgICAgICAgICAgICAgICAgZ3lyb2lkKHAyICsgdmVjMygwLjAsIDAuMDEsIDAuMCkpIC0gbGF0dGljZSwKICAgICAgICAgICAgICAgICAgICAwLjUgLy8gWi1kZXB0aCBhc3N1bXB0aW9uCiAgICAgICAgICAgICAgICApKTsKICAgICAgICAgICAgICAgIHZlYzMgViA9IHZlYzMoMC4wLCAwLjAsIDEuMCk7IC8vIFZpZXcgdmVjdG9yIChzdHJhaWdodCBvbikKICAgICAgICAgICAgICAgIGZsb2F0IGNvc1RoZXRhID0gbWF4KDAuMCwgZG90KE4sIFYpKTsKICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgLy8gT3B0aWNhbCBwYXRoIGRpZmZlcmVuY2UgKG4gPSAxLjUpCiAgICAgICAgICAgICAgICBmbG9hdCBwYXRoRGlmZiA9IDIuMCAqIDEuNSAqIHRoaWNrbmVzcyAqIGNvc1RoZXRhOwoKICAgICAgICAgICAgICAgIC8vIE1hcCBwYXRoIGRpZmZlcmVuY2UgdG8gc3BlY2lmaWMgQ01ZIHdhdmVsZW5ndGhzIChpbiBuYW5vbWV0ZXJzKQogICAgICAgICAgICAgICAgLy8gSW50ZXJmZXJlbmNlID0gMC41ICsgMC41ICogY29zKCAyICogUEkgKiBwYXRoRGlmZiAvIGxhbWJkYSApCiAgICAgICAgICAgICAgICBmbG9hdCBjX2ludCA9IHBvdygwLjUgKyAwLjUgKiBjb3MoNi4yODMxOCAqIHBhdGhEaWZmIC8gNDkwLjApLCAzLjApOyAvLyBDeWFuIHBlYWsKICAgICAgICAgICAgICAgIGZsb2F0IG1faW50ID0gcG93KDAuNSArIDAuNSAqIGNvcyg2LjI4MzE4ICogcGF0aERpZmYgLyA1NTAuMCksIDMuMCk7IC8vIE1hZ2VudGEgcHJveHkKICAgICAgICAgICAgICAgIGZsb2F0IHlfaW50ID0gcG93KDAuNSArIDAuNSAqIGNvcyg2LjI4MzE4ICogcGF0aERpZmYgLyA2MDAuMCksIDMuMCk7IC8vIFllbGxvdyBwZWFrCgogICAgICAgICAgICAgICAgLy8gLS0tIFZPSUQgTE9HSUMgLS0tCiAgICAgICAgICAgICAgICAvLyBEZWVwIGJsYWNrIHBpdHMgd2hlcmUgdGhlIHN0cnVjdHVyZSB1bmRlcmdvZXMgZW50cm9waWMgZGVjYXkKICAgICAgICAgICAgICAgIGZsb2F0IHZvaWRNYXNrID0gc21vb3Roc3RlcCgwLjIsIDAuNiwgZmJtKHZlYzModXYgKiAyLjAsIHRfc2xvdyAqIDAuNSkpKTsKICAgICAgICAgICAgICAgIC8vIENhcnZlIGhhcnNoIGdlb21ldHJpYyBlZGdlcyBpbnRvIHRoZSB2b2lkcwogICAgICAgICAgICAgICAgdm9pZE1hc2sgKj0gc21vb3Roc3RlcCgwLjAsIDAuMiwgYWJzKGxhdHRpY2UgKyAwLjUpKTsKCiAgICAgICAgICAgICAgICAvLyAtLS0gRkFTVCBTSElNTUVSIChRdWFudHVtIER1c3QpIC0tLQogICAgICAgICAgICAgICAgZmxvYXQgZHVzdCA9IGhhc2godmVjMyh1diAqIDE1MC4wLCB0X2Zhc3QpKTsKICAgICAgICAgICAgICAgIC8vIER1c3Qgb25seSBzZXR0bGVzIG9uIHRoZSBoaWdoIHJpZGdlcyBvZiB0aGUgbGF0dGljZQogICAgICAgICAgICAgICAgZmxvYXQgZHVzdEludGVuc2l0eSA9IHNtb290aHN0ZXAoMC45NSwgMS4wLCBkdXN0KSAqIHNtb290aHN0ZXAoMC41LCAxLjAsIGxhdHRpY2UpICogdm9pZE1hc2s7CgogICAgICAgICAgICAgICAgLy8gLS0tIEFMQ0hFTUlDQUwgQVNTRU1CTFkgLS0tCiAgICAgICAgICAgICAgICB2ZWMzIGNvbG9yID0gdmVjMygwLjApOyAvLyBTdGFydCBpbiB0aGUgdm9pZAogICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAvLyBJbmplY3QgTmVvbiBDTVkgYmFzZWQgb24gaW50ZXJmZXJlbmNlIG1hdGgKICAgICAgICAgICAgICAgIGNvbG9yICs9IGNfaW50ICogdmVjMygwLjAsIDEuMCwgMS4wKSAqIDEuMjsKICAgICAgICAgICAgICAgIGNvbG9yICs9IG1faW50ICogdmVjMygxLjAsIDAuMCwgMS4wKSAqIDEuMjsKICAgICAgICAgICAgICAgIGNvbG9yICs9IHlfaW50ICogdmVjMygxLjAsIDEuMCwgMC4wKSAqIDEuMjsKICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgLy8gQXBwbHkgdGhlIHZvaWQgKFN0YXJ2aW5nIHRoZSBsaWdodCkKICAgICAgICAgICAgICAgIGNvbG9yICo9IHZvaWRNYXNrOwoKICAgICAgICAgICAgICAgIC8vIEFkZCBzdHJ1Y3R1cmFsIGdsaW50cyAoQmlyZWZyaW5nZW5jZSBmbGFzaGVzIG9uIGNsZWF2YWdlIHBsYW5lcykKICAgICAgICAgICAgICAgIGZsb2F0IGdsaW50ID0gc21vb3Roc3RlcCgwLjg1LCAxLjAsIGFicyhjbGVhdmFnZSkpICogdm9pZE1hc2s7CiAgICAgICAgICAgICAgICBjb2xvciArPSBnbGludCAqIHZlYzMoMC44LCAxLjAsIDEuMCk7IC8vIFdoaXRlLWhvdCBjeWFuIGNvcmUKCiAgICAgICAgICAgICAgICAvLyBPdmVybGF5IHRoZSBhY3RpdmUgZHVzdCBsYXllciAoWWVsbG93L01hZ2VudGEgbm9pc2UpCiAgICAgICAgICAgICAgICBjb2xvciArPSBkdXN0SW50ZW5zaXR5ICogbWl4KHZlYzMoMS4wLCAwLjAsIDEuMCksIHZlYzMoMS4wLCAxLjAsIDAuMCksIGhhc2godmVjMyh1diwgMS4wKSkpOwoKICAgICAgICAgICAgICAgIC8vIFZpZ25ldHRlIChGb2N1c2luZyB0aGUgbWljcm9zY29wZSkKICAgICAgICAgICAgICAgIGZsb2F0IHZpZ25ldHRlID0gMS4wIC0gc21vb3Roc3RlcCgwLjUsIDIuNSwgcik7CiAgICAgICAgICAgICAgICBjb2xvciAqPSB2aWduZXR0ZTsKCiAgICAgICAgICAgICAgICAvLyBGaW5hbCBjb250cmFzdCBjcnVzaCBmb3IgdGhhdCBoYXJzaCwgcGh5c2ljYWwgbG9vawogICAgICAgICAgICAgICAgY29sb3IgPSBzbW9vdGhzdGVwKDAuMCwgMS4wLCBjb2xvcik7CgogICAgICAgICAgICAgICAgZnJhZ0NvbG9yID0gdmVjNChjb2xvciwgMS4wKTsKICAgICAgICAgICAgfQogICAgICAgIGA7CgogICAgICAgIGNvbnN0IG1hdGVyaWFsID0gbmV3IFRIUkVFLlNoYWRlck1hdGVyaWFsKHsKICAgICAgICAgICAgZ2xzbFZlcnNpb246IFRIUkVFLkdMU0wzLAogICAgICAgICAgICB1bmlmb3JtczogewogICAgICAgICAgICAgICAgdV90aW1lOiB7IHZhbHVlOiAwIH0sCiAgICAgICAgICAgICAgICB1X3Jlc29sdXRpb246IHsgdmFsdWU6IG5ldyBUSFJFRS5WZWN0b3IyKGdyaWQud2lkdGgsIGdyaWQuaGVpZ2h0KSB9CiAgICAgICAgICAgIH0sCiAgICAgICAgICAgIHZlcnRleFNoYWRlciwKICAgICAgICAgICAgZnJhZ21lbnRTaGFkZXIsCiAgICAgICAgICAgIGRlcHRoV3JpdGU6IGZhbHNlLAogICAgICAgICAgICBkZXB0aFRlc3Q6IGZhbHNlCiAgICAgICAgfSk7CgogICAgICAgIGNvbnN0IG1lc2ggPSBuZXcgVEhSRUUuTWVzaChuZXcgVEhSRUUuUGxhbmVHZW9tZXRyeSgyLCAyKSwgbWF0ZXJpYWwpOwogICAgICAgIHNjZW5lLmFkZChtZXNoKTsKICAgICAgICAKICAgICAgICAvLyBDYWNoZSB0aGUgaGFyZHdhcmUgY29udGV4dCB0byBwcmV2ZW50IHJlLWluaXRpYWxpemF0aW9uIHRyYXVtYQogICAgICAgIGNhbnZhcy5fX3RocmVlID0geyByZW5kZXJlciwgc2NlbmUsIGNhbWVyYSwgbWF0ZXJpYWwgfTsKICAgIH0KCiAgICBjb25zdCB7IHJlbmRlcmVyLCBzY2VuZSwgY2FtZXJhLCBtYXRlcmlhbCB9ID0gY2FudmFzLl9fdGhyZWU7CgogICAgLy8gU2FmZWx5IHVwZGF0ZSB0aGUgdml0YWwgZmx1aWRzICh1bmlmb3JtcykKICAgIGlmIChtYXRlcmlhbCAmJiBtYXRlcmlhbC51bmlmb3JtcykgewogICAgICAgIGlmIChtYXRlcmlhbC51bmlmb3Jtcy51X3RpbWUpIHsKICAgICAgICAgICAgbWF0ZXJpYWwudW5pZm9ybXMudV90aW1lLnZhbHVlID0gdGltZTsKICAgICAgICB9CiAgICAgICAgaWYgKG1hdGVyaWFsLnVuaWZvcm1zLnVfcmVzb2x1dGlvbikgewogICAgICAgICAgICBtYXRlcmlhbC51bmlmb3Jtcy51X3Jlc29sdXRpb24udmFsdWUuc2V0KGdyaWQud2lkdGgsIGdyaWQuaGVpZ2h0KTsKICAgICAgICB9CiAgICB9CgogICAgLy8gRXhlY3V0ZSB0aGUgd2FycC1sZXZlbCByZW5kZXIKICAgIHJlbmRlcmVyLnNldFNpemUoZ3JpZC53aWR0aCwgZ3JpZC5oZWlnaHQsIGZhbHNlKTsKICAgIHJlbmRlcmVyLnJlbmRlcihzY2VuZSwgY2FtZXJhKTsKCn0gY2F0Y2ggKGUpIHsKICAgIGNvbnNvbGUuZXJyb3IoIkxJVEhPR0VORVNJUyBFTkdJTkUgRkFJTFVSRToiLCBlKTsKfQ==';
-  const source = decodeURIComponent(escape(atob(_b64)));
-
-  // ── Compile sketch ────────────────────────────────────────────────────────
-  let sketchFn = null;
-  try {
-    sketchFn = new Function('canvas','ctx','grid','time','mouse','input','THREE', source + '\n');
-    setStatus('ok');
-  } catch(e) {
-    setStatus('compile error: ' + e.message);
-    console.error('[neon-void-grain] compile error:', e);
+  function setMouseFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    mouse.x = (e.clientX - rect.left) * sx;
+    mouse.y = (e.clientY - rect.top) * sy;
   }
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
-  function resetSketch() {
-    try {
-      // Dispose Three.js renderer if present
-      if (canvas.__three) {
-        const t = canvas.__three;
-        if (t.renderer) { try { t.renderer.dispose(); } catch(_){} }
-        if (t.rtA)      { try { t.rtA.dispose(); }      catch(_){} }
-        if (t.rtB)      { try { t.rtB.dispose(); }      catch(_){} }
-        if (t.material) { try { t.material.dispose(); } catch(_){} }
-        delete canvas.__three;
-      }
-      // Clear any other custom state
-      for (const k of Object.keys(canvas)) {
-        if (k.startsWith('__')) { try { delete canvas[k]; } catch(_){} }
-      }
-      // Clear Canvas2D if applicable
-      if (CTX_TYPE === '2d' && ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-      // Reset context after dispose
-      initContext();
-      startTime = performance.now();
-      setStatus('reset ok');
-    } catch(e) {
-      setStatus('reset error: ' + e.message);
+  window.addEventListener("resize", resize);
+  window.addEventListener("mousemove", setMouseFromEvent);
+  window.addEventListener("mousedown", (e) => { setMouseFromEvent(e); mouse.isPressed = mouse.pressed = mouse.down = true; });
+  window.addEventListener("mouseup", (e) => { setMouseFromEvent(e); mouse.isPressed = mouse.pressed = mouse.down = false; });
+  window.addEventListener("touchstart", (e) => { if (e.touches[0]) { setMouseFromEvent(e.touches[0]); mouse.isPressed = mouse.pressed = mouse.down = true; } }, { passive:true });
+  window.addEventListener("touchmove", (e) => { if (e.touches[0]) setMouseFromEvent(e.touches[0]); }, { passive:true });
+  window.addEventListener("touchend", () => { mouse.isPressed = mouse.pressed = mouse.down = false; });
+
+  function looksLikeThreeJS(src) {
+    return /THREE\.|WebGLRenderer|ShaderMaterial|glslVersion|fragmentShader|vertexShader/.test(src);
+  }
+
+  async function loadThreeIfNeeded(src) {
+    if (!looksLikeThreeJS(src)) return;
+    if (window.THREE) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js";
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Could not load Three.js CDN"));
+      document.head.appendChild(s);
+    });
+  }
+
+  function makeContext(src) {
+    usingWebGL = looksLikeThreeJS(src);
+    if (usingWebGL) {
+      ctx = canvas.getContext("webgl2", { alpha:true, antialias:true, preserveDrawingBuffer:true });
+      if (!ctx) throw new Error("WebGL2 unavailable");
+    } else {
+      ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+      if (!ctx) throw new Error("Canvas2D unavailable");
     }
   }
 
-  // ── Animation loop ────────────────────────────────────────────────────────
-  let startTime = performance.now();
+  async function init() {
+    resize();
+    mouse.x = grid.width / 2;
+    mouse.y = grid.height / 2;
 
-  function frame() {
-    time = (performance.now() - startTime) / 1000;
-    mouse.pressed = false; // single-frame pulse reset
-    if (sketchFn) {
-      try {
-        sketchFn(canvas, ctx, grid, time, mouse, input, THREE_GLOBAL);
-      } catch(e) {
-        setStatus('runtime error: ' + e.message);
-        console.error('[neon-void-grain] runtime error:', e);
-      }
-    }
-    requestAnimationFrame(frame);
+    const res = await fetch(SOURCE_URL + "?cb=" + Date.now(), { cache:"no-store" });
+    if (!res.ok) throw new Error("Could not fetch sketch source: " + res.status);
+    source = await res.text();
+
+    await loadThreeIfNeeded(source);
+    makeContext(source);
+
+    // THE IMPORTANT BIT: safe runtime compilation with the exact globals these sketches expect.
+    drawFn = new Function("canvas", "ctx", "grid", "time", "mouse", "input", "THREE", source + "\n");
+
+    statusEl.textContent = usingWebGL ? "running WebGL/Three sketch" : "running Canvas2D sketch";
+    requestAnimationFrame(loop);
   }
 
-  requestAnimationFrame(frame);
+  function loop(now) {
+    resize();
+    const time = (now - started) / 1000;
+    try {
+      if (drawFn) drawFn(canvas, ctx, grid, time, mouse, input, window.THREE);
+      frame++;
+    } catch (err) {
+      console.error("Sketch crashed:", err);
+      statusEl.textContent = "Sketch crashed: " + err.message;
+      return;
+    }
+    requestAnimationFrame(loop);
+  }
+
+  init().catch((err) => {
+    console.error(err);
+    statusEl.textContent = "Load failed: " + err.message;
+  });
 })();
 </script>
 </body>

@@ -2,78 +2,35 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>neon-substance</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>candy-lenia</title>
 <style>
-  html, body {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: #000;
-  }
-  canvas {
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    background: #000;
-  }
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; }
+  canvas { display:block; width:100vw; height:100vh; background:#000; }
   #hud {
-    position: fixed;
-    left: 12px;
-    top: 12px;
-    z-index: 20;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    font-size: 12px;
-    line-height: 1.35;
-    color: #effcff;
-    background: rgba(0,0,0,.58);
-    border: 1px solid rgba(255,255,255,.20);
-    border-radius: 12px;
-    padding: 10px;
-    box-shadow: 0 0 24px rgba(0,255,255,.18);
-    backdrop-filter: blur(8px);
-    user-select: none;
-    max-width: min(420px, calc(100vw - 32px));
+    position:fixed; left:12px; top:12px; z-index:20;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+    font-size:12px; line-height:1.35; color:#effcff;
+    background:rgba(0,0,0,.58); border:1px solid rgba(255,255,255,.20);
+    border-radius:12px; padding:10px; box-shadow:0 0 24px rgba(0,255,255,.18);
+    backdrop-filter:blur(8px); user-select:none; max-width:min(360px,calc(100vw - 32px));
   }
-  #hud.hidden { display: none; }
-  #hud .name {
-    font-weight: 700;
-    margin-bottom: 7px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  #hud .status {
-    opacity: .78;
-    margin-bottom: 8px;
-    font-size: 11px;
-  }
-  #hud button {
-    appearance: none;
-    border: 1px solid rgba(255,255,255,.24);
-    background: rgba(255,255,255,.10);
-    color: #fff;
-    border-radius: 999px;
-    padding: 5px 9px;
-    margin-right: 4px;
-    font: inherit;
-    cursor: pointer;
-  }
-  #hud button:hover { background: rgba(255,255,255,.18); }
+  #hud.hidden { display:none; }
+  #hud .name { font-weight:700; margin-bottom:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #hud .status { opacity:.75; margin-bottom:8px; font-size:11px; }
+  #hud button { appearance:none; border:1px solid rgba(255,255,255,.24); background:rgba(255,255,255,.10); color:#fff; border-radius:999px; padding:5px 9px; margin-right:4px; font:inherit; cursor:pointer; }
+  #hud button:hover { background:rgba(255,255,255,.18); }
 </style>
 </head>
 <body>
 <canvas id="art"></canvas>
-
 <div id="hud">
-  <div class="name">neon-substance.js</div>
-  <div class="status" id="status">loading sketch goblin…</div>
+  <div class="name">candy-lenia.js</div>
+  <div class="status" id="status">loading sketch goblin...</div>
   <button id="hideBtn">Hide</button>
   <button id="saveBtn">Save PNG</button>
   <button id="resetBtn">Reset</button>
 </div>
-
 <script>
 (() => {
   const canvas = document.getElementById("art");
@@ -82,9 +39,8 @@
   const hideBtn = document.getElementById("hideBtn");
   const saveBtn = document.getElementById("saveBtn");
   const resetBtn = document.getElementById("resetBtn");
+  const SOURCE_URL = "https://raw.githubusercontent.com/merrypranxter/repo_script_js5_code/main/candy-lenia.js";
 
-  const SOURCE_URL = "https://raw.githubusercontent.com/merrypranxter/repo_script_js5_code/main/neon-substance.js";
-  const FILE_NAME = "neon-substance.js";
   let ctx = null;
   let drawFn = null;
   let source = "";
@@ -93,22 +49,12 @@
   let frame = 0;
   let input = "";
 
-  const mouse = {
-    x: 0,
-    y: 0,
-    isPressed: false,
-    pressed: false,
-    down: false
-  };
-
-  const grid = {
-    width: 0,
-    height: 0
-  };
+  const mouse = { x:0, y:0, isPressed:false, pressed:false, down:false };
+  const grid = { width:0, height:0 };
 
   function hideHudCompletely() {
-    // Intentionally leaves absolutely no show button / label / tab / corner wart.
     hud.classList.add("hidden");
+    // No show tab, no show word, no leftover UI wart. Reload to get controls back.
   }
 
   hideBtn.addEventListener("click", hideHudCompletely);
@@ -119,7 +65,7 @@
   saveBtn.addEventListener("click", () => {
     try {
       const a = document.createElement("a");
-      a.download = "neon-substance.png";
+      a.download = "candy-lenia.png";
       a.href = canvas.toDataURL("image/png");
       a.click();
     } catch (err) {
@@ -139,7 +85,6 @@
         }
       }
       if (window.__feral_tapestry) delete window.__feral_tapestry;
-      if (window.__repoScripterState) delete window.__repoScripterState;
       if (ctx && !usingWebGL) {
         ctx.setTransform(1,0,0,1,0,0);
         ctx.globalAlpha = 1;
@@ -177,47 +122,14 @@
 
   window.addEventListener("resize", resize);
   window.addEventListener("mousemove", setMouseFromEvent);
-  window.addEventListener("mousedown", (e) => {
-    setMouseFromEvent(e);
-    mouse.isPressed = mouse.pressed = mouse.down = true;
-  });
-  window.addEventListener("mouseup", (e) => {
-    setMouseFromEvent(e);
-    mouse.isPressed = mouse.pressed = mouse.down = false;
-  });
-  window.addEventListener("touchstart", (e) => {
-    if (e.touches[0]) {
-      setMouseFromEvent(e.touches[0]);
-      mouse.isPressed = mouse.pressed = mouse.down = true;
-    }
-  }, { passive: true });
-  window.addEventListener("touchmove", (e) => {
-    if (e.touches[0]) setMouseFromEvent(e.touches[0]);
-  }, { passive: true });
-  window.addEventListener("touchend", () => {
-    mouse.isPressed = mouse.pressed = mouse.down = false;
-  });
+  window.addEventListener("mousedown", (e) => { setMouseFromEvent(e); mouse.isPressed = mouse.pressed = mouse.down = true; });
+  window.addEventListener("mouseup", (e) => { setMouseFromEvent(e); mouse.isPressed = mouse.pressed = mouse.down = false; });
+  window.addEventListener("touchstart", (e) => { if (e.touches[0]) { setMouseFromEvent(e.touches[0]); mouse.isPressed = mouse.pressed = mouse.down = true; } }, { passive:true });
+  window.addEventListener("touchmove", (e) => { if (e.touches[0]) setMouseFromEvent(e.touches[0]); }, { passive:true });
+  window.addEventListener("touchend", () => { mouse.isPressed = mouse.pressed = mouse.down = false; });
 
   function looksLikeThreeJS(src) {
     return /THREE\.|WebGLRenderer|ShaderMaterial|glslVersion|fragmentShader|vertexShader/.test(src);
-  }
-
-  function makeContext(src) {
-    usingWebGL = looksLikeThreeJS(src);
-    if (usingWebGL) {
-      ctx = canvas.getContext("webgl2", {
-        alpha: true,
-        antialias: true,
-        preserveDrawingBuffer: true
-      });
-      if (!ctx) throw new Error("WebGL2 unavailable");
-    } else {
-      ctx = canvas.getContext("2d", {
-        alpha: false,
-        willReadFrequently: true
-      });
-      if (!ctx) throw new Error("Canvas2D unavailable");
-    }
   }
 
   async function loadThreeIfNeeded(src) {
@@ -232,23 +144,31 @@
     });
   }
 
+  function makeContext(src) {
+    usingWebGL = looksLikeThreeJS(src);
+    if (usingWebGL) {
+      ctx = canvas.getContext("webgl2", { alpha:true, antialias:true, preserveDrawingBuffer:true });
+      if (!ctx) throw new Error("WebGL2 unavailable");
+    } else {
+      ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+      if (!ctx) throw new Error("Canvas2D unavailable");
+    }
+  }
+
   async function init() {
     resize();
     mouse.x = grid.width / 2;
     mouse.y = grid.height / 2;
 
-    const res = await fetch(SOURCE_URL, { cache: "no-store" });
+    const res = await fetch(SOURCE_URL + "?cb=" + Date.now(), { cache:"no-store" });
     if (!res.ok) throw new Error("Could not fetch sketch source: " + res.status);
     source = await res.text();
 
     await loadThreeIfNeeded(source);
     makeContext(source);
 
-    // THIS is the black-screen-avoidance bit. Keep the newline right.
-    drawFn = new Function(
-      "canvas", "ctx", "grid", "time", "mouse", "input", "THREE",
-      source + "\n"
-    );
+    // THE IMPORTANT BIT: safe runtime compilation with the exact globals these sketches expect.
+    drawFn = new Function("canvas", "ctx", "grid", "time", "mouse", "input", "THREE", source + "\n");
 
     statusEl.textContent = usingWebGL ? "running WebGL/Three sketch" : "running Canvas2D sketch";
     requestAnimationFrame(loop);

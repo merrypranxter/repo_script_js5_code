@@ -1,185 +1,197 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>vhs-glitch</title>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{width:100%;height:100%;overflow:hidden;background:#000}
-canvas{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
-#hud{
-  position:fixed;top:12px;left:12px;z-index:9999;
-  background:rgba(0,0,0,0.82);border:1px solid #0ff;
-  border-radius:4px;color:#0ff;
-  font:12px/1.5 'Courier New',monospace;
-  padding:8px 10px;min-width:180px;
-  box-shadow:0 0 14px #0ff4;
-  user-select:none;
-}
-#hud-name{font-size:11px;color:#fff;margin-bottom:4px;letter-spacing:1px}
-#hud-status{font-size:10px;color:#0ff9;margin-bottom:6px;min-height:14px;word-break:break-word}
-#hud-btns{display:flex;gap:5px;flex-wrap:wrap}
-#hud-btns button{
-  background:none;border:1px solid #0ff6;color:#0ff;
-  font:11px 'Courier New',monospace;padding:2px 7px;
-  border-radius:2px;cursor:pointer;
-}
-#hud-btns button:hover{background:#0ff2;border-color:#0ff}
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; }
+  canvas { display:block; width:100vw; height:100vh; background:#000; }
+  #hud {
+    position:fixed; left:12px; top:12px; z-index:20;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+    font-size:12px; line-height:1.35; color:#effcff;
+    background:rgba(0,0,0,.58); border:1px solid rgba(255,255,255,.20);
+    border-radius:12px; padding:10px; box-shadow:0 0 24px rgba(0,255,255,.18);
+    backdrop-filter:blur(8px); user-select:none; max-width:min(360px,calc(100vw - 32px));
+  }
+  #hud.hidden { display:none; }
+  #hud .name { font-weight:700; margin-bottom:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #hud .status { opacity:.75; margin-bottom:8px; font-size:11px; }
+  #hud button { appearance:none; border:1px solid rgba(255,255,255,.24); background:rgba(255,255,255,.10); color:#fff; border-radius:999px; padding:5px 9px; margin-right:4px; font:inherit; cursor:pointer; }
+  #hud button:hover { background:rgba(255,255,255,.18); }
 </style>
-
 </head>
 <body>
 <canvas id="art"></canvas>
 <div id="hud">
-  <div id="hud-name">vhs-glitch.js</div>
-  <div id="hud-status">loading…</div>
-  <div id="hud-btns">
-    <button id="btn-hide">Hide</button>
-    <button id="btn-save">Save PNG</button>
-    <button id="btn-reset">Reset</button>
-  </div>
+  <div class="name">vhs-glitch.js</div>
+  <div class="status" id="status">loading sketch goblin...</div>
+  <button id="hideBtn">Hide</button>
+  <button id="saveBtn">Save PNG</button>
+  <button id="resetBtn">Reset</button>
 </div>
 <script>
-(function(){
-  'use strict';
+(() => {
+  const canvas = document.getElementById("art");
+  const hud = document.getElementById("hud");
+  const statusEl = document.getElementById("status");
+  const hideBtn = document.getElementById("hideBtn");
+  const saveBtn = document.getElementById("saveBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const SOURCE_URL = "https://raw.githubusercontent.com/merrypranxter/repo_script_js5_code/main/vhs-glitch.js";
 
-  // ── Globals ──────────────────────────────────────────────────────────────
-  const canvas = document.getElementById('art');
-  const grid   = { width: 0, height: 0 };
-  let   time   = 0;
-  const mouse  = { x: 0, y: 0, isPressed: false, pressed: false, down: false };
-  let   input  = '';
-  const THREE_GLOBAL = null;
-
-  // ── Canvas / context ─────────────────────────────────────────────────────
-  const DPR = Math.min(window.devicePixelRatio || 1, 2);
-  const CTX_TYPE = '2d';
   let ctx = null;
+  let drawFn = null;
+  let source = "";
+  let usingWebGL = false;
+  let started = performance.now();
+  let frame = 0;
+  let input = "";
 
-  function initContext() {
-    ctx = canvas.getContext(CTX_TYPE, {});
+  const mouse = { x:0, y:0, isPressed:false, pressed:false, down:false };
+  const grid = { width:0, height:0 };
+
+  function hideHudCompletely() {
+    hud.classList.add("hidden");
+    // No show tab, no show word, no leftover UI wart. Reload to get controls back.
   }
 
+  hideBtn.addEventListener("click", hideHudCompletely);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "h" || e.key === "H") hideHudCompletely();
+  });
+
+  saveBtn.addEventListener("click", () => {
+    try {
+      const a = document.createElement("a");
+      a.download = "vhs-glitch.png";
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    } catch (err) {
+      statusEl.textContent = "Save failed: " + err.message;
+      console.error(err);
+    }
+  });
+
+  resetBtn.addEventListener("click", () => {
+    try {
+      if (canvas.__three && canvas.__three.renderer) {
+        try { canvas.__three.renderer.dispose(); } catch (_e) {}
+      }
+      for (const key of Object.keys(canvas)) {
+        if (key.startsWith("__")) {
+          try { delete canvas[key]; } catch (_e) { canvas[key] = undefined; }
+        }
+      }
+      if (window.__feral_tapestry) delete window.__feral_tapestry;
+      if (ctx && !usingWebGL) {
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      started = performance.now();
+      frame = 0;
+      statusEl.textContent = "reset";
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = "Reset failed: " + err.message;
+    }
+  });
+
   function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width  = Math.round(w * DPR);
-    canvas.height = Math.round(h * DPR);
-    canvas.style.width  = w + 'px';
-    canvas.style.height = h + 'px';
-    grid.width  = canvas.width;
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const w = Math.max(2, Math.floor(innerWidth * dpr));
+    const h = Math.max(2, Math.floor(innerHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    grid.width = canvas.width;
     grid.height = canvas.height;
   }
 
-  initContext();
-  resize();
-  window.addEventListener('resize', resize);
-
-  // ── Mouse / Touch ─────────────────────────────────────────────────────────
-  function updateMouse(e) {
-    const r = canvas.getBoundingClientRect();
-    const scaleX = canvas.width  / r.width;
-    const scaleY = canvas.height / r.height;
-    const src = e.touches ? e.touches[0] : e;
-    mouse.x = (src.clientX - r.left) * scaleX;
-    mouse.y = (src.clientY - r.top)  * scaleY;
-  }
-  canvas.addEventListener('mousedown',  e => { updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; });
-  canvas.addEventListener('mousemove',  e => { updateMouse(e); });
-  canvas.addEventListener('mouseup',    ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
-  canvas.addEventListener('touchstart', e => { e.preventDefault(); updateMouse(e); mouse.isPressed = true; mouse.pressed = true; mouse.down = true; }, {passive:false});
-  canvas.addEventListener('touchmove',  e => { e.preventDefault(); updateMouse(e); }, {passive:false});
-  canvas.addEventListener('touchend',   ()=> { mouse.isPressed = false; mouse.pressed = false; mouse.down = false; });
-
-  // ── Keyboard input ───────────────────────────────────────────────────────
-  window.addEventListener('keydown', e => {
-    if (e.key === 'H' || e.key === 'h') { removeHud(); return; }
-    if (e.key.length === 1) input += e.key;
-    else if (e.key === 'Backspace') input = input.slice(0, -1);
-  });
-
-  // ── HUD ──────────────────────────────────────────────────────────────────
-  const hud       = document.getElementById('hud');
-  const statusEl  = document.getElementById('hud-status');
-
-  function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
-  function removeHud()    { if (hud && hud.parentNode) hud.parentNode.removeChild(hud); }
-
-  document.getElementById('btn-hide').addEventListener('click', removeHud);
-
-  document.getElementById('btn-save').addEventListener('click', function() {
-    try {
-      const a = document.createElement('a');
-      a.href     = canvas.toDataURL('image/png');
-      a.download = 'vhs-glitch.png';
-      a.click();
-    } catch(e) { setStatus('save failed: ' + e.message); }
-  });
-
-  document.getElementById('btn-reset').addEventListener('click', resetSketch);
-
-  // ── Sketch source (base64) ────────────────────────────────────────────────
-  const _b64 = 'Y29uc3QgZmlsZXMgPSByZXBvcy5mbGF0TWFwKHIgPT4gci5maWxlcyB8fCBbXSkubWFwKGYgPT4gZi5zcGxpdCgnLycpLnBvcCgpLnJlcGxhY2UoJy5tZCcsICcnKS50b1VwcGVyQ2FzZSgpKTsKY29uc3QgZGljdGlvbmFyeSA9IGZpbGVzLmxlbmd0aCA+IDAgPyBmaWxlcyA6IFsnU0lHTkFMX0xPU1MnLCAnVFJBQ0tJTkdfRVJSJywgJ0NIUk9NQV9CTEVFRCcsICdEQVRBX0NPUlJVUFRJT04nLCAnVl9TWU5DX0RST1AnXTsKCmNvbnN0IHcgPSBjYW52YXMud2lkdGg7CmNvbnN0IGggPSBjYW52YXMuaGVpZ2h0OwoKLy8gT2Zmc2NyZWVuIGJ1ZmZlciBmb3IgdGhlICJjbGVhbiIgc2lnbmFsIGJlZm9yZSB0YXBlIGRhbWFnZQpjb25zdCBidWZmZXIgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCdjYW52YXMnKTsKYnVmZmVyLndpZHRoID0gdzsKYnVmZmVyLmhlaWdodCA9IGg7CmNvbnN0IGJjdHggPSBidWZmZXIuZ2V0Q29udGV4dCgnMmQnLCB7IGFscGhhOiBmYWxzZSB9KTsKCi8vIERldGVybWluaXN0aWMgcHNldWRvLXJhbmRvbSBmb3Igbm9pc2UKY29uc3QgaGFzaCA9ICh4LCB5LCB0KSA9PiB7CiAgICBsZXQgbiA9IE1hdGguc2luKHggKiAxMi45ODk4ICsgeSAqIDc4LjIzMyArIHQgKiA0My4xMSkgKiA0Mzc1OC41NDUzOwogICAgcmV0dXJuIG4gLSBNYXRoLmZsb29yKG4pOwp9OwoKLy8gLS0tIEJVSUxEIFRIRSBHSE9TVCBTSUdOQUwgKFRoZSB1bmRlcmx5aW5nIGRhdGEgdHJ5aW5nIHRvIHN1cnZpdmUpIC0tLQpiY3R4LmZpbGxTdHlsZSA9ICcjMGEwYjEwJzsKYmN0eC5maWxsUmVjdCgwLCAwLCB3LCBoKTsKCi8vIEJhc2UgZ3JpZCAvIGRlYWQgd2ViIHN0cnVjdHVyZQpiY3R4LnN0cm9rZVN0eWxlID0gJyMxYTFmMmMnOwpiY3R4LmxpbmVXaWR0aCA9IDE7CmZvciAobGV0IGkgPSAwOyBpIDwgdzsgaSArPSA0MCkgewogICAgYmN0eC5iZWdpblBhdGgoKTsgYmN0eC5tb3ZlVG8oaSwgMCk7IGJjdHgubGluZVRvKGksIGgpOyBiY3R4LnN0cm9rZSgpOwp9CmZvciAobGV0IGkgPSAwOyBpIDwgaDsgaSArPSA0MCkgewogICAgYmN0eC5iZWdpblBhdGgoKTsgYmN0eC5tb3ZlVG8oMCwgaSk7IGJjdHgubGluZVRvKHcsIGkpOyBiY3R4LnN0cm9rZSgpOwp9CgovLyBEcmlmdGluZyBkYXRhIGJsb2Nrcwpjb25zdCBibG9ja0NvdW50ID0gMTU7CmZvciAobGV0IGkgPSAwOyBpIDwgYmxvY2tDb3VudDsgaSsrKSB7CiAgICBjb25zdCBweSA9IChoYXNoKGksIDAsIDApICogaCArIHRpbWUgKiA1MCAqIGhhc2goaSwgMSwgMCkpICUgaDsKICAgIGNvbnN0IHB4ID0gaGFzaChpLCAyLCAwKSAqIHc7CiAgICBjb25zdCBidyA9IGhhc2goaSwgMywgMCkgKiAzMDAgKyAxMDA7CiAgICBjb25zdCBiaCA9IGhhc2goaSwgNCwgMCkgKiA2MCArIDIwOwogICAgCiAgICBiY3R4LmZpbGxTdHlsZSA9IGhhc2goaSwgNSwgMCkgPiAwLjggPyAnIzJhM2I0YycgOiAnIzExMTUxYyc7CiAgICBiY3R4LmZpbGxSZWN0KHB4LCBweSwgYncsIGJoKTsKICAgIAogICAgYmN0eC5maWxsU3R5bGUgPSAnIzRhNWI2Yyc7CiAgICBiY3R4LmZvbnQgPSAnMTBweCBtb25vc3BhY2UnOwogICAgY29uc3Qgd29yZCA9IGRpY3Rpb25hcnlbaSAlIGRpY3Rpb25hcnkubGVuZ3RoXTsKICAgIGZvciAobGV0IHR5ID0gcHkgKyAxMjsgdHkgPCBweSArIGJoOyB0eSArPSAxMikgewogICAgICAgIGJjdHguZmlsbFRleHQod29yZCArICIgIiArIGhhc2goaSwgdHksIHRpbWUpLnRvU3RyaW5nKDE2KS5zdWJzdHJpbmcoMiwgOCksIHB4ICsgNSwgdHkpOwogICAgfQp9CgovLyBTTVBURSBDb2xvciBiYXJzIChkZWNheWluZykKY29uc3QgY29sb3JzID0gWycjYzBjMGMwJywgJyNjMGMwMDAnLCAnIzAwYzBjMCcsICcjMDBjMDAwJywgJyNjMDAwYzAnLCAnI2MwMDAwMCcsICcjMDAwMGMwJ107CmNvbnN0IGJhcldpZHRoID0gdyAvIGNvbG9ycy5sZW5ndGg7CmJjdHguZ2xvYmFsQWxwaGEgPSAwLjE1ICsgTWF0aC5zaW4odGltZSAqIDIpICogMC4wNTsKY29sb3JzLmZvckVhY2goKGMsIGkpID0+IHsKICAgIGJjdHguZmlsbFN0eWxlID0gYzsKICAgIGJjdHguZmlsbFJlY3QoaSAqIGJhcldpZHRoLCAwLCBiYXJXaWR0aCwgaCk7Cn0pOwpiY3R4Lmdsb2JhbEFscGhhID0gMS4wOwoKLy8gT1NEIChPbiBTY3JlZW4gRGlzcGxheSkKYmN0eC5maWxsU3R5bGUgPSAnIzAwZmYwMCc7CmJjdHguZm9udCA9ICcyNHB4IG1vbm9zcGFjZSc7CmJjdHguZmlsbFRleHQoJ1BMQVknLCA0MCwgNTApOwpiY3R4LmZpbGxUZXh0KCdTUCcsIHcgLSA4MCwgNTApOwpjb25zdCB0YyA9IG5ldyBEYXRlKHRpbWUgKiAxMDAwKS50b0lTT1N0cmluZygpLnN1YnN0cigxMSwgOCk7CmJjdHguZmlsbFRleHQoYFRDUiAwMDoke3RjfWAsIDQwLCBoIC0gNDApOwoKLy8gLS0tIEFQUExZIFZIUyBUQVBFIERBTUFHRSBBTkQgUkVOREVSIFRPIE1BSU4gQ0FOVkFTIC0tLQoKY3R4LmZpbGxTdHlsZSA9ICcjMDAwJzsKY3R4LmZpbGxSZWN0KDAsIDAsIHcsIGgpOwoKLy8gVi1TeW5jIFJvbGwgbG9naWMKbGV0IHZTeW5jT2Zmc2V0ID0gMDsKaWYgKG1vdXNlLmlzUHJlc3NlZCkgewogICAgLy8gQ29tcGxldGUgc3luYyBmYWlsdXJlCiAgICB2U3luY09mZnNldCA9ICh0aW1lICogODAwKSAlIGg7Cn0gZWxzZSB7CiAgICAvLyBPY2Nhc2lvbmFsIG1pY3JvLXNsaXBzCiAgICBpZiAoaGFzaCgwLCAwLCB0aW1lKSA+IDAuOTgpIHZTeW5jT2Zmc2V0ID0gaGFzaCgxLCAxLCB0aW1lKSAqIDUwOwp9CgovLyBUcmFja2luZyBub2lzZSBiYW5kCmNvbnN0IHRyYWNraW5nQ2VudGVyID0gbW91c2UuaXNQcmVzc2VkID8gaC8yIDogbW91c2UueSB8fCBoICogMC44Owpjb25zdCB0cmFja2luZ1dpZHRoID0gMTUwICsgTWF0aC5zaW4odGltZSAqIDEwKSAqIDUwOwoKLy8gQ2hyb21hIGJsZWVkIGludGVuc2l0eSBiYXNlZCBvbiBtb3VzZSBYIChvciB0aW1lIGlmIG5vIG1vdXNlKQpjb25zdCBjaHJvbWFPZmZzZXQgPSBtb3VzZS54ID8gKG1vdXNlLnggLyB3KSAqIDEwIDogMyArIE1hdGguc2luKHRpbWUpICogMjsKCi8vIFNsaWNlIHVwIHRoZSBidWZmZXIgYW5kIGRyYXcgaXQgd2l0aCBkaXN0b3J0aW9ucwpjb25zdCBzbGljZUhlaWdodCA9IDQ7IC8vIFJlc29sdXRpb24gb2YgdGhlIHRlYXJpbmcKZm9yIChsZXQgeSA9IDA7IHkgPCBoOyB5ICs9IHNsaWNlSGVpZ2h0KSB7CiAgICAKICAgIC8vIENhbGN1bGF0ZSBzb3VyY2UgWSB3aXRoIFYtc3luYyByb2xsCiAgICBsZXQgc3JjWSA9ICh5IC0gdlN5bmNPZmZzZXQgKyBoKSAlIGg7CiAgICAKICAgIC8vIENhbGN1bGF0ZSBob3Jpem9udGFsIHNoaWZ0IChqaXR0ZXIgKyB0cmFja2luZyB0ZWFyKQogICAgbGV0IHNoaWZ0WCA9IDA7CiAgICAKICAgIC8vIEJhc2UgaGlnaC1mcmVxdWVuY3kgaml0dGVyCiAgICBpZiAoaGFzaCh5LCAwLCB0aW1lKSA+IDAuOSkgc2hpZnRYICs9IChoYXNoKHksIDEsIHRpbWUpIC0gMC41KSAqIDEwOwogICAgCiAgICAvLyBUcmFja2luZyB0ZWFyIChwcm94aW1pdHkgdG8gdHJhY2tpbmcgY2VudGVyKQogICAgY29uc3QgZGlzdFRvVHJhY2tpbmcgPSBNYXRoLmFicyh5IC0gdHJhY2tpbmdDZW50ZXIpOwogICAgaWYgKGRpc3RUb1RyYWNraW5nIDwgdHJhY2tpbmdXaWR0aCkgewogICAgICAgIGNvbnN0IHRlYXJJbnRlbnNpdHkgPSAxIC0gKGRpc3RUb1RyYWNraW5nIC8gdHJhY2tpbmdXaWR0aCk7CiAgICAgICAgc2hpZnRYICs9IE1hdGguc2luKHkgKiAwLjEgKyB0aW1lICogMjApICogKDUwICogdGVhckludGVuc2l0eSAqIHRlYXJJbnRlbnNpdHkpOwogICAgICAgIAogICAgICAgIC8vIFNvbWV0aW1lcyBkcm9wIHRoZSBzaWduYWwgZW50aXJlbHkgaW4gdGhlIHRyYWNraW5nIGJhbmQgKHN0YXRpYykKICAgICAgICBpZiAoaGFzaCh5LCAyLCB0aW1lKSA8IDAuMyAqIHRlYXJJbnRlbnNpdHkpIHsKICAgICAgICAgICAgY3R4LmZpbGxTdHlsZSA9IGhhc2goeSwgMywgdGltZSkgPiAwLjUgPyAnI2ZmZicgOiAnIzAwMCc7CiAgICAgICAgICAgIGN0eC5maWxsUmVjdCgwLCB5LCB3LCBzbGljZUhlaWdodCk7CiAgICAgICAgICAgIGNvbnRpbnVlOyAvLyBTa2lwIGRyYXdpbmcgdGhlIGltYWdlIHNsaWNlIGhlcmUKICAgICAgICB9CiAgICB9CiAgICAKICAgIC8vIFRhcGUgY3JlYXNlIC8gd3JpbmtsZSAoc2xvdyBtb3ZpbmcgdmVydGljYWwgd2F2ZSkKICAgIGNvbnN0IGNyZWFzZSA9IE1hdGguc2luKHkgKiAwLjAwNSArIHRpbWUpICogTWF0aC5jb3MoeSAqIDAuMDIgLSB0aW1lICogMC41KSAqIDIwOwogICAgc2hpZnRYICs9IGNyZWFzZTsKCiAgICAvLyBEcmF3IENocm9tYSBTZXBhcmF0ZWQgU2xpY2VzCiAgICBjdHguZ2xvYmFsQ29tcG9zaXRlT3BlcmF0aW9uID0gJ3NjcmVlbic7CiAgICAKICAgIC8vIFJlZCBjaGFubmVsCiAgICBjdHguZHJhd0ltYWdlKGJ1ZmZlciwgCiAgICAgICAgMCwgc3JjWSwgdywgc2xpY2VIZWlnaHQsIAogICAgICAgIHNoaWZ0WCArIGNocm9tYU9mZnNldCwgeSwgdywgc2xpY2VIZWlnaHQpOwogICAgICAgIAogICAgLy8gQmx1ZS9HcmVlbiBjaGFubmVsIChjeWFuLWlzaCkKICAgIGN0eC5kcmF3SW1hZ2UoYnVmZmVyLCAKICAgICAgICAwLCBzcmNZLCB3LCBzbGljZUhlaWdodCwgCiAgICAgICAgc2hpZnRYIC0gY2hyb21hT2Zmc2V0LCB5LCB3LCBzbGljZUhlaWdodCk7CiAgICAgICAgCiAgICAvLyBSZXNldCBjb21wb3NpdGUgZm9yIG5leHQgbG9vcCBpZiBuZWVkZWQsIHRob3VnaCBzY3JlZW4gYnVpbGRzIHVwIG5pY2VseQogICAgY3R4Lmdsb2JhbENvbXBvc2l0ZU9wZXJhdGlvbiA9ICdzb3VyY2Utb3Zlcic7Cn0KCi8vIC0tLSBPVkVSTEFZUzogU0NBTkxJTkVTLCBOT0lTRSwgSEVBRCBTV0lUQ0hJTkcgLS0tCgovLyBDUlQgU2NhbmxpbmVzCmN0eC5maWxsU3R5bGUgPSAncmdiYSgwLDAsMCwwLjMpJzsKZm9yIChsZXQgeSA9IDA7IHkgPCBoOyB5ICs9IDMpIHsKICAgIGN0eC5maWxsUmVjdCgwLCB5LCB3LCAxKTsKfQoKLy8gQW5hbG9nIFNub3cgLyBMdW1hIG5vaXNlCmNvbnN0IGltZ0RhdGEgPSBjdHguZ2V0SW1hZ2VEYXRhKDAsIDAsIHcsIGgpOwpjb25zdCBkYXRhID0gaW1nRGF0YS5kYXRhOwpmb3IgKGxldCBpID0gMDsgaSA8IGRhdGEubGVuZ3RoOyBpICs9IDQpIHsKICAgIC8vIEFkZCBub2lzZQogICAgY29uc3Qgbm9pc2UgPSAoTWF0aC5yYW5kb20oKSAtIDAuNSkgKiA0MDsKICAgIGRhdGFbaV0gPSBNYXRoLm1heCgwLCBNYXRoLm1pbigyNTUsIGRhdGFbaV0gKyBub2lzZSkpOwogICAgZGF0YVtpKzFdID0gTWF0aC5tYXgoMCwgTWF0aC5taW4oMjU1LCBkYXRhW2krMV0gKyBub2lzZSkpOwogICAgZGF0YVtpKzJdID0gTWF0aC5tYXgoMCwgTWF0aC5taW4oMjU1LCBkYXRhW2krMl0gKyBub2lzZSkpOwogICAgCiAgICAvLyBEZXNhdHVyYXRlIHNsaWdodGx5IHRvIG1pbWljIGR5aW5nIG1hZ25ldGljIHRhcGUKICAgIGNvbnN0IGdyYXkgPSBkYXRhW2ldICogMC4zICsgZGF0YVtpKzFdICogMC41OSArIGRhdGFbaSsyXSAqIDAuMTE7CiAgICBkYXRhW2ldID0gZGF0YVtpXSAqIDAuOCArIGdyYXkgKiAwLjI7CiAgICBkYXRhW2krMV0gPSBkYXRhW2krMV0gKiAwLjggKyBncmF5ICogMC4yOwogICAgZGF0YVtpKzJdID0gZGF0YVtpKzJdICogMC44ICsgZ3JheSAqIDAuMjsKfQpjdHgucHV0SW1hZ2VEYXRhKGltZ0RhdGEsIDAsIDApOwoKLy8gSGVhZCBzd2l0Y2hpbmcgbm9pc2UgYXQgdGhlIGJvdHRvbQpjb25zdCBoZWFkU3dpdGNoSGVpZ2h0ID0gMjAgKyBNYXRoLnJhbmRvbSgpICogMTA7CmNvbnN0IGhlYWRTd2l0Y2hZID0gaCAtIGhlYWRTd2l0Y2hIZWlnaHQ7CmN0eC5maWxsU3R5bGUgPSAncmdiYSgyNTUsMjU1LDI1NSwwLjEpJzsKY3R4LmZpbGxSZWN0KDAsIGhlYWRTd2l0Y2hZLCB3LCBoZWFkU3dpdGNoSGVpZ2h0KTsKZm9yKGxldCBpPTA7IGk8dzsgaSs9IE1hdGgucmFuZG9tKCkgKiAxMCArIDUpIHsKICAgIGN0eC5maWxsU3R5bGUgPSBNYXRoLnJhbmRvbSgpID4gMC41ID8gJyNmZmYnIDogJyMwMDAnOwogICAgY3R4LmZpbGxSZWN0KGkgKyBNYXRoLnNpbih0aW1lKjUwKSoxMCwgaGVhZFN3aXRjaFkgKyBNYXRoLnJhbmRvbSgpKmhlYWRTd2l0Y2hIZWlnaHQsIE1hdGgucmFuZG9tKCkqMjAsIDIpOwp9CgovLyBWaWduZXR0ZSAvIFR1YmUgZWRnZSBkYXJrZW5pbmcKY29uc3QgZ3JhZGllbnQgPSBjdHguY3JlYXRlUmFkaWFsR3JhZGllbnQody8yLCBoLzIsIGgvMywgdy8yLCBoLzIsIGgpOwpncmFkaWVudC5hZGRDb2xvclN0b3AoMCwgJ3JnYmEoMCwwLDAsMCknKTsKZ3JhZGllbnQuYWRkQ29sb3JTdG9wKDEsICdyZ2JhKDAsMCwwLDAuOCknKTsKY3R4LmZpbGxTdHlsZSA9IGdyYWRpZW50OwpjdHguZmlsbFJlY3QoMCwgMCwgdywgaCk7';
-  const source = decodeURIComponent(escape(atob(_b64)));
-
-  // ── Compile sketch ────────────────────────────────────────────────────────
-  let sketchFn = null;
-  try {
-    sketchFn = new Function('canvas','ctx','grid','time','mouse','input','THREE', source + '\n');
-    setStatus('ok');
-  } catch(e) {
-    setStatus('compile error: ' + e.message);
-    console.error('[vhs-glitch] compile error:', e);
+  function setMouseFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    mouse.x = (e.clientX - rect.left) * sx;
+    mouse.y = (e.clientY - rect.top) * sy;
   }
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
-  function resetSketch() {
-    try {
-      // Dispose Three.js renderer if present
-      if (canvas.__three) {
-        const t = canvas.__three;
-        if (t.renderer) { try { t.renderer.dispose(); } catch(_){} }
-        if (t.rtA)      { try { t.rtA.dispose(); }      catch(_){} }
-        if (t.rtB)      { try { t.rtB.dispose(); }      catch(_){} }
-        if (t.material) { try { t.material.dispose(); } catch(_){} }
-        delete canvas.__three;
-      }
-      // Clear any other custom state
-      for (const k of Object.keys(canvas)) {
-        if (k.startsWith('__')) { try { delete canvas[k]; } catch(_){} }
-      }
-      // Clear Canvas2D if applicable
-      if (CTX_TYPE === '2d' && ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-      // Reset context after dispose
-      initContext();
-      startTime = performance.now();
-      setStatus('reset ok');
-    } catch(e) {
-      setStatus('reset error: ' + e.message);
+  window.addEventListener("resize", resize);
+  window.addEventListener("mousemove", setMouseFromEvent);
+  window.addEventListener("mousedown", (e) => { setMouseFromEvent(e); mouse.isPressed = mouse.pressed = mouse.down = true; });
+  window.addEventListener("mouseup", (e) => { setMouseFromEvent(e); mouse.isPressed = mouse.pressed = mouse.down = false; });
+  window.addEventListener("touchstart", (e) => { if (e.touches[0]) { setMouseFromEvent(e.touches[0]); mouse.isPressed = mouse.pressed = mouse.down = true; } }, { passive:true });
+  window.addEventListener("touchmove", (e) => { if (e.touches[0]) setMouseFromEvent(e.touches[0]); }, { passive:true });
+  window.addEventListener("touchend", () => { mouse.isPressed = mouse.pressed = mouse.down = false; });
+
+  function looksLikeThreeJS(src) {
+    return /THREE\.|WebGLRenderer|ShaderMaterial|glslVersion|fragmentShader|vertexShader/.test(src);
+  }
+
+  async function loadThreeIfNeeded(src) {
+    if (!looksLikeThreeJS(src)) return;
+    if (window.THREE) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js";
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Could not load Three.js CDN"));
+      document.head.appendChild(s);
+    });
+  }
+
+  function makeContext(src) {
+    usingWebGL = looksLikeThreeJS(src);
+    if (usingWebGL) {
+      ctx = canvas.getContext("webgl2", { alpha:true, antialias:true, preserveDrawingBuffer:true });
+      if (!ctx) throw new Error("WebGL2 unavailable");
+    } else {
+      ctx = canvas.getContext("2d", { alpha:false, willReadFrequently:true });
+      if (!ctx) throw new Error("Canvas2D unavailable");
     }
   }
 
-  // ── Animation loop ────────────────────────────────────────────────────────
-  let startTime = performance.now();
+  async function init() {
+    resize();
+    mouse.x = grid.width / 2;
+    mouse.y = grid.height / 2;
 
-  function frame() {
-    time = (performance.now() - startTime) / 1000;
-    mouse.pressed = false; // single-frame pulse reset
-    if (sketchFn) {
-      try {
-        sketchFn(canvas, ctx, grid, time, mouse, input, THREE_GLOBAL);
-      } catch(e) {
-        setStatus('runtime error: ' + e.message);
-        console.error('[vhs-glitch] runtime error:', e);
-      }
-    }
-    requestAnimationFrame(frame);
+    const res = await fetch(SOURCE_URL + "?cb=" + Date.now(), { cache:"no-store" });
+    if (!res.ok) throw new Error("Could not fetch sketch source: " + res.status);
+    source = await res.text();
+
+    await loadThreeIfNeeded(source);
+    makeContext(source);
+
+    // THE IMPORTANT BIT: safe runtime compilation with the exact globals these sketches expect.
+    drawFn = new Function("canvas", "ctx", "grid", "time", "mouse", "input", "THREE", source + "\n");
+
+    statusEl.textContent = usingWebGL ? "running WebGL/Three sketch" : "running Canvas2D sketch";
+    requestAnimationFrame(loop);
   }
 
-  requestAnimationFrame(frame);
+  function loop(now) {
+    resize();
+    const time = (now - started) / 1000;
+    try {
+      if (drawFn) drawFn(canvas, ctx, grid, time, mouse, input, window.THREE);
+      frame++;
+    } catch (err) {
+      console.error("Sketch crashed:", err);
+      statusEl.textContent = "Sketch crashed: " + err.message;
+      return;
+    }
+    requestAnimationFrame(loop);
+  }
+
+  init().catch((err) => {
+    console.error(err);
+    statusEl.textContent = "Load failed: " + err.message;
+  });
 })();
 </script>
 </body>
