@@ -1,217 +1,223 @@
-if (!canvas.__three) {
-  try {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+// ============================================================================
+// THE FERAL JACQUARD LOOM
+// A generative textile system combining computational fabric structures 
+// (warp/weft interlacing, twill/plain weave, machine hesitation) with 
+// deep mathematical motifs (domain-warped Julia sets) and structural color 
+// (thin-film interference).
+// ============================================================================
+
+const ctx2d = ctx; // Ensure we are using the provided context
+const w = grid.width;
+const h = grid.height;
+
+// Loom constraints
+const threadSize = Math.max(4, Math.floor(w / 120)); // Scale threads to canvas
+const cols = Math.ceil(w / threadSize);
+const rows = Math.ceil(h / threadSize);
+
+// Fabric movement
+const scrollY = Math.floor(time * 8.0);
+const repeatSize = 64; // Motif tiling size in threads
+
+// Julia Set Parameters (Drifting 'Spiral' Julia)
+// Base c = 0.285 + 0.01i from fractals/05_fractal_families/julia_sets.md
+const cRe = 0.285 + Math.cos(time * 0.15) * 0.03;
+const cIm = 0.01 + Math.sin(time * 0.15) * 0.03;
+
+// Structural Color: Thin-Film Interference Cosine Palette
+// Simulates iridescent varying film thickness based on mathematical depth
+function getThinFilmColor(t, angleOffset) {
+    // Shift optical path by viewing angle (simulated by drape folds)
+    const phase = t + angleOffset * 0.25;
     
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 1;
+    // IQ Cosine Palette optimized for structural iridescence
+    const r = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * phase + 0.00));
+    const g = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * phase + 0.33));
+    const b = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * phase + 0.67));
     
-    const fragmentShader = `
-      out vec4 fragColor;
-      in vec2 vUv;
-      uniform float u_time;
-      uniform vec2 u_resolution;
+    return [r * 255, g * 255, b * 255];
+}
 
-      // --- Simplex Noise & FBM ---
-      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+// Clear the void
+ctx2d.fillStyle = '#050505';
+ctx2d.fillRect(0, 0, w, h);
 
-      float snoise(vec2 v) {
-          const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-          vec2 i  = floor(v + dot(v, C.yy));
-          vec2 x0 = v - i + dot(i, C.xx);
-          vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-          vec4 x12 = x0.xyxy + C.xxzz;
-          x12.xy -= i1;
-          i = mod289(i);
-          vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-          vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-          m = m*m; m = m*m;
-          vec3 x = 2.0 * fract(p * C.www) - 1.0;
-          vec3 h = abs(x) - 0.5;
-          vec3 ox = floor(x + 0.5);
-          vec3 a0 = x - ox;
-          m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-          vec3 g;
-          g.x  = a0.x  * x0.x  + h.x  * x0.y;
-          g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-          return 130.0 * dot(m, g);
-      }
+// State for machine hesitation (snapped threads)
+// Stored on the canvas object to persist across frames
+if (!grid.canvas.__snappedThreads) {
+    grid.canvas.__snappedThreads = [];
+}
+const snappedThreads = grid.canvas.__snappedThreads;
 
-      float fbm(vec2 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          for(int i=0; i<5; i++){
-              f += amp * snoise(p);
-              p *= 2.0;
-              amp *= 0.5;
-          }
-          return f * 0.5 + 0.5;
-      }
+// Weave the fabric
+for (let y = 0; y < rows; y++) {
+    const fabricY = y - scrollY;
+    
+    // Physical Drape & Tension (Topology Patterns)
+    // Simulates the fabric folding and catching light differently
+    const drape = Math.sin(y * 0.08 + time * 0.5) * Math.cos(y * 0.03) * 0.5 + 0.5;
+    const tension = Math.sin((y) * 0.02) * 0.5 + 0.5;
 
-      // --- Weaving Patterns: 2/2 Herringbone Twill ---
-      float herringbone(vec2 p, float scale) {
-          p *= scale;
-          
-          float warp = smoothstep(0.0, 0.8, abs(sin(p.x * 3.14159)));
-          float weft = smoothstep(0.0, 0.8, abs(sin(p.y * 3.14159)));
-          
-          float zig_width = 24.0;
-          float zig = abs(fract(p.x / zig_width) - 0.5) * 2.0;
-          float twill_x = zig * zig_width;
-          
-          float diag = fract((twill_x + p.y) * 0.25);
-          float over = step(0.5, diag);
-          
-          float thread = mix(weft, warp, over);
-          
-          // Ambient occlusion at float intersections
-          float shadow = abs(diag - 0.5) * 2.0; 
-          thread *= mix(0.4, 1.0, shadow);
-          
-          // Organic fiber noise
-          thread -= snoise(p * 2.0) * 0.1;
-          
-          return clamp(thread, 0.0, 1.0);
-      }
+    for (let x = 0; x < cols; x++) {
+        const px = x * threadSize;
+        const py = y * threadSize;
+        
+        // 1. Structural Selvedge (Finished edges of woven cloth)
+        const isSelvedge = x < 4 || x > cols - 5;
+        
+        let warpTop = false;
+        let color = [0, 0, 0];
+        let isMotif = false;
+        let motifVal = 0;
 
-      // --- Color Systems & Resist Dye: Golden Angle Shibori ---
-      float golden_dye(vec2 uv, float time) {
-          float total_dye = 0.0;
-          for(int i = 1; i <= 10; i++) {
-              float fi = float(i);
-              float r = sqrt(fi) * 0.15;
-              // Golden Angle (137.508 degrees = 2.39996 rad)
-              float theta = fi * 2.39996 + time * 0.05;
-              vec2 node_pos = vec2(cos(theta), sin(theta)) * r;
-              
-              vec2 p = uv - (node_pos + 0.5); 
-              float dist = length(p);
-              float angle = atan(p.y, p.x);
-              
-              // Shibori folds (Kumo/Arashi)
-              float folds = abs(sin(angle * 4.0 + fbm(p * 6.0) * 2.0));
-              float rings = abs(sin(dist * 50.0 - time * 1.5));
-              
-              // Capillary bleed
-              float bleed = fbm(p * 10.0 - time * 0.1);
-              
-              // Resist islands
-              float resist = smoothstep(0.2, 0.7, rings * folds + bleed * 0.5);
-              
-              // Dye concentration gradient
-              float node_dye = (1.0 - resist) * smoothstep(0.35, 0.0, dist); 
-              
-              // Micro-bleeds
-              node_dye += fbm(p * 40.0) * 0.1 * smoothstep(0.4, 0.1, dist);
-              
-              total_dye = max(total_dye, node_dye);
-          }
-          return total_dye;
-      }
+        if (isSelvedge) {
+            // Selvedge is a dense, strong twill structure
+            warpTop = (x - fabricY) % 3 === 0;
+            color = [200, 40, 60]; // Deep red border
+        } else {
+            // 2. Motif Generation (Domain-Warped Julia Set)
+            let u = (x % repeatSize) / repeatSize;
+            let v = (Math.abs(fabricY) % repeatSize) / repeatSize;
+            
+            // Warp the domain to simulate fabric stretch and organic imperfection
+            const warpX = Math.sin(v * 12.0 + time) * 0.015 * tension;
+            const warpY = Math.cos(u * 12.0 - time) * 0.015 * tension;
+            
+            // Map to complex plane [-1.5, 1.5]
+            let zx = (u + warpX - 0.5) * 3.0;
+            let zy = (v + warpY - 0.5) * 3.0;
+            
+            // Escape-time iteration
+            let iter = 0;
+            const maxIter = 24;
+            let z2x = zx * zx;
+            let z2y = zy * zy;
+            
+            while (z2x + z2y < 4.0 && iter < maxIter) {
+                zy = 2.0 * zx * zy + cIm;
+                zx = z2x - z2y + cRe;
+                z2x = zx * zx;
+                z2y = zy * zy;
+                iter++;
+            }
+            
+            // Smooth escape metric
+            if (iter < maxIter) {
+                const log_zn = Math.log(z2x + z2y) / 2.0;
+                const nu = Math.log(log_zn / Math.LN2) / Math.LN2;
+                motifVal = (iter + 1 - nu) / maxIter;
+            } else {
+                motifVal = 1.0;
+            }
+            
+            // 3. Weave Logic (Binary Cellular Automaton Rules)
+            // The mathematical fractal is translated into a punch-card binary
+            isMotif = motifVal > 0.45 && motifVal < 0.95;
+            
+            if (isMotif) {
+                // Pattern Area: 3/1 Twill Weave (Diagonal Ribs)
+                // Warp floats over 3 wefts, under 1
+                warpTop = (x - fabricY) % 4 !== 0;
+            } else {
+                // Ground Area: 1/1 Plain Weave (Checkerboard)
+                warpTop = (x + fabricY) % 2 === 0;
+            }
+            
+            // 4. Machine Hesitation / Glitch Textiles
+            // Randomly drop stitches to simulate a feral, broken loom
+            if (Math.random() < 0.0002) {
+                warpTop = !warpTop; // Invert the rule
+                // Occasionally spawn a snapped thread
+                if (Math.random() < 0.1) {
+                    snappedThreads.push({
+                        x: px, y: py,
+                        vx: (Math.random() - 0.5) * 2,
+                        vy: Math.random() * 2 + 1,
+                        len: 0, maxLen: Math.random() * 50 + 20,
+                        color: getThinFilmColor(motifVal * 3.0, drape)
+                    });
+                }
+            }
 
-      // --- Color Fields: Cosmic/Acid Ice Dye Palette ---
-      vec3 get_dye_color(float t) {
-          t = clamp(t, 0.0, 1.0);
-          vec3 c1 = vec3(0.0, 0.8, 0.9);    // Cyan edge
-          vec3 c2 = vec3(0.8, 0.1, 0.9);    // Purple mid
-          vec3 c3 = vec3(0.05, 0.0, 0.15);  // Cosmic dark core
-          
-          if (t < 0.5) return mix(c1, c2, t * 2.0);
-          return mix(c2, c3, (t - 0.5) * 2.0);
-      }
-
-      float vignette(vec2 uv, float strength, float radius) {
-          float d = length(uv - 0.5) * 2.0;
-          return 1.0 - smoothstep(radius, radius + strength, d);
-      }
-
-      void main() {
-          // Aspect correction
-          vec2 aspect_uv = vUv;
-          aspect_uv.x = (aspect_uv.x - 0.5) * (u_resolution.x / u_resolution.y) + 0.5;
-          
-          // Generate Herringbone weave structure
-          float weave = herringbone(aspect_uv, 120.0);
-          
-          // Generate Shibori dye mapping
-          float dye_intensity = golden_dye(aspect_uv, u_time);
-          
-          // Global background diffusion
-          float bg_diffusion = fbm((aspect_uv - 0.5) * 2.0 + u_time * 0.05);
-          dye_intensity += bg_diffusion * 0.4;
-          
-          // Capillary action along threads
-          float capillary = snoise(aspect_uv * 120.0) * 0.1;
-          dye_intensity = clamp(dye_intensity + capillary * dye_intensity, 0.0, 1.0);
-          
-          vec3 base_fabric = vec3(0.96, 0.94, 0.90); // Unbleached cotton
-          
-          // Chromatic perturbation for organic dye separation
-          float chroma_shift = fbm(aspect_uv * 5.0) * 0.2;
-          vec3 dye_col = get_dye_color(dye_intensity + chroma_shift);
-          
-          // Subtractive dye blending
-          vec3 color = base_fabric * mix(vec3(1.0), dye_col, dye_intensity);
-          
-          // Weave lighting and ambient occlusion
-          color *= mix(0.3, 1.0, weave);
-          
-          // Vignette
-          color *= mix(0.5, 1.0, vignette(vUv, 0.8, 0.2));
-          
-          // --- Structural Color: Subtle Thin-Film Interference Iridescence ---
-          float thread_normal = abs(fract(aspect_uv.x * 120.0) - 0.5) * 2.0;
-          vec3 iridescence = vec3(
-              0.5 + 0.5 * cos(6.28318 * (thread_normal + 0.0)),
-              0.5 + 0.5 * cos(6.28318 * (thread_normal + 0.33)),
-              0.5 + 0.5 * cos(6.28318 * (thread_normal + 0.67))
-          );
-          
-          // Apply iridescence lightly to the high points of the weave
-          color += iridescence * weave * 0.05 * dye_intensity;
-          
-          fragColor = vec4(color, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: { 
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            // 5. Material Behavior & Color
+            if (warpTop) {
+                // Warp Threads: Iridescent Structural Color
+                // Film thickness mapped to fractal depth
+                color = getThinFilmColor(motifVal * 3.0, drape);
+            } else {
+                // Weft Threads: Deep Cosmic Void (Absorptive ground)
+                color = [15, 10, 25];
+            }
         }
-      `,
-      fragmentShader
-    });
+
+        // Apply lighting and drape shadows
+        const shade = warpTop ? (0.5 + 0.5 * drape) : (0.2 + 0.4 * drape);
+        ctx2d.fillStyle = `rgb(${color[0]*shade}, ${color[1]*shade}, ${color[2]*shade})`;
+        ctx2d.fillRect(px, py, threadSize, threadSize);
+
+        // Anisotropic Highlights (Thread Shimmer)
+        // Shines perpendicular to the thread direction
+        if (warpTop) {
+            // Vertical thread -> Vertical highlight
+            ctx2d.fillStyle = `rgba(255, 255, 255, ${0.4 * drape})`;
+            ctx2d.fillRect(px + threadSize/2 - 0.5, py, 1, threadSize);
+        } else {
+            // Horizontal thread -> Horizontal highlight
+            ctx2d.fillStyle = `rgba(255, 255, 255, ${0.15 * drape})`;
+            ctx2d.fillRect(px, py + threadSize/2 - 0.5, threadSize, 1);
+        }
+        
+        // Subtle ambient occlusion in the gaps
+        ctx2d.fillStyle = `rgba(0, 0, 0, 0.3)`;
+        ctx2d.fillRect(px + threadSize - 1, py, 1, threadSize);
+        ctx2d.fillRect(px, py + threadSize - 1, threadSize, 1);
+    }
+}
+
+// 6. Embellishment / Damage Layer: Snapped Threads
+// Simulates physical decay growing out of the mathematical structure
+ctx2d.lineCap = 'round';
+ctx2d.lineJoin = 'round';
+
+for (let i = snappedThreads.length - 1; i >= 0; i--) {
+    const t = snappedThreads[i];
     
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
-    return;
-  }
+    ctx2d.beginPath();
+    ctx2d.moveTo(t.x, t.y);
+    
+    // Physics for the loose thread
+    const endX = t.x + t.vx * t.len + Math.sin(time * 2 + t.y) * 5;
+    const endY = t.y + t.vy * t.len;
+    
+    // Draw a curving loose thread
+    ctx2d.quadraticCurveTo(
+        t.x + t.vx * t.len * 0.5, 
+        t.y + t.vy * t.len * 1.5, 
+        endX, endY
+    );
+    
+    ctx2d.strokeStyle = `rgba(0,0,0,0.5)`;
+    ctx2d.lineWidth = threadSize * 0.6;
+    ctx2d.stroke(); // Shadow
+    
+    ctx2d.strokeStyle = `rgb(${t.color[0]}, ${t.color[1]}, ${t.color[2]})`;
+    ctx2d.lineWidth = threadSize * 0.4;
+    ctx2d.stroke(); // Thread body
+    
+    ctx2d.strokeStyle = `rgba(255,255,255,0.6)`;
+    ctx2d.lineWidth = threadSize * 0.1;
+    ctx2d.stroke(); // Thread highlight
+    
+    // Grow thread
+    if (t.len < t.maxLen) {
+        t.len += 0.5;
+    }
+    
+    // Scroll thread with fabric
+    t.y += 8.0 * (1/60); // approximate scroll speed per frame
+    
+    // Remove if off screen
+    if (t.y > h + 50) {
+        snappedThreads.splice(i, 1);
+    }
 }
-
-const { renderer, scene, camera, material } = canvas.__three;
-
-if (material && material.uniforms) {
-  if (material.uniforms.u_time) {
-    material.uniforms.u_time.value = time;
-  }
-  if (material.uniforms.u_resolution) {
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-}
-
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
