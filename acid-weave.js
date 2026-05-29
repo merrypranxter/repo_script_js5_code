@@ -4,7 +4,7 @@ if (!canvas.__three) {
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
     camera.position.z = 1;
 
     const vertexShader = `
@@ -18,180 +18,112 @@ if (!canvas.__three) {
     const fragmentShader = `
       in vec2 vUv;
       out vec4 fragColor;
-
+      
       uniform float u_time;
       uniform vec2 u_resolution;
 
-      // --- Math & Noise Utilities ---
+      #define PI 3.14159265359
+
+      // Feral PRNG
       float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-      }
-
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          vec2 u = f * f * (3.0 - 2.0 * f);
-          return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
-                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-      }
-
-      float fbm(vec2 p) {
-          float value = 0.0;
-          float amplitude = 0.5;
-          for (int i = 0; i < 5; i++) {
-              value += amplitude * noise(p);
-              p *= 2.0;
-              amplitude *= 0.5;
-          }
-          return value;
-      }
-
-      // --- Acidic Psychedelic Palettes ---
-      vec3 paletteNeon(float t) {
-          vec3 a = vec3(0.5, 0.5, 0.5);
-          vec3 b = vec3(0.5, 0.5, 0.5);
-          vec3 c = vec3(2.0, 1.5, 1.0);
-          vec3 d = vec3(0.8, 0.2, 0.5); // Hot pinks, electric limes, magentas
-          return a + b * cos(6.28318 * (c * t + d));
-      }
-
-      vec3 paletteToxic(float t) {
-          vec3 a = vec3(0.5, 0.6, 0.4);
-          vec3 b = vec3(0.5, 0.4, 0.6);
-          vec3 c = vec3(1.0, 2.0, 3.0);
-          vec3 d = vec3(0.1, 0.5, 0.9); // Cyan, toxic yellow, deep violet
-          return a + b * cos(6.28318 * (c * t + d));
-      }
-
-      // --- Velvet / Anisotropic BRDF ---
-      float anisotropic_highlight(vec3 light_dir, vec3 view_dir, vec3 normal, vec2 thread_dir, float roughness) {
-          vec3 H = normalize(light_dir + view_dir);
-          float NdotH = max(dot(normal, H), 0.001);
-          float HdotT = dot(H.xy, thread_dir);
-          // Ward anisotropic approximation
-          float aniso = exp(-2.0 * pow(HdotT, 2.0) / (NdotH * roughness));
-          return aniso;
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
       }
 
       void main() {
-          // Adjust UVs to keep threads square
-          vec2 uv = vUv;
-          float aspect = u_resolution.x / u_resolution.y;
-          uv.x *= aspect;
-
-          // Global zoom and movement
-          float zoom = 140.0 + sin(u_time * 0.2) * 40.0;
-          vec2 p = uv * zoom + vec2(u_time * 2.0, u_time * 1.5);
-
-          // Thread Grid
-          vec2 cell = floor(p);
-          vec2 local = fract(p);
-
-          // Ikat Blur / Dye Bleed Simulation
-          // Warp threads bleed vertically, weft threads bleed horizontally
-          vec2 ikat_cell = cell;
-          ikat_cell.y += (noise(vec2(cell.x * 0.1, u_time * 0.1)) - 0.5) * 6.0;
-          ikat_cell.x += (noise(vec2(u_time * 0.15, cell.y * 0.1)) - 0.5) * 6.0;
-
-          // --- Mathematical Macro Pattern (The Jacquard Program) ---
-          vec2 math_uv = ikat_cell * 0.02;
+          // Normalize and center
+          vec2 p = vUv * 2.0 - 1.0;
+          p.x *= u_resolution.x / u_resolution.y;
           
-          // Domain warping (reaction-diffusion vibe)
-          vec2 q = vec2(fbm(math_uv + u_time * 0.2), fbm(math_uv + vec2(5.2, 1.3)));
-          vec2 r = vec2(fbm(math_uv + 4.0 * q + vec2(1.7, 9.2)), fbm(math_uv + 4.0 * q + vec2(8.3, 2.8)));
-          float n = fbm(math_uv + 4.0 * r);
-
-          // Bitwise XOR Fractal (Cellular Automata Lace)
-          int cx = int(ikat_cell.x);
-          int cy = int(ikat_cell.y);
-          float xor_fractal = float((cx ^ cy) % 7 == 0 ? 1.0 : 0.0);
-
-          // Combine continuous domain warp and discrete bitwise math
-          float pattern_field = smoothstep(0.3, 0.7, n + xor_fractal * 0.15);
-
-          // --- Weave Structure Logic ---
-          // 1.0 = Warp (Vertical) on top, 0.0 = Weft (Horizontal) on top
+          float r = length(p);
+          float a = atan(p.y, p.x);
           
-          // Plain weave (1/1)
-          float plain = mod(float(cx + cy), 2.0);
+          // ALCHEMICAL SCRIPTURE L07: Möbius / Log-Polar transform
+          // Creates a radiating, spiraling web that folds into the center
+          float spiral = a * 4.0 + sin(r * 12.0 - u_time * 2.5);
+          float radial = log(r + 0.02) * 15.0 - u_time * 4.0;
           
-          // Twill (3/1 diagonal)
-          float twill = step(1.0, mod(float(cx) + float(cy) * 2.0, 4.0));
+          // Warp UVs before weave application (Psychedelic mechanism)
+          vec2 thread_uv = vec2(radial, spiral * 5.0);
           
-          // Satin float (1/4)
-          float satin = step(3.0, mod(float(cx) * 3.0 + float(cy), 5.0));
-
-          // The pattern field dictates which weave structure is used
-          float is_warp = 0.0;
-          if (pattern_field < 0.33) {
-              is_warp = plain;
-          } else if (pattern_field < 0.66) {
-              is_warp = twill;
-          } else {
-              is_warp = satin;
+          // Domain warp the threads themselves (Fungal succession / Machine hesitation)
+          thread_uv.x += sin(thread_uv.y * 0.1 + u_time) * 0.5;
+          thread_uv.y += cos(thread_uv.x * 0.1 - u_time) * 0.5;
+          
+          vec2 cell = floor(thread_uv);
+          vec2 local = fract(thread_uv);
+          
+          // METRIC COMPETITION: Jacquard logic driven by chaotic interference
+          float rule = sin(cell.x * 0.8) * cos(cell.y * 0.8) + sin(cell.x * 0.15 + u_time * 1.2);
+          float warp_over = step(0.0, sin(cell.x * PI + cell.y * PI + rule * 6.0));
+          
+          // DEVORE BURNOUT: Parasite-host logic eating the weft threads
+          float burnout = smoothstep(0.1, 0.6, sin(cell.x * 0.15 + u_time) * cos(cell.y * 0.25 - u_time));
+          
+          // TEXTILE WEAVE TENSION: Cylindrical depth profile for threads
+          float dx = abs(local.x - 0.5) * 2.0;
+          float dy = abs(local.y - 0.5) * 2.0;
+          
+          float z_warp = cos(dx * PI * 0.5) + (warp_over > 0.5 ? 0.6 : -0.6);
+          float z_weft = cos(dy * PI * 0.5) + (warp_over < 0.5 ? 0.6 : -0.6);
+          
+          bool is_warp = z_warp > z_weft;
+          
+          // Apply burnout: if weft is on top but burned away, expose the warp beneath
+          if (!is_warp && burnout < 0.45) {
+              is_warp = true; 
+              z_warp -= 0.8; // Push it deep into the shadow
+          }
+          
+          // NORMAL MAPPING: Microgeometry of the thread
+          vec3 N = is_warp ? normalize(vec3(local.x - 0.5, 0.0, 1.0)) : normalize(vec3(0.0, local.y - 0.5, 1.0));
+          
+          // LIGHTING: Anisotropic sheen (Silk / Lamé behavior)
+          vec3 L = normalize(vec3(0.5, 0.5, 1.0));
+          vec3 V = vec3(0.0, 0.0, 1.0);
+          vec3 H = normalize(L + V);
+          
+          // Tangent vectors for the threads
+          vec3 T = is_warp ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+          float TdotH = dot(T, H);
+          float aniso = exp(-pow(TdotH, 2.0) / 0.015); // Razor sharp highlight
+          
+          float diff = max(dot(N, L), 0.0);
+          
+          // COLOR SYSTEM: Highly acidic, toxic, reactive dyes
+          // Warp: Nuclear magenta shifting to electric violet
+          vec3 c_warp = vec3(1.0, 0.0, 0.5) + 0.5 * sin(cell.y * 0.1 + u_time * 1.5 + vec3(0.0, 1.5, 3.0));
+          // Weft: Toxic lime green shifting to cyber cyan
+          vec3 c_weft = vec3(0.1, 1.0, 0.0) + 0.5 * cos(cell.x * 0.1 - u_time * 1.2 + vec3(1.0, 2.0, 4.0));
+          
+          // Over-saturate
+          c_warp = clamp(c_warp * 1.8, 0.0, 1.0);
+          c_weft = clamp(c_weft * 1.8, 0.0, 1.0);
+          
+          // FLOCKED HALO / FUZZ: Loose mohair fibers catching light
+          float fuzz = hash(thread_uv);
+          float edge = is_warp ? dx : dy;
+          float halo = smoothstep(0.75, 1.0, edge) * fuzz;
+          
+          vec3 base_col = is_warp ? c_warp : c_weft;
+          
+          // Ambient Occlusion based on weave depth
+          float ao = is_warp ? z_warp : z_weft;
+          ao = clamp(ao * 0.5 + 0.5, 0.1, 1.0);
+          
+          // COMPOSITION
+          vec3 final_col = base_col * diff * ao;
+          final_col += aniso * vec3(1.0, 0.9, 0.7) * 0.9; // Metallic sheen
+          final_col += halo * vec3(0.0, 1.0, 0.8) * 1.5;  // Cyan fiber glow
+          
+          // GLITCH FOSSILIZATION: Random dead pixels behaving like pollen
+          if (hash(thread_uv + u_time) > 0.995) {
+              final_col = vec3(1.0, 1.0, 0.0); // Spores
           }
 
-          // --- Microgeometry & Thread Rendering ---
-          // Fuzz and slub (thickness variation)
-          float fuzz_warp = noise(vec2(cell.x * 12.0, local.y * 40.0)) * 0.15;
-          float fuzz_weft = noise(vec2(local.x * 40.0, cell.y * 12.0)) * 0.15;
+          // Abyssal Vignette
+          final_col *= smoothstep(1.8, 0.2, r);
           
-          float base_width = 0.38; // Thread thickness
-          float warp_dist = abs(local.x - 0.5);
-          float weft_dist = abs(local.y - 0.5);
-          
-          float warp_mask = smoothstep(base_width + fuzz_warp, base_width + fuzz_warp - 0.05, warp_dist);
-          float weft_mask = smoothstep(base_width + fuzz_weft, base_width + fuzz_weft - 0.05, weft_dist);
-
-          // Resolve overlap based on weave rule
-          float final_warp = is_warp * warp_mask + (1.0 - is_warp) * warp_mask * (1.0 - weft_mask);
-          float final_weft = (1.0 - is_warp) * weft_mask + is_warp * weft_mask * (1.0 - warp_mask);
-          
-          bool warp_visible = final_warp > final_weft;
-
-          // 3D Thread Normals (Cylindrical)
-          float nz_warp = sqrt(max(0.0, 1.0 - pow(warp_dist / base_width, 2.0)));
-          float nz_weft = sqrt(max(0.0, 1.0 - pow(weft_dist / base_width, 2.0)));
-          
-          vec3 normal_warp = normalize(vec3((local.x - 0.5) * 2.0, 0.0, nz_warp));
-          vec3 normal_weft = normalize(vec3(0.0, (local.y - 0.5) * 2.0, nz_weft));
-          
-          vec3 normal = warp_visible ? normal_warp : normal_weft;
-          vec2 thread_dir = warp_visible ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
-
-          // --- Lighting ---
-          vec3 light_dir = normalize(vec3(0.5, 0.7, 1.0));
-          vec3 view_dir = vec3(0.0, 0.0, 1.0);
-          
-          float diffuse = max(dot(normal, light_dir), 0.0);
-          
-          // Anisotropic silk/velvet highlight
-          float aniso = anisotropic_highlight(light_dir, view_dir, normal, thread_dir, 0.15);
-          
-          // Ambient occlusion in the weave gaps
-          float ao = warp_visible ? nz_warp : nz_weft;
-          ao = mix(0.2, 1.0, ao);
-
-          // --- Dye Color Application ---
-          // Warp and weft get different acidic palettes, driven by the math field
-          vec3 color_warp = paletteNeon(n + u_time * 0.1 + float(cx) * 0.005);
-          vec3 color_weft = paletteToxic(q.x + r.y + float(cy) * 0.005);
-          
-          vec3 base_color = warp_visible ? color_warp : color_weft;
-          
-          // Composite lighting
-          vec3 final_color = base_color * (diffuse * 0.8 + 0.2) * ao;
-          final_color += aniso * 0.6 * vec3(1.0, 0.9, 0.9); // Specular shine
-
-          // Holes between threads
-          float hole = (1.0 - warp_mask) * (1.0 - weft_mask);
-          final_color = mix(final_color, vec3(0.01, 0.0, 0.02), hole); // Deep dark purple gaps
-
-          // Vignette
-          float vignette = length(vUv - 0.5) * 2.0;
-          final_color *= 1.0 - smoothstep(0.8, 1.5, vignette);
-
-          fragColor = vec4(final_color, 1.0);
+          fragColor = vec4(final_col, 1.0);
       }
     `;
 
@@ -212,7 +144,7 @@ if (!canvas.__three) {
 
     canvas.__three = { renderer, scene, camera, material };
   } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
+    console.error("Feral WebGL Initialization Failed:", e);
     return;
   }
 }
@@ -220,8 +152,8 @@ if (!canvas.__three) {
 const { renderer, scene, camera, material } = canvas.__three;
 
 if (material && material.uniforms) {
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
 }
 
 renderer.setSize(grid.width, grid.height, false);
