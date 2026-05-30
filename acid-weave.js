@@ -1,8 +1,14 @@
-try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL context not available");
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ 
+      canvas, 
+      context: ctx, 
+      alpha: true, 
+      antialias: true 
+    });
+    
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
@@ -11,200 +17,179 @@ try {
       out vec2 vUv;
       void main() {
         vUv = uv;
-        gl_Position = vec4(position, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `;
 
     const fragmentShader = `
-      precision highp float;
-      
       in vec2 vUv;
       out vec4 fragColor;
-      
+
       uniform float u_time;
       uniform vec2 u_resolution;
-      uniform vec2 u_mouse;
 
-      // Mathematical noise functions
+      // ---- HASH & NOISE (Bioluminescent / Mathematical Textiles) ----
       float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
       }
 
       float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        vec2 u = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
-                   mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+              mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+              mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), 
+              u.y
+          );
       }
 
+      // Fractal Brownian Motion
       float fbm(vec2 p) {
-        float f = 0.0;
-        float amp = 0.5;
-        for(int i = 0; i < 5; i++) {
-          f += amp * noise(p);
-          p *= 2.0;
-          amp *= 0.5;
-        }
-        return f;
+          float val = 0.0;
+          float amp = 0.5;
+          for (int i = 0; i < 5; i++) {
+              val += amp * noise(p);
+              p *= 2.0;
+              amp *= 0.5;
+          }
+          return val;
       }
 
-      // Highly acidic, vibrating color palette
-      vec3 acidPalette(float t) {
-        // High frequency neon oscillation
-        vec3 a = vec3(0.5, 0.5, 0.5);
-        vec3 b = vec3(0.5, 0.5, 0.5);
-        vec3 c = vec3(2.0, 1.5, 1.0);
-        vec3 d = vec3(0.0, 0.33, 0.67);
-        vec3 base = a + b * cos(6.28318 * (c * t + d));
-        
-        // Push towards neon/acidic (magenta, lime, cyan)
-        base = mix(base, vec3(1.0, 0.0, 1.0), step(0.8, sin(t * 15.0)));
-        base = mix(base, vec3(0.8, 1.0, 0.0), step(0.8, cos(t * 23.0)));
-        
-        // Over-saturate
-        float luma = dot(base, vec3(0.299, 0.587, 0.114));
-        return clamp(base + (base - luma) * 1.5, 0.0, 1.0);
+      // ---- NEON ACID PALETTE (Color Fields) ----
+      // a + b * cos(2PI * (c * t + d))
+      vec3 neonPalette(float t) {
+          vec3 a = vec3(0.5, 0.5, 0.5);
+          vec3 b = vec3(0.5, 0.5, 0.33);
+          vec3 c = vec3(2.0, 1.0, 1.0);
+          vec3 d = vec3(0.5, 0.2, 0.25);
+          return a + b * cos(6.2831853 * (c * t + d));
       }
 
       void main() {
-        // Centered coordinates accounting for aspect ratio
-        vec2 p = (vUv - 0.5) * 2.0;
-        p.x *= u_resolution.x / u_resolution.y;
+          // Normalize coordinates and correct aspect ratio
+          vec2 uv = vUv * 2.0 - 1.0;
+          uv.x *= u_resolution.x / u_resolution.y;
 
-        // 1. TOPOLOGICAL FOLDING (The Strange Mechanism)
-        // We fold the fabric into a spherical inversion (accretion disk)
-        float r = length(p);
-        float theta = atan(p.y, p.x);
-        
-        // Hyperbolic warp: pulling the threads into a singularity
-        vec2 warped_p = p / (dot(p, p) + 0.05); 
-        
-        // Add rotational twist over time
-        float twist = sin(r * 4.0 - u_time * 2.0) * 0.5;
-        float c_t = cos(twist), s_t = sin(twist);
-        warped_p = vec2(warped_p.x * c_t - warped_p.y * s_t, 
-                        warped_p.x * s_t + warped_p.y * c_t);
+          // ---- METRIC COMPETITION: Hyperbolic Loom Hemorrhage ----
+          // Transform standard Euclidean UVs into a Poincaré disk model.
+          // The fabric will infinitely compress into Moiré interference at the boundary.
+          float r2 = dot(uv, uv);
+          float safe_r2 = min(r2, 0.99); // Prevent absolute division by zero
+          vec2 hyper_uv = uv / (1.0 - safe_r2);
 
-        // 2. CHEMICAL DYE BLEED (Domain Warping)
-        // Simulate acidic dye reacting and diffusing along the warp/weft
-        vec2 fluid_shift = vec2(
-          fbm(warped_p * 3.0 + u_time * 0.5),
-          fbm(warped_p * 3.0 - u_time * 0.4)
-        );
-        warped_p += (fluid_shift - 0.5) * 0.4;
+          // Apply slow rotation to the hyperbolic manifold
+          float th = u_time * 0.15;
+          mat2 rot = mat2(cos(th), -sin(th), sin(th), cos(th));
+          hyper_uv = rot * hyper_uv;
 
-        // 3. WEAVE MATRIX (Jacquard / Twill / CA Hybrid)
-        // Dynamic thread density to simulate machine hesitation/glitch
-        float base_density = 60.0;
-        float glitch = step(0.95, noise(vec2(u_time * 5.0, vUv.y * 10.0)));
-        float density = mix(base_density, base_density * 0.25, glitch);
+          // ---- JACQUARD MOTIF (Reaction-Diffusion Labyrinth) ----
+          // Evaluated in Euclidean space with fluid domain warping to create 
+          // a tension between the flat pattern and the hyperbolic threads.
+          vec2 warp = vec2(fbm(uv * 2.5 + u_time * 0.2), fbm(uv * 2.5 - u_time * 0.15));
+          float m = fbm(uv * 4.0 + warp * 2.5);
+          // Threshold into a clean, binary-like Turing structure
+          float jacquard = smoothstep(0.45, 0.55, m);
 
-        vec2 thread_uv = warped_p * density;
-        vec2 cell = floor(thread_uv);
-        vec2 fract_uv = fract(thread_uv);
+          // ---- WEAVE TOPOLOGY (Warp and Weft) ----
+          float thread_density = 45.0 + sin(u_time * 0.1) * 10.0;
+          vec2 p = hyper_uv * thread_density;
 
-        // XOR Fractal Logic for the Jacquard pattern
-        int ix = int(cell.x);
-        int iy = int(cell.y);
-        float xor_pattern = float((ix ^ iy) % 5 == 0 ? 1.0 : 0.0);
-        
-        // Twill weave logic
-        float twill = step(2.0, mod(cell.x + cell.y + u_time * 10.0, 4.0));
-        
-        // Fungal succession: The XOR logic overtakes the Twill logic via noise
-        float parasite_mask = smoothstep(0.3, 0.7, fbm(cell * 0.05 - u_time * 0.2));
-        float warp_over = mix(twill, xor_pattern, parasite_mask);
+          // Thread height maps (cylindrical approximation)
+          float cx = cos(p.x);
+          float cy = cos(p.y);
 
-        // Add physical fuzz/fraying to the thread edges
-        float fuzz = noise(thread_uv * 20.0);
-        warp_over = mix(warp_over, step(0.5, fuzz), 0.1); // 10% structural breakdown
+          // Structural checkerboard for plain weave interlacing
+          float weave = cos(p.x * 0.5) * cos(p.y * 0.5);
 
-        // 4. COLOR AND SHADING
-        // Acidic dye colors mapped to thread IDs
-        vec3 warp_color = acidPalette(cell.x * 0.015 + u_time * 0.2 + fluid_shift.x);
-        vec3 weft_color = acidPalette(cell.y * 0.015 - u_time * 0.1 + fluid_shift.y + 0.5);
+          // The Jacquard motif forces either the warp or the weft to the surface
+          float force_top = (jacquard - 0.5) * 3.0; 
+          float z_warp = cx + force_top * weave;
+          float z_weft = cy - force_top * weave;
 
-        // Cylindrical volume of the threads
-        float warp_cyl = sin(fract_uv.x * 3.14159);
-        float weft_cyl = sin(fract_uv.y * 3.14159);
-        
-        // High-gloss specular highlights (Synthetic retrofuture fibers)
-        float warp_spec = pow(warp_cyl, 12.0) * 1.5;
-        float weft_spec = pow(weft_cyl, 12.0) * 1.5;
+          // Z-buffer evaluation: which thread is on top?
+          float is_warp = step(z_weft, z_warp);
 
-        vec3 color;
-        if (warp_over > 0.5) {
-            // Warp thread is on top
-            float shadow = mix(0.2, 1.0, weft_cyl); // Occlusion from thread below
-            color = warp_color * warp_cyl * shadow + warp_spec * vec3(0.8, 1.0, 0.9);
-        } else {
-            // Weft thread is on top
-            float shadow = mix(0.2, 1.0, warp_cyl);
-            color = weft_color * weft_cyl * shadow + weft_spec * vec3(0.9, 0.8, 1.0);
-        }
+          // Micro-shading of the individual threads
+          float shade = mix(cy, cx, is_warp);
+          shade = shade * 0.4 + 0.6; // Map from [-1, 1] to [0.2, 1.0]
 
-        // Chromatic aberration / Dye bleed at the macro scale
-        float bleed_edge = smoothstep(0.4, 0.6, noise(warped_p * 10.0));
-        color = mix(color, color.brg, bleed_edge * 0.3 * parasite_mask);
+          // ---- ACIDIC COLOR INJECTION ----
+          float color_idx_warp = hyper_uv.x * 0.05 + u_time * 0.3 + m;
+          float color_idx_weft = hyper_uv.y * 0.05 - u_time * 0.25 + m;
 
-        // Vignette deep space fade
-        float vignette = 1.0 - smoothstep(0.5, 2.0, r);
-        color *= vignette;
+          // Chromatic Aberration near the hyperbolic horizon
+          float ca = smoothstep(0.5, 1.0, safe_r2) * 0.1;
+          
+          vec3 c_warp = vec3(
+              neonPalette(color_idx_warp - ca).r,
+              neonPalette(color_idx_warp).g,
+              neonPalette(color_idx_warp + ca).b
+          );
 
-        fragColor = vec4(color, 1.0);
+          vec3 c_weft = vec3(
+              neonPalette(color_idx_weft - ca).r,
+              neonPalette(color_idx_weft).g,
+              neonPalette(color_idx_weft + ca).b
+          );
+
+          // Darken the weft slightly to enhance the structural textile read
+          c_weft *= vec3(0.85, 0.9, 1.0);
+
+          vec3 color = mix(c_weft, c_warp, is_warp);
+
+          // Apply physical thread shading
+          color *= shade;
+
+          // ---- MOIRÉ REPO PROTOCOLS ----
+          // Inject a secondary interference frequency that beats against the weave
+          float moire = cos(p.x * 1.03) * cos(p.y * 1.03);
+          color += vec3(0.15, 0.0, 0.3) * moire * jacquard;
+
+          // ---- ABYSSAL RENDERING ----
+          // Fade into a dark void at the edge of the Poincaré disk
+          float edge_fade = smoothstep(1.0, 0.85, r2);
+          color *= edge_fade;
+
+          // ---- ACES FILMIC TONEMAPPING ----
+          color = clamp((color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14), 0.0, 1.0);
+
+          fragColor = vec4(color, 1.0);
       }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_mouse: { value: new THREE.Vector2(0, 0) }
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
       },
+      vertexShader,
+      fragmentShader,
       depthWrite: false,
       depthTest: false
     });
 
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(plane);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
 
     canvas.__three = { renderer, scene, camera, material };
-  }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  // Safe uniform updates
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) {
-      material.uniforms.u_time.value = time;
-    }
-    if (material.uniforms.u_resolution) {
-      material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    }
-    if (material.uniforms.u_mouse) {
-      // Normalize mouse coordinates for the shader
-      const mx = mouse.x / grid.width;
-      const my = 1.0 - (mouse.y / grid.height);
-      material.uniforms.u_mouse.value.set(mx, my);
-    }
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("Feral Weave Initialization Failed:", e);
-  
-  // Fallback visual in case WebGL context is lost or unsupported
-  if (ctx && ctx.fillRect) {
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(0, 0, grid.width, grid.height);
-    ctx.fillStyle = '#ff00ff';
-    ctx.font = '14px monospace';
-    ctx.fillText("WEAVE TENSION FAILURE: WebGL Context Lost", 20, 40);
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
   }
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  if (material.uniforms.u_time) {
+    material.uniforms.u_time.value = time;
+  }
+  if (material.uniforms.u_resolution) {
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  }
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
