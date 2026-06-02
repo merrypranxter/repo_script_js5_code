@@ -1,200 +1,184 @@
-const NUM_PARTICLES = 8000;
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
-if (!ctx.__initialized) {
-    ctx.__particles = [];
-    for (let i = 0; i < NUM_PARTICLES; i++) {
-        ctx.__particles.push({
-            x: (Math.random() - 0.5) * 4,
-            y: (Math.random() - 0.5) * 4,
-            layer: Math.floor(Math.random() * 5) + 1, // Depth layers 1 to 5
-            timer: 0
-        });
-    }
-    
-    ctx.fillStyle = '#05040a'; // The Ship void color
-    ctx.fillRect(0, 0, grid.width, grid.height);
-    ctx.__initialized = true;
-}
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+    camera.position.z = 1;
 
-const cx = grid.width / 2;
-const cy = grid.height / 2;
-const scale = Math.min(grid.width, grid.height) / 4;
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
 
-// --- REPO GENOME: color_systems (OKLab perceptual mapping) ---
-const oklch_to_oklab = (L, C, h_deg) => {
-    let h_rad = h_deg * Math.PI / 180.0;
-    return [L, C * Math.cos(h_rad), C * Math.sin(h_rad)];
-};
+    const fragmentShader = `
+      precision highp float;
+      
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
 
-const oklab_to_srgb = (L, a, b) => {
-    let l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    let m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    let s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      // ======================================================================
+      // COLOR FIELDS & COLOR SYSTEMS MODULE
+      // Oklch to Linear sRGB for perceptual, uniform spectral rainbows
+      // ======================================================================
+      vec3 oklch2rgb(vec3 lch) {
+          float L = lch.x;
+          float C = lch.y;
+          float h = lch.z;
+          float a = C * cos(h);
+          float b = C * sin(h);
+          
+          float l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+          float m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+          float s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+          
+          float l = l_*l_*l_;
+          float m = m_*m_*m_;
+          float s = s_*s_*s_;
+          
+          vec3 rgb;
+          rgb.r =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+          rgb.g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+          rgb.b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+          return rgb;
+      }
 
-    let l = l_ * l_ * l_;
-    let m = m_ * m_ * m_;
-    let s = s_ * s_ * s_;
+      // AgX Tonemapping approximation for handling Kirlian-level plasma brightness
+      vec3 tonemapAgX(vec3 c) {
+          vec3 x = max(vec3(0.0), c);
+          vec3 a = x * (x + 0.0245786) - 0.000090537;
+          vec3 b = x * (0.983729 * x + 0.4329510) + 0.238081;
+          return a / b;
+      }
 
-    let r =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-    let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-    let b_ = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+      // Film grain noise
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
 
-    const lin2srgb = (x) => {
-        if (isNaN(x)) return 0;
-        if (x <= 0.0) return 0;
-        if (x >= 1.0) return 255;
-        return Math.floor((x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1/2.4) - 0.055) * 255);
-    };
-    
-    return [lin2srgb(r), lin2srgb(g), lin2srgb(b_)];
-};
+      // ======================================================================
+      // THE RAINBLOWN MATHEMATICAL MASTERPIECE
+      // Advection-diffusion fluid wind + Kaleidoscopic inversion fractal + 
+      // Kirlian dielectric breakdown filaments
+      // ======================================================================
+      float mathField(vec2 p, float offset) {
+          vec2 z = p;
+          float acc = 0.0;
+          float t = u_time * 0.15 + offset;
+          
+          // Prevailing wind direction (rainblown)
+          vec2 windDir = normalize(vec2(1.0, 1.4));
+          
+          // Global slow rotation
+          float ang = t * 0.2;
+          mat2 rot = mat2(cos(ang), -sin(ang), sin(ang), cos(ang));
+          z *= rot;
+          
+          for(int i = 0; i < 16; i++) {
+              // 1. Curl-like fluid advection (Bioluminescent Systems)
+              vec2 warp = vec2(
+                  sin(z.y * 2.3 + t) + cos(z.x * 1.7 - t),
+                  cos(z.x * 2.1 + t) - sin(z.y * 1.9 - t)
+              );
+              z += warp * 0.07;
+              
+              // 2. Rainblown sweep (pushes the fractal coordinates away)
+              z -= windDir * 0.08 * (float(i) * 0.1); 
+              
+              // 3. Kaleidoscopic fold (Psychedelic Collage)
+              z = abs(z);
+              if (z.x < z.y) z.xy = z.yx;
+              
+              // 4. Spherical inversion cavity (Lithogenesis geometry)
+              float r2 = dot(z, z);
+              float k = clamp(1.2 / r2, 0.1, 6.0);
+              z *= k;
+              z -= vec2(0.65, 0.45);
+              
+              // 5. Kirlian discharge filaments (sharp glowing ridges)
+              float filament = 0.025 / (abs(z.y) + 0.015);
+              acc += filament * sqrt(k);
+          }
+          return acc;
+      }
 
-// --- REPO GENOME: merrys_visual_bible (Lit from below, Void Rule) ---
-ctx.globalCompositeOperation = 'source-over';
-let grad = ctx.createLinearGradient(0, grid.height, 0, 0);
-grad.addColorStop(0, 'rgba(15, 20, 35, 0.15)'); // Subsurface scatter glow from below
-grad.addColorStop(1, 'rgba(5, 4, 10, 0.08)');   // Void black
-ctx.fillStyle = grad;
-ctx.fillRect(0, 0, grid.width, grid.height);
+      void main() {
+          // Normalize coordinates
+          vec2 uv = (vUv - 0.5) * 2.0;
+          uv.x *= u_resolution.x / u_resolution.y;
+          
+          // Base depth pass for chromatic parallax
+          float depth = mathField(uv, 0.0);
+          
+          // ==================================================================
+          // CHROMATIC PARALLAX (Terminator HUD / Parallax depth fields)
+          // Depth becomes color separation. Far objects bleed rainbow edges.
+          // ==================================================================
+          float px = 0.006 * depth; // Separation scales with intensity
+          
+          float valR = mathField(uv + vec2(px, px),  0.00);
+          float valG = mathField(uv,                 0.02);
+          float valB = mathField(uv - vec2(px, px),  0.04);
+          
+          // Map to Oklch Spectral Rainbow
+          // L = 0.75 (bright), C = 0.22 (neon acid chroma)
+          float speed = 0.3;
+          float hueScale = 0.06;
+          
+          vec3 cR = oklch2rgb(vec3(0.75, 0.22, valR * hueScale - u_time * speed))       * valR * 0.08;
+          vec3 cG = oklch2rgb(vec3(0.75, 0.22, valG * hueScale - u_time * speed + 0.1)) * valG * 0.08;
+          vec3 cB = oklch2rgb(vec3(0.75, 0.22, valB * hueScale - u_time * speed + 0.2)) * valB * 0.08;
+          
+          // Recombine channels
+          vec3 finalColor = vec3(cR.r, cG.g, cB.b);
+          
+          // HDR Tonemapping (AgX) to handle plasma brightness
+          finalColor = tonemapAgX(finalColor);
+          
+          // Post-Processing: Film Grain & Vignette
+          finalColor += (hash(vUv * u_resolution + u_time) - 0.5) * 0.06;
+          float vig = 1.0 - smoothstep(0.4, 1.5, length(vUv - 0.5));
+          finalColor *= vig;
+          
+          fragColor = vec4(finalColor, 1.0);
+      }
+    `;
 
-// --- REPO GENOME: kleinian_groups (Apollonian inversion circles) ---
-// Arranged as The Tetragrammaton (4-fold sacred geometry)
-const circles = [];
-const R_outer = 1.0 + 0.15 * Math.sin(time * 0.4);
-for (let i = 0; i < 4; i++) {
-    let a = (i * Math.PI / 2) + time * 0.15;
-    circles.push({
-        cx: Math.cos(a) * 1.2,
-        cy: Math.sin(a) * 1.2,
-        R: R_outer
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
     });
-}
-circles.push({ cx: 0, cy: 0, R: 0.6 + 0.2 * Math.cos(time * 0.5) }); // Central void
 
-// FBM for fluid wind advection
-const fbm = (x, y) => {
-    return Math.sin(x * 2.0 + time) * 0.5 + 
-           Math.sin(y * 3.0 - time * 0.8) * 0.25 + 
-           Math.sin((x + y) * 5.0 + time * 1.2) * 0.125;
-};
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
 
-let wind_base_x = 0.02 + 0.01 * Math.sin(time * 0.5);
-let wind_base_y = 0.04 + 0.01 * Math.cos(time * 0.3);
-
-ctx.globalCompositeOperation = 'lighter';
-
-let particles = ctx.__particles;
-for (let i = 0; i < particles.length; i++) {
-    let p = particles[i];
-    
-    // --- REPO GENOME: simulation_hypothesis_vis (Observer Effect) ---
-    let mx = (mouse.x - cx) / scale;
-    let my = (mouse.y - cy) / scale;
-    let dx_m = p.x - mx;
-    let dy_m = p.y - my;
-    let d2_m = dx_m * dx_m + dy_m * dy_m;
-    
-    if (d2_m < 0.5 && d2_m > 0.001) {
-        if (mouse.isPressed) {
-            p.x -= dx_m * 0.05; // Collapse wave function (attract)
-            p.y -= dy_m * 0.05;
-        } else {
-            p.x += -dy_m / d2_m * 0.005; // Foveal quantum curl
-            p.y += dx_m / d2_m * 0.005;
-        }
-    }
-    
-    // Hybrid State Machine: Kleinian Math vs. Fluid Wind
-    if (p.timer > 0) {
-        // Wind Phase: Smear the math into rainblown streaks
-        let turb_x = fbm(p.x, p.y) * 0.02;
-        let turb_y = fbm(p.y, p.x) * 0.02;
-        p.x += wind_base_x + turb_x;
-        p.y += wind_base_y + turb_y;
-        p.timer--;
-    } else {
-        // Math Phase: Invert through Möbius circles
-        let c = circles[Math.floor(Math.random() * circles.length)];
-        let dx_c = p.x - c.cx;
-        let dy_c = p.y - c.cy;
-        let d2_c = dx_c * dx_c + dy_c * dy_c;
-        if (d2_c > 0.0001) {
-            let factor = (c.R * c.R) / d2_c;
-            p.x = c.cx + dx_c * factor;
-            p.y = c.cy + dy_c * factor;
-        }
-        
-        // --- Glitch Prophet (Forbidden Math) ---
-        if (Math.random() < 0.0005) {
-            p.x = 1.0 / (p.x + 0.001);
-            p.y = 1.0 / (p.y + 0.001);
-        }
-        
-        // Transition to wind streak
-        if (Math.random() < 0.03) {
-            p.timer = Math.floor(Math.random() * 40) + 10;
-        }
-    }
-    
-    // Bounds wrapping
-    if (p.x * p.x + p.y * p.y > 25 || isNaN(p.x) || isNaN(p.y)) {
-        p.x = (Math.random() - 0.5) * 4;
-        p.y = (Math.random() - 0.5) * 4;
-        p.timer = 0;
-    }
-    
-    // --- REPO GENOME: color_systems (Neon Rule & Golden Angle) ---
-    let hue_deg = (Math.atan2(p.y, p.x) * 180 / Math.PI + time * 15 + p.layer * 20) % 360;
-    let [L, a, b] = oklch_to_oklab(0.75, 0.25, hue_deg); // High L & C for Neon
-    let [r, g, b_srgb] = oklab_to_srgb(L, a, b);
-    
-    // --- REPO GENOME: parallax_depth_fields (Chromatic Parallax) ---
-    let px = cx + p.x * scale;
-    let py = cy + p.y * scale;
-    let r_offset = p.layer * 2.5;  // Red displaces left
-    let b_offset = p.layer * -3.5; // Blue displaces right (1.5x)
-    let size = 1.0 + p.layer * 0.4;
-    let alpha = 0.15 / p.layer; // Farther layers are softer
-    
-    // Draw discrete chromatic channels
-    ctx.fillStyle = `rgba(${r}, 0, 0, ${alpha})`;
-    ctx.fillRect(px - r_offset, py, size, size);
-    
-    ctx.fillStyle = `rgba(0, ${g}, 0, ${alpha})`;
-    ctx.fillRect(px, py, size, size);
-    
-    ctx.fillStyle = `rgba(0, 0, ${b_srgb}, ${alpha})`;
-    ctx.fillRect(px - b_offset, py, size, size);
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
-// --- REPO GENOME: retrofuturism & simulation_hypothesis_vis (HUD & Artifacts) ---
-ctx.globalCompositeOperation = 'source-over';
+const { renderer, scene, camera, material } = canvas.__three;
 
-// Tetragrammaton HUD Reticle
-ctx.save();
-ctx.translate(cx, cy);
-ctx.rotate(-time * 0.1);
-ctx.strokeStyle = 'rgba(255, 200, 50, 0.15)'; // Gold
-ctx.lineWidth = 1.5;
-ctx.strokeRect(-scale * 1.2, -scale * 1.2, scale * 2.4, scale * 2.4);
-ctx.rotate(Math.PI / 4);
-ctx.strokeRect(-scale * 1.2, -scale * 1.2, scale * 2.4, scale * 2.4);
-ctx.restore();
-
-// Z-Fighting / Memory Pressure Artifacts
-if (Math.random() < 0.05) {
-    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255, 0, 0, 0.1)' : 'rgba(0, 255, 255, 0.1)';
-    ctx.fillRect(Math.random() * grid.width, Math.random() * grid.height, Math.random() * 80, Math.random() * 10);
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
 }
 
-// Terminal Readout
-ctx.fillStyle = 'rgba(0, 255, 255, 0.6)';
-ctx.font = '11px monospace';
-ctx.fillText(`SYS.PARALLAX_LAYERS : 5`, 20, 30);
-ctx.fillText(`SYS.ENTROPY         : ${Math.random().toFixed(4)}`, 20, 45);
-ctx.fillText(`SYS.WIND_VEC        : [${wind_base_x.toFixed(3)}, ${wind_base_y.toFixed(3)}]`, 20, 60);
-
-if (Math.random() < 0.1) {
-    ctx.fillStyle = 'rgba(255, 50, 50, 0.8)';
-    ctx.fillText(`WARN: TAA_GHOSTING DETECTED AT 0x${Math.floor(Math.random()*0xFFFFFF).toString(16).toUpperCase()}`, 20, grid.height - 20);
-}
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
