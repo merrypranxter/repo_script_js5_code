@@ -1,225 +1,196 @@
-try {
-  if (!canvas.__three) {
+if (!canvas.__three) {
+  try {
     if (!ctx) throw new Error("WebGL 2 context not available");
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
-    
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      precision highp float;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
-
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      // =====================================================================
-      // THE ALCHEMICAL ENGINE: 
-      // Merging Kirlian Dielectric Breakdown, Dream Physics (Mnemonic Gravity),
-      // OKLCh Spectral Rainbows, and Dispersed Dithering.
-      // =====================================================================
-
-      // --- Math & Noise Primitives ---
-      float hash(vec2 p) {
-          p = fract(p * vec2(123.34, 456.21));
-          p += dot(p, p + 45.32);
-          return fract(p.x * p.y);
-      }
-
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          vec2 u = f * f * (3.0 - 2.0 * f);
-          return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
-                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-      }
-
-      // Fractional Brownian Motion (fBM)
-      float fbm(vec2 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
-          for(int i = 0; i < 6; i++) {
-              f += amp * noise(p);
-              p = rot * p * 2.0;
-              amp *= 0.5;
-          }
-          return f;
-      }
-
-      // --- Color Systems: OKLCh -> OKLab -> Linear sRGB -> sRGB ---
-      vec3 oklch2oklab(vec3 lch) {
-          return vec3(lch.x, lch.y * cos(lch.z), lch.y * sin(lch.z));
-      }
-
-      vec3 oklab2linear(vec3 c) {
-          float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
-          float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
-          float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
-          float l = l_ * l_ * l_;
-          float m = m_ * m_ * m_;
-          float s = s_ * s_ * s_;
-          return vec3(
-               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-          );
-      }
-
-      vec3 linear2srgb(vec3 c) {
-          c = max(c, vec3(0.0));
-          bvec3 cutoff = lessThan(c, vec3(0.0031308));
-          vec3 lower = c * 12.92;
-          vec3 higher = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
-          return mix(higher, lower, cutoff);
-      }
-
-      // --- Dither: Bayer Matrix (Limitation As Aesthetic) ---
-      float getBayer(ivec2 p) {
-          int x = p.x % 4;
-          int y = p.y % 4;
-          int idx = y * 4 + x;
-          float b = 0.0;
-          if(idx==0) b=0.; else if(idx==1) b=8.; else if(idx==2) b=2.; else if(idx==3) b=10.;
-          else if(idx==4) b=12.; else if(idx==5) b=4.; else if(idx==6) b=14.; else if(idx==7) b=6.;
-          else if(idx==8) b=3.; else if(idx==9) b=11.; else if(idx==10) b=1.; else if(idx==11) b=9.;
-          else if(idx==12) b=15.; else if(idx==13) b=7.; else if(idx==14) b=13.; else if(idx==15) b=5.;
-          return b / 16.0;
-      }
-
-      void main() {
-          // Normalize coordinates
-          vec2 uv = vUv;
-          vec2 st = uv * 6.0;
-          st.x *= u_resolution.x / u_resolution.y;
-
-          // 1. Dream Physics: Mnemonic Gravity Well (Central Attractor)
-          vec2 center = vec2(3.0 * (u_resolution.x / u_resolution.y), 3.0);
-          vec2 delta = st - center;
-          float dist = length(delta);
-          float angle = atan(delta.y, delta.x);
-          
-          // The gravity well warps space based on affective energy (time)
-          float pull = exp(-dist * 1.2) * sin(u_time * 0.8) * 2.0;
-          st += vec2(cos(angle), sin(angle)) * pull;
-
-          // 2. Rainblown Shear: Kairotempic Wind
-          // Strong diagonal shear to create the "rainblown" aesthetic
-          vec2 wind = vec2(u_time * 1.5, u_time * -2.5);
-          
-          // Domain Warping (The Probability Engine)
-          vec2 q = vec2(fbm(st + wind * 0.3), fbm(st + vec2(5.2, 1.3) - wind * 0.2));
-          vec2 r = vec2(fbm(st + 4.0 * q + vec2(1.7, 9.2) + wind * 1.2),
-                        fbm(st + 4.0 * q + vec2(8.3, 2.8) - wind * 0.8));
-          
-          // 3. Kirlian Discharge: Dielectric Breakdown Model (DBM)
-          // Creating sharp ridges by accumulating absolute noise differences
-          float discharge = 0.0;
-          vec2 dp = st + r * 2.5;
-          float d_amp = 1.0;
-          mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
-          for(int i = 0; i < 6; i++) {
-              // The 'abs' creates the sharp ridges characteristic of lightning/plasma
-              discharge += d_amp * abs(noise(dp) - 0.5) * 2.0;
-              dp = rot * dp * 2.0;
-              dp += wind * d_amp * 0.5; // Wind blows the streamers
-              d_amp *= 0.5;
-          }
-          // Invert to make peaks bright
-          discharge = 1.0 - discharge;
-          
-          // Apply non-linear power to isolate the fractal branches (Meek's criterion)
-          float streamers = pow(max(discharge, 0.0), 3.5);
-          float ambient_glow = pow(max(discharge, 0.0), 1.2) * 0.3;
-
-          // 4. Color Systems: Spectral Rainbow via OKLCh
-          // Hue is driven by the domain warp and time (Fibonacci/Golden Angle sweeping)
-          float hue = r.x * 6.28318 + u_time * 0.4;
-          
-          // Chroma is driven by the Kirlian discharge intensity (Neon Acid vibes)
-          float chroma = 0.05 + 0.35 * streamers + 0.1 * q.x;
-          
-          // Lightness is a mix of ambient field depth and the lightning strike
-          float lightness = 0.15 + 0.7 * streamers + ambient_glow;
-
-          vec3 lch = vec3(lightness, chroma, hue);
-          vec3 oklab = oklch2oklab(lch);
-          vec3 rgb = linear2srgb(oklab2linear(oklab));
-
-          // 5. Dither: Limitation as Aesthetic
-          ivec2 fragCoord = ivec2(gl_FragCoord.xy);
-          float ditherThreshold = getBayer(fragCoord);
-          
-          // Add error diffusion noise based on the Bayer matrix
-          rgb += (ditherThreshold - 0.5) * 0.15;
-          
-          // Quantize the output to create a "fossilized math" / retro-digital texture
-          float steps = 6.0;
-          rgb = floor(rgb * steps + 0.5) / steps;
-
-          // Add a pure white core to the most intense streamers to simulate plasma
-          float core = smoothstep(0.8, 1.0, streamers);
-          rgb = mix(rgb, vec3(1.0), core);
-
-          // Vignette (Dream Physics: Edge of the Symbol Field)
-          float vig = 1.0 - smoothstep(0.4, 1.5, dist / 6.0);
-          rgb *= vig;
-
-          fragColor = vec4(rgb, 1.0);
-      }
-    `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
         u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_mouse: { value: new THREE.Vector2(mouse.x, mouse.y) }
       },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+        
+        in vec2 vUv;
+        out vec4 fragColor;
+        
+        uniform float u_time;
+        uniform vec2 u_resolution;
+        uniform vec2 u_mouse;
+
+        #define PI 3.14159265359
+
+        // 2D Rotation Matrix
+        mat2 rot(float a) {
+            float s = sin(a), c = cos(a);
+            return mat2(c, -s, s, c);
+        }
+
+        // Hash & Noise for Simulation Artifacts & FBM
+        float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float fbm(vec2 p) {
+            float f = 0.0;
+            float amp = 0.5;
+            for(int i = 0; i < 5; i++) {
+                vec2 i_p = floor(p);
+                vec2 f_p = fract(p);
+                vec2 u = f_p * f_p * (3.0 - 2.0 * f_p);
+                float n = mix(mix(hash(i_p + vec2(0.0,0.0)), hash(i_p + vec2(1.0,0.0)), u.x),
+                              mix(hash(i_p + vec2(0.0,1.0)), hash(i_p + vec2(1.0,1.0)), u.x), u.y);
+                f += amp * n;
+                p = p * 2.1 + vec2(1.1, 2.3);
+                p *= rot(0.5);
+                amp *= 0.5;
+            }
+            return f;
+        }
+
+        // Spectral Rainbow Palette (OKLab / Cosine approach from color_fields)
+        vec3 spectralRainbow(float t) {
+            vec3 a = vec3(0.5, 0.5, 0.5);
+            vec3 b = vec3(0.5, 0.5, 0.5);
+            vec3 c = vec3(1.0, 1.0, 1.0);
+            vec3 d = vec3(0.0, 0.33, 0.67);
+            return a + b * cos(2.0 * PI * (c * t + d));
+        }
+
+        // Tetragrammaton Symmetry (merrys_visual_bible)
+        vec2 opRadialSymmetry(vec2 p, float count) {
+            float a = atan(p.y, p.x);
+            float r = length(p);
+            float segment = 2.0 * PI / count;
+            a = mod(a + segment / 2.0, segment) - segment / 2.0;
+            return vec2(cos(a), sin(a)) * r;
+        }
+
+        // The Mathematical Architecture - Rainblown Kirlian Fractal
+        vec3 map(vec2 p, float t) {
+            // Rainblown wind shear (Ocean Math warp)
+            float shear = sin(p.y * 1.5 + t) * 0.3;
+            vec2 q = p;
+            q.x += shear + t * 0.2;
+            q.y -= t * 0.8; // Falling rain wind
+
+            // Fluid Domain Warping
+            vec2 warp = vec2(fbm(q * 2.0), fbm(q * 2.0 + 100.0));
+            p += warp * 0.2;
+
+            // 4-Fold Symmetry
+            p = opRadialSymmetry(p, 4.0);
+
+            // Iterated Function System (The Mathematical Masterpiece)
+            float d = 100.0;
+            float glow = 0.0;
+            vec2 z = p;
+            
+            for (int i = 0; i < 7; i++) {
+                z = abs(z) - vec2(0.15, 0.05);
+                z *= rot(t * 0.15 + float(i) * 0.2);
+                z = z * 1.4 - vec2(0.08);
+
+                float branch = max(abs(z.x), abs(z.y));
+                d = min(d, branch);
+
+                // Kirlian Townsend Ionization (Dielectric Breakdown Glow)
+                glow += 0.004 / (abs(branch) + 0.001);
+            }
+
+            // Rain Streamers / Particle Pop-in
+            vec2 rainUV = p * vec2(15.0, 2.0);
+            rainUV.x += p.y * 2.0; // Sheared angle of rain
+            rainUV.y += t * 12.0;
+            float rain = smoothstep(0.97, 1.0, hash(floor(rainUV)));
+            float rainGlow = rain * (1.0 - fract(rainUV.y));
+
+            return vec3(d, glow, rainGlow);
+        }
+
+        void main() {
+            // Normalized pixel coordinates (from -1 to 1)
+            vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+            uv *= 2.2; // Scale out to see the math
+
+            float t = u_time * 0.6;
+
+            // Observer Effect (mouse steering)
+            vec2 mouse = (u_mouse / u_resolution - 0.5) * 2.0;
+            uv += mouse * 0.3;
+
+            // Parallax Depth Fields (Chromatic separation based on depth)
+            float depth = fbm(uv * 2.0 - t * 0.5);
+            vec2 parallax = vec2(0.04, -0.02) * depth;
+
+            // Chromatic Split Sampling
+            vec3 sampleR = map(uv + parallax * 1.3, t);
+            vec3 sampleG = map(uv, t);
+            vec3 sampleB = map(uv - parallax * 1.6, t);
+
+            // Base Void State (The Ship / The Void)
+            vec3 col = vec3(0.02, 0.01, 0.04);
+
+            // Kirlian Glow mapped to Fibonacci Spectral Rainbow
+            vec3 rainbowR = spectralRainbow(depth + t * 0.1);
+            vec3 rainbowG = spectralRainbow(depth + t * 0.1 + 0.15);
+            vec3 rainbowB = spectralRainbow(depth + t * 0.1 + 0.3);
+
+            col.r += sampleR.y * rainbowR.r;
+            col.g += sampleG.y * rainbowG.g;
+            col.b += sampleB.y * rainbowB.b;
+
+            // Add Rain Streamers (Neon Acid pop-in)
+            vec3 rainColor = spectralRainbow(depth - t * 0.2 + 0.5);
+            col += rainColor * sampleG.z * 1.5;
+
+            // Simulation Hypothesis: Dither limitation artifact
+            vec2 bayer = mod(gl_FragCoord.xy, 2.0);
+            float dither = (bayer.x * 2.0 + bayer.y) / 4.0 - 0.5;
+            col += dither * 0.08;
+
+            // Tonemapping (ACES Filmic approximation)
+            col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0);
+
+            // Edge Vignette
+            float vig = length(uv - mouse * 0.3);
+            col *= 1.0 - smoothstep(1.2, 2.8, vig);
+
+            fragColor = vec4(col, 1.0);
+        }
+      `
     });
 
-    const geometry = new THREE.PlaneGeometry(2, 2);
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
 
     canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
   }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  // Update uniforms safely
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) {
-      material.uniforms.u_time.value = time;
-    }
-    if (material.uniforms.u_resolution) {
-      material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    }
-  }
-
-  // Ensure canvas fits container
-  if (renderer.domElement.width !== grid.width || renderer.domElement.height !== grid.height) {
-    renderer.setSize(grid.width, grid.height, false);
-  }
-
-  renderer.render(scene, camera);
-
-} catch (err) {
-  console.error("The Alchemical Engine failed to compile:", err);
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  material.uniforms.u_mouse.value.set(mouse.x, mouse.y);
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
