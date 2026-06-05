@@ -1,12 +1,11 @@
 try {
   if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL context not available");
+    if (!ctx) throw new Error("WebGL2 context not available");
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
-
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    
     const vertexShader = `
       out vec2 vUv;
       void main() {
@@ -18,159 +17,218 @@ try {
     const fragmentShader = `
       precision highp float;
       
-      in vec2 vUv;
-      out vec4 fragColor;
-      
       uniform float u_time;
       uniform vec2 u_resolution;
       
-      // [REPO: color_fields] OKLCh to sRGB conversion for perceptually uniform neon acid colors
-      vec3 oklch_to_srgb(float L, float C, float h) {
-          float a = C * cos(h);
-          float b = C * sin(h);
-          float l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-          float m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-          float s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-          float l = l_*l_*l_;
-          float m = m_*m_*m_;
-          float s = s_*s_*s_;
-          vec3 rgb = vec3(
-               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-          );
-          // Gamma correction
-          return mix(rgb * 12.92, 1.055 * pow(max(rgb, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, rgb));
-      }
+      in vec2 vUv;
+      out vec4 fragColor;
 
-      // [REPO: structural_color] Thin-film interference Bragg reflection (Chitin n=1.56)
-      vec3 thinFilm(float thickness) {
-          vec3 lambda = vec3(650.0, 510.0, 450.0);
-          vec3 phase = (2.0 * 1.56 * thickness) / lambda;
-          return 0.5 + 0.5 * cos(6.2831853 * phase);
+      // --- PRNG & NOISE (Mycelial / Data Corruption) ---
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
       }
       
-      // [REPO: retrofuturism] CRT monitor bulge
-      vec2 crtWarp(vec2 uv) {
-          vec2 cc = uv - 0.5;
-          float r = dot(cc, cc);
-          return uv + cc * (r * 0.15);
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      
+      float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
+          for(int i = 0; i < 5; i++) {
+              v += a * noise(p);
+              p = rot * p * 2.0;
+              a *= 0.5;
+          }
+          return v;
+      }
+
+      // --- COLOR SYSTEMS (Neon Acid & Thin Film) ---
+      // From color_fields / psychedelic_pop_style
+      vec3 neonAcid(float t) {
+          vec3 a = vec3(0.5, 0.5, 0.5);
+          vec3 b = vec3(0.5, 0.5, 0.33);
+          vec3 c = vec3(2.0, 1.0, 1.0);
+          vec3 d = vec3(0.5, 0.2, 0.25);
+          return a + b * cos(6.28318 * (c * t + d));
+      }
+
+      // From structural_color (Bragg/Thin Film Interference)
+      vec3 thinFilm(float thickness, float cosTheta) {
+          float n = 1.4; // refractive index of fungal exudate
+          float pathDiff = 2.0 * n * thickness * cosTheta;
+          vec3 phase = vec3(0.0, 0.33, 0.67);
+          return 0.5 + 0.5 * cos(6.28318 * (pathDiff + phase));
       }
 
       void main() {
-          vec2 uv = crtWarp(vUv);
+          vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+          float aspect = u_resolution.x / u_resolution.y;
+          vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
+
+          // Deep zoom into an obvious fractal (Mandelbrot Minibrot)
+          // The "Trap" is the obviousness.
+          vec2 target = vec2(-0.74364388, 0.1318259);
           
-          // [REPO: THE-LISTS] Glitch Aesthetics: out of bounds masking
-          if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-              fragColor = vec4(0.05, 0.0, 0.1, 1.0);
-              return;
+          // Breathing, cyclical zoom to prevent precision collapse
+          float t = u_time * 0.15;
+          float zoom = pow(0.5, mod(t, 12.0)); 
+          
+          // Slow rotation
+          float angle = t * 0.4;
+          mat2 rmat = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+          
+          vec2 c = p * rmat * zoom * 3.5 + target;
+
+          // --- THE STRANGE MECHANISM: Mycelial Data Corruption ---
+          // A fungal pathogen (white rot) digests the mathematical perfection of the fractal.
+          // Where the mycelium spreads, the complex plane is bit-crushed (divine data corruption).
+          float parasite = fbm(c * (8.0 / zoom) - u_time * 0.5);
+          float infection_zone = smoothstep(0.45, 0.65, parasite);
+
+          vec2 z = c;
+          float iter = 0.0;
+          const float max_iter = 250.0;
+          
+          float cord_trap = 1e10;
+          float eye_trap = 1e10;
+          vec2 dz = vec2(1.0, 0.0);
+
+          for(int i = 0; i < 250; i++) {
+              if(dot(z, z) > 256.0) break;
+
+              // The Fungal Glitch: Bit-crushing the coordinates based on infection density
+              if (infection_zone > 0.1) {
+                  float quant = (15.0 + 10.0 * sin(u_time)) / zoom; 
+                  // Interpolate between perfect math and quantized/corrupted math
+                  vec2 corrupted_z = floor(z * quant) / quant;
+                  // Add a chiral twist (Klein Bottle Chiral Hemorrhage)
+                  corrupted_z *= mat2(cos(0.02), -sin(0.02), sin(0.02), cos(0.02));
+                  z = mix(z, corrupted_z, infection_zone);
+              }
+
+              // Distance estimator tracking
+              dz = 2.0 * vec2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + vec2(1.0, 0.0);
+              
+              // Standard Mandelbrot iteration
+              z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+              
+              // --- Psychedelic Pop Motifs via Orbit Traps ---
+              // 1. "Eyes" / Celestial orbs
+              eye_trap = min(eye_trap, length(z - vec2(0.5, 0.0)));
+              // 2. Rhizomorph cords (mycelial transport highways)
+              cord_trap = min(cord_trap, abs(z.x + z.y));
+              
+              iter++;
           }
 
-          vec2 p = (uv - 0.5) * 2.0 * vec2(u_resolution.x/u_resolution.y, 1.0);
+          // Distance estimation for the host structure
+          float r_z = length(z);
+          float de = 0.0;
+          if (iter < max_iter) {
+              de = 0.5 * log(r_z) * r_z / length(dz);
+          }
+
+          // --- COLOR & AESTHETICS (Candy Groovy Pop + Structural Color) ---
           
-          // Dynamic zoom and pan
-          float zoom = 1.2 + sin(u_time * 0.1) * 0.3;
-          vec2 z = p * zoom;
+          // Smooth escape time
+          float smooth_n = iter - log2(max(1.0, log2(r_z)));
           
-          // [REPO: fractals] Julia set of the Burning Ship
-          vec2 c = vec2(-0.835, -0.2321) + vec2(sin(u_time*0.25), cos(u_time*0.31)) * 0.08;
+          // Graphic Flatness (Psychedelic Pop Rule: Flat filled regions, banded fills)
+          float bands = floor(smooth_n * 3.0) / 3.0;
           
-          float iter = 0.0;
-          float trap = 1e10;
-          vec2 dz = vec2(1.0, 0.0);
-          
-          for(int i = 0; i < 150; i++) {
-              // [REPO: mycelial_networks] Anastomosis curl interference (hyphal tip wandering)
-              z += vec2(sin(z.y * 8.0 + u_time), cos(z.x * 8.0 - u_time)) * 0.008;
+          vec3 col = vec3(0.0);
+
+          if (iter < max_iter) {
+              // The Escaped Cosmos
+              col = neonAcid(bands * 0.03 - u_time * 0.4);
               
-              // Burning ship core math
-              z = vec2(abs(z.x), abs(z.y));
-              
-              // Distance estimator derivative tracking
-              dz = 2.0 * vec2(z.x*dz.x - z.y*dz.y, z.x*dz.y + z.y*dz.x) + vec2(1.0, 0.0);
-              z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
-              
-              // [REPO: THE-LISTS] Divine Data Corruption: Periodic geometric fracturing
-              if (mod(float(i), 19.0) == 0.0) {
-                  z *= 1.0 + 0.2 * sin(u_time * 5.0 + z.x * 10.0);
+              // Thin-Film Iridescence on the topological boundaries (contour lines)
+              float band_edge = fract(smooth_n * 3.0);
+              if (band_edge < 0.15 || band_edge > 0.85) {
+                  float thickness = 200.0 + 500.0 * sin(smooth_n * 0.05 + u_time);
+                  vec3 iridescence = thinFilm(thickness, 1.0);
+                  col = mix(col, iridescence, 0.85);
               }
               
-              trap = min(trap, abs(z.x * z.y)); // Cross trap
+              // Psychedelic Eye Motifs
+              if (eye_trap < 0.15) {
+                  float eye_ring = fract(eye_trap * 25.0 - u_time * 3.0);
+                  if (eye_ring > 0.6) col = vec3(0.95, 0.9, 0.8); // White sclera
+                  else if (eye_ring > 0.3) col = neonAcid(u_time); // Vivid iris
+                  else col = vec3(0.05, 0.0, 0.1); // Dark pupil
+              }
               
-              if(dot(z, z) > 256.0) break;
-              iter += 1.0;
-          }
-          
-          vec3 color = vec3(0.0);
-          
-          if(iter < 149.0) {
-              // Smooth escape calculation
-              float smooth_n = iter - log2(log2(dot(z,z))) + 4.0;
-              float de = sqrt(dot(z,z)/dot(dz,dz)) * log(dot(z,z)) * 0.5;
-              
-              // [REPO: color_fields] Neon Acid Palette mapping via OKLCh
-              float L = 0.65 + 0.25 * sin(de * 60.0 - u_time * 4.0);
-              float C = 0.35; // Maximum acidic chroma
-              float h = smooth_n * 0.15 - u_time * 0.5 + trap * 3.0;
-              
-              vec3 neon = oklch_to_srgb(L, C, h);
-              
-              // [REPO: structural_color] Iridescent thin-film overlay based on distance estimator
-              vec3 film = thinFilm(de * 1500.0 + trap * 200.0);
-              
-              color = mix(neon, film, 0.4);
-              
-              // [REPO: mycelial_networks] Enzymatic Lignin Peroxidase bleaching halo
-              color += vec3(0.9, 0.1, 0.5) * exp(-de * 25.0) * 1.5;
+              // Glowing Mycelial Cords (Foxfire bioluminescence)
+              float hypha_glow = exp(-cord_trap * (5.0 + 10.0 * infection_zone));
+              vec3 foxfire = vec3(0.02, 0.95, 0.48); // 520nm emission
+              col += foxfire * hypha_glow * infection_zone * 2.5;
               
           } else {
-              // [REPO: mycelial_networks] Interior Foxfire Bioluminescence
-              float foxfire = 0.1 + 0.9 * sin(trap * 30.0 + u_time * 2.0);
-              color = vec3(0.02, 0.95, 0.48) * foxfire;
+              // The Void (Interior)
+              // Cosmic Mystic Blacklight Pop: Dark ground with neon accents
+              col = vec3(0.04, 0.01, 0.08); 
+              
+              // Spore/Star field
+              float spore = noise(uv * 150.0 + u_time * 0.2);
+              if (spore > 0.97) col = vec3(1.0, 0.0, 0.8); // Neon pink spores
+              if (spore > 0.99) col = vec3(0.0, 1.0, 1.0); // Cyan stars
           }
-          
-          // [REPO: THE-LISTS] Glitch Aesthetics: Spectral Tear
-          float noise = fract(sin(dot(uv, vec2(12.9898, 78.233)) + u_time) * 43758.5453);
-          if (noise > 0.99) {
-              color.r = fract(color.r + 0.5);
-              color.b = fract(color.b + 0.5);
+
+          // Laccase Staining (Enzymatic Decay overlay)
+          // Blue-gray phenolic staining where the fungus digests the math
+          vec3 laccase_stain = vec3(0.22, 0.38, 0.62);
+          float stain_factor = infection_zone * 0.6 * clamp(1.0 - exp(-de * 50.0 / zoom), 0.0, 1.0);
+          col = mix(col, laccase_stain, stain_factor);
+
+          // Vignette & CRT Curve
+          float vig = length(uv - 0.5) * 2.0;
+          col *= 1.0 - pow(vig, 3.5) * 0.6;
+
+          // Glitch / Data Rot (XOR-Ghost Manifold)
+          // Occasional scanline tear
+          if (hash(vec2(floor(u_time * 10.0), floor(uv.y * 50.0))) > 0.98) {
+              col = vec3(1.0) - col.brg; // Chroma foldshift
           }
-          
-          // Vignette
-          color *= 1.0 - length(uv - 0.5) * 0.6;
-          
-          fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+
+          // Output
+          fragColor = vec4(col, 1.0);
       }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
       },
-      vertexShader,
-      fragmentShader,
       depthWrite: false,
       depthTest: false
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
-    
+
     canvas.__three = { renderer, scene, camera, material };
   }
 
   const { renderer, scene, camera, material } = canvas.__three;
-  
+
   if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
   }
 
   renderer.setSize(grid.width, grid.height, false);
   renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("WebGL Initialization Failed:", e);
+  console.error("Feral WebGL Error:", e);
 }
