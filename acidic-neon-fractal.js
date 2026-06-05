@@ -1,192 +1,159 @@
-try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
-
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
-
-      // Complex multiplication
-      vec2 cmul(vec2 a, vec2 b) {
-        return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
-      }
-
-      // Neon Acid Cosine Palette (from color_fields repo)
-      vec3 neonAcid(float t) {
-        vec3 a = vec3(0.5, 0.5, 0.5);
-        vec3 b = vec3(0.5, 0.5, 0.33);
-        vec3 c = vec3(2.0, 1.0, 1.0);
-        vec3 d = vec3(0.5, 0.2, 0.25);
-        return a + b * cos(6.2831853 * (c * t + d));
-      }
-
-      // Toxic Growth Palette (from color_fields repo)
-      vec3 toxicGrowth(float t) {
-        vec3 a = vec3(0.4, 0.8, 0.2);
-        vec3 b = vec3(0.3, 0.7, 0.1);
-        vec3 c = vec3(1.0, 1.0, 1.0);
-        vec3 d = vec3(0.3, 0.6, 0.9);
-        return a + b * cos(6.2831853 * (c * t + d));
-      }
-
-      // 2D Rotation matrix
-      mat2 rot(float a) {
-        float s = sin(a), c = cos(a);
-        return mat2(c, -s, s, c);
-      }
-
-      void main() {
-        // Center UVs and correct aspect ratio
-        vec2 uv = (vUv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0) * 2.0;
-
-        // Poincare Hyperbolic Parasite Mapping (L09)
-        // Folds the infinite plane into a finite disc, compressing infinity
-        float r = length(uv);
-        float theta = atan(uv.y, uv.x);
+if (!canvas.__three) {
+    try {
+        if (!ctx) throw new Error("WebGL 2 context not available");
         
-        // Hyperbolic metric distortion with a slight singularity offset
-        float hyper_r = r / (1.0 - r * r + 0.05);
-        vec2 z = vec2(hyper_r * cos(theta), hyper_r * sin(theta));
-
-        // Spin the cathedral
-        z *= rot(u_time * 0.15);
-
-        // Base zoom
-        z *= 2.0;
-
-        // The Julia Seed - wanders through a "mythic attractor" (Domain 10.4)
-        vec2 c = vec2(
-            0.7885 * cos(u_time * 0.25),
-            0.7885 * sin(u_time * 0.15)
-        );
-
-        // Fractal state variables
-        vec2 z_n = z;
-        float trap_cross = 1e10;
-        float trap_mycelial = 1e10;
-        float trap_spores = 1e10;
-        float smooth_i = 0.0;
-
-        const int MAX_ITER = 90;
-
-        for(int i = 0; i < MAX_ITER; i++) {
-            // Fungal Succession Mechanism:
-            // Alternates between Mandelbrot (z^2+c) and Burning Ship ((|x| + i|y|)^2 + c)
-            // based on the spatial frequency of the current iteration.
-            // This creates a "Chiral Hemorrhage" where the math fails to commit.
-            vec2 z_abs = vec2(abs(z_n.x), abs(z_n.y));
-            float mutation_bias = sin(z_n.x * 5.0 + u_time) * 0.5 + 0.5;
-            vec2 z_step = mix(z_n, z_abs, mutation_bias);
-
-            // Iteration step
-            z_n = cmul(z_step, z_step) + c;
-
-            // Orbit Traps
-            // 1. Cross trap (bureaucratic infrastructure)
-            trap_cross = min(trap_cross, min(abs(z_n.x), abs(z_n.y)));
-
-            // 2. Mycelial anastomosis loop (organic routing & fusion)
-            vec2 loop_center = vec2(sin(float(i)*0.1 + u_time), cos(float(i)*0.15 - u_time)) * 1.5;
-            trap_mycelial = min(trap_mycelial, length(z_n - loop_center));
-
-            // 3. Spore clusters (dot patterns)
-            trap_spores = min(trap_spores, length(fract(z_n * 2.0) - 0.5));
-
-            if(dot(z_n, z_n) > 256.0) {
-                // Smooth escape calculation
-                float log_zn = log(dot(z_n, z_n)) * 0.5;
-                float nu = log(log_zn / 0.69314718) / 0.69314718;
-                smooth_i = float(i) + 1.0 - nu;
-                break;
-            }
-        }
-
-        vec3 color = vec3(0.0);
-
-        if(smooth_i > 0.0) {
-            // ESCAPE REGION: The Acidic Neon Void
-            // Use Thin-Film Interference logic mapping iteration depth to structural color
-            float film_thickness = smooth_i * 0.08 - u_time * 0.4;
-            color = neonAcid(film_thickness);
-
-            // Add structural color Bragg reflection (iridescence) based on mycelial distance
-            float bragg = fract(smooth_i * 0.5 + trap_mycelial);
-            color += toxicGrowth(bragg) * 0.4;
-
-            // Mycelial hyphae network overlays (glowing toxic veins)
-            float hyphal_glow = exp(-trap_mycelial * 8.0);
-            color = mix(color, vec3(0.8, 1.0, 0.0), hyphal_glow * 0.9); // Toxic yellow
-
-        } else {
-            // INTERIOR: The Biological Core / Sclerotium
-            // Deep, dark, pulsing with dormant energy
-            float depth = trap_cross * 2.5;
-            color = mix(vec3(0.05, 0.0, 0.1), vec3(1.0, 0.0, 0.6), exp(-depth));
-
-            // Add bioluminescent spore dots inside the core (foxfire effect)
-            float spore_glow = exp(-trap_spores * 60.0);
-            color += vec3(0.0, 1.0, 0.8) * spore_glow * (0.5 + 0.5 * sin(u_time * 6.0));
-        }
-
-        // Bureaucratic Failure Glitch (Quantized Laplacian error simulation)
-        // Introduces controlled math corruption to drive algorithmic decay
-        float glitch = step(0.99, fract(sin(dot(vUv, vec2(12.9898, 78.233)) + u_time * 10.0) * 43758.5453));
-        if (glitch > 0.5) {
-            color = color.brg; // Swizzle channels for sudden chromatic rupture
-        }
-
-        // Hyperbolic edge darkening (lens collapse)
-        float edge_darken = smoothstep(1.0, 0.85, r);
-        color *= edge_darken;
-
-        fragColor = vec4(color, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-
-    canvas.__three = { renderer, scene, camera, material };
-  }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("Feral WebGL Initialization Failed:", e);
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader: `
+                out vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                precision highp float;
+                
+                in vec2 vUv;
+                out vec4 fragColor;
+                
+                uniform float u_time;
+                uniform vec2 u_resolution;
+                
+                // [COLOR FIELDS] - Acid Neon Palette
+                vec3 cosinePaletteNeon(float t) {
+                    vec3 a = vec3(0.5, 0.5, 0.5);
+                    vec3 b = vec3(0.5, 0.5, 0.33);
+                    vec3 c = vec3(2.0, 1.0, 1.0);
+                    vec3 d = vec3(0.5, 0.2, 0.25);
+                    return a + b * cos(6.2831853 * (c * t + d));
+                }
+                
+                // [STRUCTURAL COLOR] - Thin Film Interference
+                vec3 thinFilm(float thickness) {
+                    float pathDiff = 2.0 * 1.5 * thickness;
+                    vec3 phase = vec3(0.0, 0.33, 0.67);
+                    return 0.5 + 0.5 * cos(6.2831853 * (pathDiff / 500.0 + phase));
+                }
+                
+                // [FRACTALS] - Celtic / Burning Ship Hybrid
+                vec3 renderFractal(vec2 uv) {
+                    vec2 z = uv * 2.2;
+                    
+                    // [MYCELIAL NETWORKS] - Morphogenesis Domain Warp
+                    z += 0.12 * vec2(sin(z.y * 3.0 + u_time * 1.2), cos(z.x * 3.0 - u_time * 1.1));
+                    
+                    // [PSYCHEDELIC COLLAGE] - Kaleidoscope Fold
+                    float angle = atan(z.y, z.x);
+                    float radius = length(z);
+                    float folds = 7.0;
+                    float sector = 6.2831853 / folds;
+                    angle = mod(angle + u_time * 0.15, sector);
+                    if (angle > sector * 0.5) angle = sector - angle;
+                    z = vec2(cos(angle), sin(angle)) * radius;
+                    
+                    // Julia seed morphing
+                    vec2 c = vec2(-0.85, 0.156) + vec2(sin(u_time * 0.25), cos(u_time * 0.35)) * 0.08;
+                    
+                    float trap1 = 1e10;
+                    float trap2 = 1e10;
+                    float iter = 0.0;
+                    
+                    for(int i = 0; i < 120; i++) {
+                        // Celtic absolute value fold
+                        float rx = z.x * z.x - z.y * z.y;
+                        z = vec2(abs(rx), 2.0 * z.x * z.y) + c;
+                        
+                        trap1 = min(trap1, length(z - vec2(0.5, 0.0)));
+                        trap2 = min(trap2, abs(z.x * z.y));
+                        
+                        if(dot(z, z) > 256.0) {
+                            iter = float(i) - log2(log2(dot(z, z))) + 4.0;
+                            break;
+                        }
+                    }
+                    
+                    vec3 col = vec3(0.0);
+                    if(iter > 0.0) {
+                        // Escaped: highly acidic neon
+                        col = cosinePaletteNeon(iter * 0.05 - u_time * 0.8);
+                        // Structural color iridescence near escape boundaries
+                        col += thinFilm(trap1 * 900.0) * 0.9 * exp(-trap1 * 5.0);
+                    } else {
+                        // Interior: dark cosmic void with glowing mycelial veins
+                        col = cosinePaletteNeon(trap2 * 12.0 + u_time) * 0.15;
+                        col += thinFilm(trap2 * 1800.0) * 2.0 * exp(-trap2 * 12.0);
+                    }
+                    
+                    return col;
+                }
+                
+                // [DITHER] - Hash noise
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+                }
+                
+                void main() {
+                    vec2 uv = (vUv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
+                    
+                    // [DAMAGE AESTHETICS] - VHS Tracking Tear
+                    float tear = step(0.97, sin(vUv.y * 25.0 + u_time * 12.0)) * sin(u_time * 40.0) * 0.04;
+                    vec2 distortedUV = uv + vec2(tear, 0.0);
+                    
+                    // [PSYCHEDELIC COLLAGE] - Chromatic Aberration
+                    float aberration = 0.015 + 0.01 * sin(u_time * 3.0);
+                    vec3 col;
+                    col.r = renderFractal(distortedUV + vec2(aberration, 0.0)).r;
+                    col.g = renderFractal(distortedUV).g;
+                    col.b = renderFractal(distortedUV - vec2(aberration, 0.0)).b;
+                    
+                    // [DAMAGE AESTHETICS] - CRT Scanlines & Raster
+                    float scanline = 0.5 + 0.5 * sin(vUv.y * u_resolution.y * 2.0);
+                    col *= 0.85 + 0.15 * scanline;
+                    
+                    // Phosphor bloom
+                    col += col * col * 0.4;
+                    
+                    // Film Grain / Print Artifact
+                    float grain = hash(vUv * u_time);
+                    col += (grain - 0.5) * 0.15;
+                    
+                    // CMYK Misregistration glitch burst
+                    if(hash(vec2(u_time * 0.1)) > 0.98) {
+                        col.g = renderFractal(distortedUV + vec2(0.0, 0.06)).g;
+                    }
+                    
+                    // Vignette
+                    float vignette = length(vUv - 0.5);
+                    col *= smoothstep(0.85, 0.2, vignette);
+                    
+                    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+                }
+            `
+        });
+        
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        
+        canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("WebGL Initialization Failed:", e);
+        return;
+    }
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+if (material && material.uniforms) {
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+}
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
