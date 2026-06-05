@@ -1,14 +1,8 @@
 try {
   if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+    if (!ctx) throw new Error("WebGL2 context not available");
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      context: ctx,
-      alpha: true,
-      antialias: true
-    });
-    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
     camera.position.z = 1;
@@ -24,20 +18,19 @@ try {
     const fragmentShader = `
       in vec2 vUv;
       out vec4 fragColor;
-      
+
       uniform float u_time;
       uniform vec2 u_resolution;
 
-      // --------------------------------------------------------
-      // THE WEIRD CODE GUY: ALCHEMICAL MATH & NOISE
-      // --------------------------------------------------------
-      
+      #define PI 3.14159265359
+
+      // --- ALCHEMICAL MATH: PRNG & NOISE ---
       float hash(vec2 p) {
-          p = fract(p * vec2(123.34, 456.21));
-          p += dot(p, p + 45.32);
+          p = fract(p * vec2(127.1, 311.7));
+          p += dot(p, p + 47.53);
           return fract(p.x * p.y);
       }
-      
+
       float noise(vec2 p) {
           vec2 i = floor(p);
           vec2 f = fract(p);
@@ -48,165 +41,179 @@ try {
           float d = hash(i + vec2(1.0, 1.0));
           return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
       }
-      
+
       float fbm(vec2 p) {
           float v = 0.0;
           float a = 0.5;
-          mat2 rot = mat2(0.866025, -0.5, 0.5, 0.866025);
-          for(int i = 0; i < 6; i++) {
+          for (int i = 0; i < 5; i++) {
               v += a * noise(p);
-              p = rot * p * 2.0;
+              p *= 2.0;
               a *= 0.5;
           }
           return v;
       }
 
-      // --------------------------------------------------------
-      // COLOR SYSTEMS: OKLCh -> sRGB (Perceptual Uniformity)
-      // --------------------------------------------------------
-      
-      vec3 oklch_to_srgb(float L, float C, float h) {
-          float a = C * cos(h);
-          float b = C * sin(h);
-          
-          float l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-          float m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-          float s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-          
-          float l = l_ * l_ * l_;
-          float m = m_ * m_ * m_;
-          float s = s_ * s_ * s_;
-          
-          vec3 rgb = vec3(
-               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-          );
-          
-          // Gamma correction
-          return mix(
-              rgb * 12.92, 
-              1.055 * pow(max(rgb, 0.0), vec3(1.0/2.4)) - 0.055, 
-              step(0.0031308, rgb)
+      // --- DIVERGENCE-FREE CURL NOISE (Rainblown Shear) ---
+      vec2 curl(vec2 p) {
+          float e = 0.01;
+          float n1 = fbm(p + vec2(0.0, e));
+          float n2 = fbm(p - vec2(0.0, e));
+          float n3 = fbm(p + vec2(e, 0.0));
+          float n4 = fbm(p - vec2(e, 0.0));
+          return vec2(n1 - n2, n4 - n3) / (2.0 * e);
+      }
+
+      // --- COLOR SYSTEMS: OKLAB PERCEPTUAL SPACE ---
+      vec3 srgb2lin(vec3 c) {
+          vec3 cutoff = step(c, vec3(0.04045));
+          vec3 higher = pow(max((c + vec3(0.055)) / 1.055, 0.0), vec3(2.4));
+          vec3 lower = c / 12.92;
+          return mix(higher, lower, cutoff);
+      }
+
+      vec3 lin2srgb(vec3 c) {
+          vec3 cutoff = step(c, vec3(0.0031308));
+          vec3 higher = 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - vec3(0.055);
+          vec3 lower = c * 12.92;
+          return mix(higher, lower, cutoff);
+      }
+
+      vec3 lin2oklab(vec3 c) {
+          float l = 0.4122214708*c.r + 0.5363325363*c.g + 0.0514459929*c.b;
+          float m = 0.2119034982*c.r + 0.6806995451*c.g + 0.1073969566*c.b;
+          float s = 0.0883024619*c.r + 0.2817188376*c.g + 0.6299787005*c.b;
+          float l_ = pow(max(l, 0.0), 1.0/3.0);
+          float m_ = pow(max(m, 0.0), 1.0/3.0);
+          float s_ = pow(max(s, 0.0), 1.0/3.0);
+          return vec3(
+              0.2104542553*l_ + 0.7936177850*m_ - 0.0040720468*s_,
+              1.9779984951*l_ - 2.4285922050*m_ + 0.4505937099*s_,
+              0.0259040371*l_ + 0.7827717662*m_ - 0.8086757660*s_
           );
       }
 
-      // --------------------------------------------------------
-      // STRUCTURAL COLOR: Thin-Film Interference
-      // --------------------------------------------------------
-      
-      vec3 thin_film(float thickness, float view_angle, float offset) {
-          float n = 1.45; // Refractive index of biological film (e.g., chitin)
-          float opd = 2.0 * n * thickness * cos(view_angle);
-          
-          // Interference across RGB spectrum
-          vec3 phase = opd / vec3(650.0, 530.0, 430.0) * 6.2831853;
-          vec3 interference = 0.5 + 0.5 * cos(phase);
-          
-          // Map interference to OKLCh to ensure perceptual vividness
-          float L = 0.55 + 0.2 * interference.g;
-          float C = 0.25 + 0.1 * interference.r;
-          float h = opd * 0.003 + u_time * 0.15 + offset;
-          
-          vec3 base_color = oklch_to_srgb(L, C, h);
-          return base_color * (0.4 + 0.6 * interference); // Boost structural pop
+      vec3 oklab2lin(vec3 c) {
+          float l_ = c.x + 0.3963377774*c.y + 0.2158037573*c.z;
+          float m_ = c.x - 0.1055613458*c.y - 0.0638541728*c.z;
+          float s_ = c.x - 0.0894841775*c.y - 1.2914855480*c.z;
+          float l = l_*l_*l_;
+          float m = m_*m_*m_;
+          float s = s_*s_*s_;
+          return vec3(
+               4.0767416621*l - 3.3077115913*m + 0.2309699292*s,
+              -1.2684380046*l + 2.6097574011*m - 0.3413193965*s,
+              -0.0041960863*l - 0.7034186147*m + 1.7076147010*s
+          );
       }
 
-      // --------------------------------------------------------
-      // FRACTAL ENGINE: Mycelial-Infected Apollonian Gasket
-      // --------------------------------------------------------
-      
-      vec4 apollonian_map(vec2 p) {
-          vec2 z = p;
+      vec3 sRGB_to_OKLab(vec3 c) { return lin2oklab(srgb2lin(c)); }
+      vec3 OKLab_to_sRGB(vec3 c) { return lin2srgb(oklab2lin(c)); }
+
+      // --- STRUCTURAL COLOR: APOLLONIAN THIN-FILM ---
+      // Calculates the optical path difference for thin-film interference
+      // nested inside an Apollonian Kleinian limit set.
+      vec2 apollonian_interference(vec2 uv) {
+          float t = u_time * 0.4;
+          
+          // Rainblown Mycelial Shear: Domain warping via curl noise
+          vec2 flow = curl(uv * 2.0 - vec2(t * 1.2, -t * 1.5));
+          vec2 p = uv + flow * 0.15 + vec2(uv.y * 0.2, 0.0);
+          
+          // Hyperbolic Pre-fold
+          p = p / (1.0 - dot(p, p) * 0.1);
+          
+          // Seed circles for (-1, 2, 2, 3) Integral Packing
           float scale = 1.0;
-          float dist = 1e6;
-          
-          // Mycelial / Organic warping of the domain
-          z += vec2(fbm(z * 2.5 + u_time * 0.2), fbm(z * 2.5 - u_time * 0.2)) * 0.15;
+          vec2 c1 = vec2(0.5, 0.0); float r1 = 0.5;
+          vec2 c2 = vec2(-0.5, 0.0); float r2 = 0.5;
+          vec2 c3 = vec2(0.0, 0.47140452); float r3 = 0.333333;
+          vec2 c4 = vec2(0.0, -0.47140452);
 
-          for (int i = 0; i < 7; i++) {
-              // Kleinian Fold
-              z = -1.0 + 2.0 * fract(0.5 * z + 0.5);
-              float r2 = dot(z, z);
-              
-              // Apollonian Inversion with Mycelial breathing (dynamic radius)
-              float r_inv = 1.05 + 0.15 * sin(u_time * 0.3 + float(i) * 1.61803);
-              if (r2 < r_inv) {
-                  float k = r_inv / r2;
-                  z *= k;
-                  scale *= k;
+          for(int i = 0; i < 7; i++) {
+              // Hostile Coordinates: slight rotational drift to simulate organic growth
+              float angle = sin(t * 0.2 + float(i)) * 0.05;
+              float ca = cos(angle), sa = sin(angle);
+              p = vec2(p.x * ca - p.y * sa, p.x * sa + p.y * ca);
+
+              float d1 = length(p - c1); float d2 = length(p - c2);
+              float d3 = length(p - c3); float d4 = length(p - c4);
+              float n1 = d1/r1, n2 = d2/r2, n3 = d3/r3, n4 = d4/r3;
+
+              if(n1 < 1.0 && n1 <= n2 && n1 <= n3 && n1 <= n4) {
+                  p = c1 + r1*r1*(p-c1)/(d1*d1); scale *= r1*r1/(d1*d1);
+              } else if(n2 < 1.0 && n2 <= n3 && n2 <= n4) {
+                  p = c2 + r2*r2*(p-c2)/(d2*d2); scale *= r2*r2/(d2*d2);
+              } else if(n3 < 1.0 && n3 <= n4) {
+                  p = c3 + r3*r3*(p-c3)/(d3*d3); scale *= r3*r3/(d3*d3);
+              } else if(n4 < 1.0) {
+                  p = c4 + r3*r3*(p-c4)/(d4*d4); scale *= r3*r3/(d4*d4);
               }
-              
-              // Descartes circle theorem influence (invert through a specific tangent circle)
-              vec2 c1 = vec2(0.5, 0.5);
-              float d1 = length(z - c1);
-              if (d1 < 0.5) {
-                  float k = 0.25 / (d1 * d1);
-                  z = c1 + (z - c1) * k;
-                  scale *= k;
-              }
-              
-              dist = min(dist, length(z) / scale);
           }
-          return vec4(z, dist, scale);
+          
+          float d = (length(p) - r3) / scale;
+          
+          // Structural Color: 2nd cos(theta) = m * lambda
+          // Simulating view angle via distance field gradient approximation
+          float cosTheta = abs(sin(d * 25.0 - t * 2.0));
+          
+          // Mycelial hyphal ridges adding physical thickness
+          float hyphae = abs(fbm(p * 8.0) - 0.5) * 2.0;
+          float thickness = 250.0 + scale * 12.0 + hyphae * 300.0 + flow.x * 150.0;
+          
+          float pathDiff = 2.0 * 1.45 * thickness * cosTheta; // n=1.45 for fungal chitin
+          
+          return vec2(pathDiff, d);
       }
 
-      // --------------------------------------------------------
-      // MAIN COMPOSITION
-      // --------------------------------------------------------
-      
       void main() {
           vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
-          uv *= 1.2; // Zoom out
+          uv *= 1.3;
+
+          // CMYK Misregistration (Chromatic Aberration) to simulate print drift
+          float offset = 0.004;
+          vec2 resR = apollonian_interference(uv + vec2(offset, 0.0));
+          vec2 resG = apollonian_interference(uv);
+          vec2 resB = apollonian_interference(uv - vec2(offset, 0.0));
+
+          // Spectral Rainbow Mapping (Cosine Palette)
+          vec3 col;
+          col.r = 0.5 + 0.5 * cos(6.28318 * (resR.x / 600.0)); // Red wavelength
+          col.g = 0.5 + 0.5 * cos(6.28318 * (resG.x / 520.0)); // Green wavelength
+          col.b = 0.5 + 0.5 * cos(6.28318 * (resB.x / 440.0)); // Blue wavelength
+
+          // Acid Vibration via OKLab Chroma Boost
+          vec3 lab = sRGB_to_OKLab(col);
           
-          // RAINBLOWN WIND (Psychedelic Collage + Fluid Dynamics)
-          vec2 wind_dir = normalize(vec2(1.2, 2.0));
-          vec2 wind_uv = uv * mat2(wind_dir.x, -wind_dir.y, wind_dir.y, wind_dir.x);
-          wind_uv.y *= 4.0; // Stretch noise along the wind vector
-          wind_uv -= u_time * vec2(0.1, 0.6); // Blow across the screen
+          // Light/Dark contrast mapping based on fractal distance
+          float distField = resG.y;
+          float fractalEdge = smoothstep(0.0, 0.05, abs(distField));
           
-          float wind_streaks = fbm(wind_uv * 3.0);
-          float rain_warp = fbm(uv * 2.5 - wind_dir * u_time) * 0.2;
+          lab.x = 0.15 + 0.8 * fract(log(abs(distField) + 1.0) * 5.0 - u_time); // Pulsing luminance
+          lab.y *= 2.2; // Boost Green-Red axis
+          lab.z *= 2.2; // Boost Blue-Yellow axis
           
-          vec2 warped_uv = uv + wind_dir * rain_warp;
+          col = OKLab_to_sRGB(lab);
+
+          // Psychedelic Collage: Halftone Screen Artifacts
+          vec2 screen_uv = gl_FragCoord.xy;
+          float freq = 75.0;
+          float angle = 0.785398; // 45 deg
+          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+          vec2 ht_uv = rot * screen_uv * (freq / u_resolution.y);
           
-          // CMYK MISREGISTRATION / CHROMATIC ABERRATION (Glitch)
-          float glitch = wind_streaks * 0.06; 
-          
-          vec4 mR = apollonian_map(warped_uv + wind_dir * glitch);
-          vec4 mG = apollonian_map(warped_uv);
-          vec4 mB = apollonian_map(warped_uv - wind_dir * glitch);
-          
-          // STRUCTURAL COLOR MAPPING
-          // Map exponential fractal scale to thin-film thickness (nanometers)
-          float tR = 200.0 + 800.0 * fract(log(mR.w) * 0.3 + wind_streaks * 0.4 - u_time * 0.1);
-          float tG = 200.0 + 800.0 * fract(log(mG.w) * 0.3 + wind_streaks * 0.4 - u_time * 0.1);
-          float tB = 200.0 + 800.0 * fract(log(mB.w) * 0.3 + wind_streaks * 0.4 - u_time * 0.1);
-          
-          // View angle approximation from fractal distance gradients
-          float viewR = clamp(mR.y * 50.0, 0.0, 1.0); 
-          float viewG = clamp(mG.y * 50.0, 0.0, 1.0);
-          float viewB = clamp(mB.y * 50.0, 0.0, 1.0);
-          
-          vec3 colR = thin_film(tR, viewR, 0.0);
-          vec3 colG = thin_film(tG, viewG, 2.094); // Phase shift for RGB
-          vec3 colB = thin_film(tB, viewB, 4.188);
-          
-          // Recombine separated channels
-          vec3 final_color = vec3(colR.r, colG.g, colB.b);
-          
-          // PSYCHEDELIC COLLAGE TEXTURE (Xerox Noise / Paper Grain)
-          float grain = fract(sin(dot(gl_FragCoord.xy * 0.1 + u_time, vec2(127.1, 311.7))) * 43758.5453);
-          final_color = mix(final_color, vec3(grain), 0.07);
-          
-          // TONEMAPPING (ACES Filmic)
-          final_color = final_color * (2.51 * final_color + 0.03) / (final_color * (2.43 * final_color + 0.59) + 0.14);
-          
-          // Vignette
-          float v = length(vUv - 0.5);
-          final_color *= smoothstep(0.8, 0.2, v);
-          
-          fragColor = vec4(final_color, 1.0);
+          float luma = dot(col, vec3(0.299, 0.587, 0.114));
+          float dot_rad = sqrt(1.0 - luma) * 0.45;
+          float ht_pattern = length(fract(ht_uv) - 0.5);
+          float halftone = smoothstep(dot_rad + 0.15, dot_rad - 0.05, ht_pattern);
+
+          // Multiply blend the halftone ink
+          col = mix(col * 0.1, col, halftone * 0.85 + 0.15);
+
+          // Analog Zine: Paper Grain Overlay
+          float grain = fract(sin(dot(uv * 1234.5 + u_time, vec2(12.9898, 78.233))) * 43758.5453);
+          col += (grain - 0.5) * 0.12;
+
+          fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }
     `;
 
@@ -218,7 +225,8 @@ try {
       },
       vertexShader,
       fragmentShader,
-      transparent: true
+      depthWrite: false,
+      depthTest: false
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
@@ -230,15 +238,13 @@ try {
   const { renderer, scene, camera, material } = canvas.__three;
 
   if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) {
-      material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    }
+    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
   }
 
   renderer.setSize(grid.width, grid.height, false);
   renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("The Feral Math Engine Failed:", e);
+  console.error("WebGL Initialization or Render Failed:", e);
 }
