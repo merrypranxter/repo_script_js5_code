@@ -1,223 +1,287 @@
-try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+// rainbow rainblown Apollonian Gasket full canvas design
+// Incorporating: 
+// - Apollonian Gasket fractal generation (Descartes' Circle Theorem)
+// - Fluid "rainblown" domain warping via 3D value noise
+// - Psychedelic Pop Style motifs (Eyes, Stars, Vibrant Cosine Palettes)
+// - Print artifacts (CMYK chromatic aberration, scanlines)
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
+function fract(x) { 
+    return x - Math.floor(x); 
+}
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `;
+function hash3(x, y, z) {
+    let p = x * 127.1 + y * 311.7 + z * 74.7;
+    let res = Math.sin(p) * 43758.5453123;
+    return res - Math.floor(res);
+}
 
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
+function noise3D(x, y, z) {
+    let ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+    let fx = fract(x), fy = fract(y), fz = fract(z);
+    
+    let ux = fx * fx * (3.0 - 2.0 * fx);
+    let uy = fy * fy * (3.0 - 2.0 * fy);
+    let uz = fz * fz * (3.0 - 2.0 * fz);
+    
+    let a = hash3(ix, iy, iz);
+    let b = hash3(ix + 1, iy, iz);
+    let c = hash3(ix, iy + 1, iz);
+    let d = hash3(ix + 1, iy + 1, iz);
+    let e = hash3(ix, iy, iz + 1);
+    let f_ = hash3(ix + 1, iy, iz + 1);
+    let g = hash3(ix, iy + 1, iz + 1);
+    let h = hash3(ix + 1, iy + 1, iz + 1);
+    
+    return a * (1-ux)*(1-uy)*(1-uz) +
+           b * ux*(1-uy)*(1-uz) +
+           c * (1-ux)*uy*(1-uz) +
+           d * ux*uy*(1-uz) +
+           e * (1-ux)*(1-uy)*uz +
+           f_ * ux*(1-uy)*uz +
+           g * (1-ux)*uy*uz +
+           h * ux*uy*uz;
+}
 
-      float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-      }
+// Fluid deformation field simulating wind and rain drips
+function deform(x, y, t) {
+    let wx = x;
+    let wy = y;
+    
+    // Slow flowing waves
+    let n1 = noise3D(x * 1.2, y * 1.2, t * 0.2);
+    wx += Math.sin(n1 * Math.PI * 2) * 0.15;
+    wy += Math.cos(n1 * Math.PI * 2) * 0.15;
+    
+    // Fast rainblown drips (streaking downwards)
+    let n2 = noise3D(x * 3.0, y * 3.0 - t * 1.5, t * 0.4);
+    let streak = Math.pow(n2, 2.5) * 0.3; 
+    wx += streak * 0.3;  // slight diagonal drift
+    wy += streak * 1.2;  // strong downward pull
+    
+    return [wx, wy];
+}
 
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          vec2 u = f * f * (3.0 - 2.0 * f);
-          return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
-                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-      }
+// Vibrant cyberdelic neon cosine palette
+function palette(t) {
+    let r = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * t + 0.0));
+    let g = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * t + 0.33));
+    let b = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * t + 0.67));
+    
+    // Boost saturation
+    r = Math.pow(r, 0.6);
+    g = Math.pow(g, 0.6);
+    b = Math.pow(b, 0.6);
+    return [r, g, b];
+}
 
-      float fbm(vec2 p) {
-          float f = 0.0;
-          float amp = 0.5;
-          for(int i = 0; i < 6; i++) {
-              f += amp * noise(p);
-              p *= 2.0;
-              amp *= 0.5;
-          }
-          return f;
-      }
+// --- Main Execution ---
 
-      vec3 oklch_to_srgb(vec3 lch) {
-          vec3 lab = vec3(lch.x, lch.y * cos(lch.z), lch.y * sin(lch.z));
-          float l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
-          float m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
-          float s_ = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
-          float l = l_ * l_ * l_;
-          float m = m_ * m_ * m_;
-          float s = s_ * s_ * s_;
-          vec3 rgb = vec3(
-               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-          );
-          vec3 c1 = rgb * 12.92;
-          vec3 c2 = 1.055 * pow(max(rgb, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
-          return clamp(mix(c1, c2, step(0.0031308, rgb)), 0.0, 1.0);
-      }
+// Generate the Apollonian Gasket fractal once and cache it
+if (!canvas.__circles) {
+    let circles = [];
+    
+    // Initial mutually tangent quadruple
+    let c1 = {k: -1, x: 0, y: 0, r: 1};
+    let c2 = {k: 2, x: 0.5, y: 0, r: 0.5};
+    let c3 = {k: 2, x: -0.5, y: 0, r: 0.5};
+    let c4 = {k: 3, x: 0, y: 2/3, r: 1/3};
+    
+    circles.push(c1, c2, c3, c4);
+    
+    // Recursive Soddy circle generation using Descartes' Theorem
+    function gen(targets, depth, replacedIndex) {
+        if (depth === 0) return;
+        
+        for (let i = 0; i < 4; i++) {
+            if (i === replacedIndex) continue;
+            
+            let target = targets[i];
+            let others = targets.filter((_, idx) => idx !== i);
+            let a = others[0], b = others[1], c = others[2];
+            
+            let k_new = 2 * (a.k + b.k + c.k) - target.k;
+            if (k_new <= 0) continue;
+            
+            let x_new = (2 * (a.k * a.x + b.k * b.x + c.k * c.x) - target.k * target.x) / k_new;
+            let y_new = (2 * (a.k * a.y + b.k * b.y + c.k * c.y) - target.k * target.y) / k_new;
+            let r_new = 1 / k_new;
+            
+            // Culling extremely small circles to maintain performance
+            if (r_new < 0.003) continue;
+            
+            let c_new = {k: k_new, x: x_new, y: y_new, r: r_new};
+            circles.push(c_new);
+            
+            let newTargets = [...targets];
+            newTargets[i] = c_new;
+            gen(newTargets, depth - 1, i);
+        }
+    }
+    
+    gen([c1, c2, c3, c4], 6, -1);
+    
+    // Second branch for the symmetrically opposite inner circle
+    let c5 = {k: 3, x: 0, y: -2/3, r: 1/3};
+    circles.push(c5);
+    gen([c1, c2, c3, c5], 6, 3);
+    
+    // Painter's algorithm: draw largest circles first
+    circles.sort((a, b) => b.r - a.r);
+    canvas.__circles = circles;
+}
 
-      const float R1 = 0.5;
-      const float R2 = 0.5;
-      const float R3 = 0.33333333;
-      const vec2 C1 = vec2( 0.5, 0.0);
-      const vec2 C2 = vec2(-0.5, 0.0);
-      const vec2 C3 = vec2( 0.0,  0.47140452);
-      const vec2 C4 = vec2( 0.0, -0.47140452);
+let circles = canvas.__circles;
 
-      vec2 apollonianDE(vec2 p) {
-          float minDist = 1e6;
-          float depth = 0.0;
-          
-          float dOuter = abs(length(p) - 1.0);
-          minDist = dOuter;
-          
-          vec2 q = p;
-          float scale = 1.0;
-          
-          for (int i = 0; i < 40; i++) {
-              float d1 = length(q - C1);
-              float d2 = length(q - C2);
-              float d3 = length(q - C3);
-              float d4 = length(q - C4);
-              
-              float n1 = d1 / R1;
-              float n2 = d2 / R2;
-              float n3 = d3 / R3;
-              float n4 = d4 / R3;
+// Clear canvas with dark void background
+ctx.fillStyle = '#040608';
+ctx.fillRect(0, 0, grid.width, grid.height);
 
-              float near = min(min(n1, n2), min(n3, n4));
-              if (near > 1.0) break;
+let t = time * 0.4;
+let scale = Math.max(grid.width, grid.height) * 0.8;
+let cx = grid.width / 2;
+let cy = grid.height / 2 - scale * 0.2; // Shift up to accommodate downward drips
 
-              if (n1 <= n2 && n1 <= n3 && n1 <= n4) {
-                  q = C1 + R1 * R1 * (q - C1) / (d1 * d1);
-                  scale *= R1 * R1 / (d1 * d1);
-              } else if (n2 <= n3 && n2 <= n4) {
-                  q = C2 + R2 * R2 * (q - C2) / (d2 * d2);
-                  scale *= R2 * R2 / (d2 * d2);
-              } else if (n3 <= n4) {
-                  q = C3 + R3 * R3 * (q - C3) / (d3 * d3);
-                  scale *= R3 * R3 / (d3 * d3);
-              } else {
-                  q = C4 + R3 * R3 * (q - C4) / (d4 * d4);
-                  scale *= R3 * R3 / (d4 * d4);
-              }
-              
-              float da = abs(length(q - C1) - R1);
-              float db = abs(length(q - C2) - R2);
-              float dc = abs(length(q - C3) - R3);
-              float dd = abs(length(q - C4) - R3);
-              float di = min(min(da, db), min(dc, dd));
-              float candidateDist = di / scale;
+ctx.lineJoin = 'round';
 
-              if (candidateDist < minDist) {
-                  minDist = candidateDist;
-                  depth = float(i + 1);
-              }
-          }
-          return vec2(minDist, depth);
-      }
+// Draw the warped fractal circles
+circles.forEach((c) => {
+    let steps = Math.max(16, Math.floor(c.r * scale * 0.6));
+    if (steps > 100) steps = 100;
+    
+    let pts = [];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    
+    for (let j = 0; j <= steps; j++) {
+        let angle = (j / steps) * Math.PI * 2;
+        let px = c.x + Math.cos(angle) * c.r;
+        let py = c.y + Math.sin(angle) * c.r;
+        
+        let d = deform(px, py, t);
+        let sx = cx + d[0] * scale;
+        let sy = cy + d[1] * scale;
+        
+        pts.push({x: sx, y: sy});
+        
+        if (sx < minX) minX = sx;
+        if (sx > maxX) maxX = sx;
+        if (sy < minY) minY = sy;
+        if (sy > maxY) maxY = sy;
+    }
+    
+    let tBase = Math.log(c.k + 2) * 0.15 + (c.x + c.y) * 0.2 + t * 0.3;
+    let color1 = palette(tBase);
+    let color2 = palette(tBase + 0.2);
+    
+    // Iridescent gradient fill
+    let grad = ctx.createLinearGradient(minX, minY, maxX, maxY);
+    grad.addColorStop(0, `rgb(${color1[0]*255},${color1[1]*255},${color1[2]*255})`);
+    grad.addColorStop(1, `rgb(${color2[0]*255},${color2[1]*255},${color2[2]*255})`);
+    
+    ctx.fillStyle = grad;
+    ctx.lineWidth = Math.max(1.5, c.r * scale * 0.015);
+    ctx.strokeStyle = '#0B0B12'; 
+    
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let j = 1; j < pts.length; j++) {
+        ctx.lineTo(pts[j].x, pts[j].y);
+    }
+    ctx.fill();
+    ctx.stroke();
+    
+    // Inject Psychedelic Pop Motifs
+    if (c.r > 0.04 && c.k > 0) {
+        // Draw surreal eyes inside larger circles
+        let centerPos = deform(c.x, c.y, t);
+        let cx_screen = cx + centerPos[0] * scale;
+        let cy_screen = cy + centerPos[1] * scale;
+        
+        let eyeScale = c.r * scale * 0.35;
+        let rot = noise3D(c.x, c.y, t) * Math.PI;
+        
+        ctx.fillStyle = '#EEE5C8'; // Antique Ivory Sclera
+        ctx.beginPath();
+        ctx.ellipse(cx_screen, cy_screen, eyeScale, eyeScale * 0.5, rot, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        let irisColor = palette(tBase + 0.5);
+        ctx.fillStyle = `rgb(${irisColor[0]*255},${irisColor[1]*255},${irisColor[2]*255})`;
+        ctx.beginPath();
+        ctx.arc(cx_screen, cy_screen, eyeScale * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.fillStyle = '#0B0B12'; // Pupil
+        ctx.beginPath();
+        ctx.arc(cx_screen, cy_screen, eyeScale * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#fff'; // Catchlight
+        ctx.beginPath();
+        ctx.arc(cx_screen + eyeScale * 0.1, cy_screen - eyeScale * 0.1, eyeScale * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+        
+    } else if (c.r > 0.015 && c.k > 0) {
+        // Draw retro four-pointed stars in medium circles
+        let centerPos = deform(c.x, c.y, t);
+        let cx_screen = cx + centerPos[0] * scale;
+        let cy_screen = cy + centerPos[1] * scale;
+        
+        let sSize = c.r * scale * 0.3;
+        ctx.fillStyle = '#FFE600'; // Lemon Zap
+        ctx.beginPath();
+        ctx.moveTo(cx_screen, cy_screen - sSize);
+        ctx.quadraticCurveTo(cx_screen, cy_screen, cx_screen + sSize, cy_screen);
+        ctx.quadraticCurveTo(cx_screen, cy_screen, cx_screen, cy_screen + sSize);
+        ctx.quadraticCurveTo(cx_screen, cy_screen, cx_screen - sSize, cy_screen);
+        ctx.quadraticCurveTo(cx_screen, cy_screen, cx_screen, cy_screen - sSize);
+        ctx.fill();
+        ctx.stroke();
+    }
+});
 
-      void main() {
-          vec2 uv = (vUv - 0.5) * 2.0;
-          uv.x *= u_resolution.x / u_resolution.y;
-          
-          // Zoom into the fractal structure
-          uv *= 0.65;
-          uv.y += 0.1;
-          
-          // Breathing wind direction for the rainblown effect
-          float windAngle = -1.1 + sin(u_time * 0.2) * 0.25; 
-          vec2 windDir = vec2(cos(windAngle), sin(windAngle));
-          vec2 orthoDir = vec2(-windDir.y, windDir.x);
-          
-          // Rain and flow distortion
-          float rainNoise = fbm(vec2(dot(uv, orthoDir) * 10.0, dot(uv, windDir) * 1.5 - u_time * 3.0));
-          float flowNoise = fbm(uv * 2.5 + u_time * 0.4);
-          
-          // Distort the domain
-          vec2 warpedUv = uv + windDir * rainNoise * 0.25 + vec2(flowNoise) * 0.08;
-          
-          // Slow organic rotation
-          float angle = sin(u_time * 0.15) * 0.2;
-          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-          warpedUv = rot * warpedUv;
-          
-          // Evaluate Apollonian Gasket distance estimator
-          vec2 res = apollonianDE(warpedUv);
-          float d = res.x;
-          float depth = res.y;
-          
-          // Perceptual Rainbow Palette mapping
-          float hue = depth * 0.12 - d * 6.0 + u_time * 0.25 + rainNoise * 0.3 + length(uv) * 0.4;
-          float luma = 0.65 + 0.15 * sin(depth * 1.5 - u_time * 2.0);
-          float chroma = 0.28 + 0.08 * flowNoise;
-          
-          vec3 colorCore = oklch_to_srgb(vec3(luma, chroma, hue * 6.28318));
-          vec3 colorEdge = oklch_to_srgb(vec3(0.85, 0.15, (hue + 0.15) * 6.28318));
-          
-          // Deep void background
-          vec3 bg = vec3(0.02, 0.01, 0.05);
-          
-          // Lines and Glows
-          float line = smoothstep(0.006, 0.0, d);
-          float glow = exp(-d * 100.0) * 0.65;
-          
-          vec3 finalColor = mix(bg, colorCore, glow);
-          finalColor = mix(finalColor, colorEdge, line);
-          
-          // Chromatic aberration glitch on edges
-          float glitch = smoothstep(0.65, 1.0, fbm(uv * 25.0 - u_time * 6.0));
-          if (line > 0.05 && glitch > 0.4) {
-              finalColor.r = oklch_to_srgb(vec3(luma, chroma, (hue - 0.04) * 6.28318)).r;
-              finalColor.b = oklch_to_srgb(vec3(luma, chroma, (hue + 0.04) * 6.28318)).b;
-          }
-          
-          // Rain streaks overlay
-          float streak = smoothstep(0.55, 0.85, noise(vec2(dot(vUv, orthoDir) * 60.0, dot(vUv, windDir) * 5.0 - u_time * 12.0)));
-          finalColor += streak * 0.2 * colorEdge;
-          
-          // Vignette
-          float vig = 1.0 - length(vUv - 0.5) * 1.25;
-          vig = smoothstep(0.0, 0.8, vig);
-          finalColor *= vig;
-          
-          fragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
-      }
-    `;
+// Parallax foreground particles with CMYK chromatic aberration misregistration
+let seed = 12345;
+function rand() {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+}
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      vertexShader,
-      fragmentShader
-    });
+ctx.globalCompositeOperation = 'screen';
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
+for (let i = 0; i < 60; i++) {
+    let rx = (rand() * 2 - 1) * 1.5;
+    let ry = (rand() * 2 - 1) * 1.5;
+    let size = rand() * 3 + 1;
+    
+    let d = deform(rx, ry, t);
+    let sx = cx + d[0] * scale;
+    let sy = cy + d[1] * scale;
+    
+    // Cyan pass
+    ctx.fillStyle = '#00FFFF';
+    ctx.beginPath();
+    ctx.arc(sx + 2.0, sy, size, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Magenta pass
+    ctx.fillStyle = '#FF00FF';
+    ctx.beginPath();
+    ctx.arc(sx - 2.0, sy + 1.5, size, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Yellow pass
+    ctx.fillStyle = '#FFFF00';
+    ctx.beginPath();
+    ctx.arc(sx, sy - 2.0, size, 0, Math.PI * 2);
+    ctx.fill();
+}
 
-    canvas.__three = { renderer, scene, camera, material };
-  }
+ctx.globalCompositeOperation = 'source-over';
 
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("WebGL Initialization Failed:", e);
+// Analog zine/Xerox scanline texture overlay
+ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+for (let y = 0; y < grid.height; y += 4) {
+    ctx.fillRect(0, y, grid.width, 2);
 }
