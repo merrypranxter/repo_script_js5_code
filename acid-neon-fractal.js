@@ -1,223 +1,211 @@
 try {
-  if (!ctx) throw new Error("WebGL 2 context not available");
+    if (!canvas.__three) {
+        if (!ctx) throw new Error("WebGL 2 context not available");
 
-  if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+        camera.position.z = 1;
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position, 1.0);
+            }
+        `;
 
-    const fragmentShader = `
-      precision highp float;
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      
-      in vec2 vUv;
-      out vec4 fragColor;
+        const fragmentShader = `
+            precision highp float;
 
-      // ============================================================
-      // FUNGAL NOISE / MYCELIAL ROT (Repo 5)
-      // ============================================================
-      vec2 hash2(vec2 p) {
-          p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-          return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
-      }
+            in vec2 vUv;
+            out vec4 fragColor;
 
-      float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          vec2 u = f * f * (3.0 - 2.0 * f);
-          return mix(mix(dot(hash2(i + vec2(0.0, 0.0)), f - vec2(0.0, 0.0)),
-                         dot(hash2(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0)), u.x),
-                     mix(dot(hash2(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0)),
-                         dot(hash2(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0)), u.x), u.y);
-      }
+            uniform float u_time;
+            uniform vec2 u_resolution;
+            uniform vec2 u_mouse;
 
-      float fbm(vec2 p) {
-          float f = 0.0; 
-          float a = 0.5;
-          for(int i = 0; i < 5; i++) { 
-              f += a * noise(p); 
-              p *= 2.0; 
-              a *= 0.5; 
-          }
-          return f;
-      }
+            const int MAX_ITER = 64;
+            const float BAILOUT = 256.0;
+            const float PI = 3.14159265359;
 
-      // ============================================================
-      // ACID NEON PALETTE (Repo 2: Color Fields)
-      // ============================================================
-      vec3 acidNeon(float t) {
-          vec3 a = vec3(0.5, 0.5, 0.5);
-          vec3 b = vec3(0.5, 0.5, 0.33);
-          vec3 c = vec3(2.0, 1.0, 1.0);
-          vec3 d = vec3(0.5, 0.2, 0.25);
-          return a + b * cos(6.28318 * (c * t + d));
-      }
+            // --- REPO 9 & 7: Noise & Digital Glitch ---
+            float hash(vec2 p) {
+                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+            }
 
-      // ============================================================
-      // STRUCTURAL COLOR / IRIDESCENCE (Repo 4)
-      // ============================================================
-      vec3 iridescence(float t) {
-          return 0.5 + 0.5 * cos(6.28318 * (vec3(1.0, 1.3, 1.6) * t + vec3(0.0, 0.33, 0.67)));
-      }
+            float noise(vec2 p) {
+                vec2 i = floor(p); 
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                           mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+            }
 
-      // ============================================================
-      // HALFTONE PRINT ARTIFACT (Repo 9: Psychedelic Collage)
-      // ============================================================
-      float halftone(vec2 fragCoord, float luma) {
-          float angle = 0.785398; // 45 degrees
-          float freq = 140.0;
-          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-          vec2 uv = rot * fragCoord * freq / u_resolution.x;
-          vec2 cell = fract(uv) - 0.5;
-          float dist = length(cell);
-          float dotRadius = sqrt(1.0 - luma) * 0.55;
-          return smoothstep(dotRadius + 0.1, dotRadius - 0.1, dist);
-      }
+            float fbm(vec2 p) {
+                float v = 0.0, a = 0.5;
+                for(int i = 0; i < 4; i++) { 
+                    v += a * noise(p); 
+                    p *= 2.0; 
+                    a *= 0.5; 
+                }
+                return v;
+            }
 
-      // ============================================================
-      // FRACTAL ENGINE WITH MYCELIAL MUTATION (Repos 1 & 5)
-      // ============================================================
-      vec3 fungalFractal(vec2 z0) {
-          vec2 z = z0;
-          // Drifting Julia Set Parameter
-          vec2 c = vec2(-0.745, 0.113) + vec2(sin(u_time * 0.25) * 0.04, cos(u_time * 0.15) * 0.04);
-          
-          float n = 0.0;
-          float trap = 1e10;
-          float fungal_density = 0.0;
-          
-          const int MAX_ITER = 75;
-          
-          for(int i = 0; i < MAX_ITER; i++) {
-              // Mycelial Enzyme Secretion: mutates the complex plane dynamically
-              // Fungal infection bridges Julia Set with Burning Ship logic
-              float enzyme = smoothstep(0.0, 0.4, fbm(z * 2.5 + u_time * 0.6));
-              fungal_density += enzyme;
-              
-              // The mutation: absolute value folding triggered by fungal noise
-              vec2 mutated_z = mix(z, vec2(abs(z.x), abs(z.y)), enzyme * 0.35);
-              
-              // Standard z = z^2 + c iteration
-              z = vec2(mutated_z.x * mutated_z.x - mutated_z.y * mutated_z.y, 2.0 * mutated_z.x * mutated_z.y) + c;
-              
-              // Orbit trap (cross shape)
-              trap = min(trap, min(abs(z.x), abs(z.y)));
-              
-              if(dot(z, z) > 256.0) {
-                  float log_zn = log(dot(z, z)) * 0.5;
-                  float nu = log(log_zn / 0.693147) / 0.693147;
-                  n = float(i) + 1.0 - nu;
-                  break;
-              }
-          }
-          return vec3(n, trap, fungal_density / float(MAX_ITER));
-      }
+            // --- REPO 2 & 9: Cyberdelic Neon / Acid Vibration Palette ---
+            vec3 acidPalette(float t) {
+                vec3 a = vec3(0.5, 0.5, 0.5);
+                vec3 b = vec3(0.5, 0.5, 0.33);
+                vec3 c = vec3(2.0, 1.0, 1.0);
+                vec3 d = vec3(0.5, 0.2, 0.25);
+                vec3 col = a + b * cos(TAU * (c * t + d));
+                
+                // Force maximum saturation (Cyberdelic Neon)
+                float maxC = max(col.r, max(col.g, col.b));
+                return col / (maxC + 0.001);
+            }
 
-      void main() {
-          vec2 uv = vUv;
-          vec2 p = (uv - 0.5) * 2.8 * vec2(u_resolution.x / u_resolution.y, 1.0);
-          
-          // Slow geometric rotation and breathing zoom
-          float theta = u_time * 0.08;
-          mat2 rot = mat2(cos(theta), -sin(theta), sin(theta), cos(theta));
-          p = rot * p;
-          p *= 1.0 - 0.2 * sin(u_time * 0.3); 
-          
-          // ============================================================
-          // CMYK MISREGISTRATION / GLITCH (Repo 9)
-          // ============================================================
-          vec2 glitchOffset = normalize(p + 0.001) * 0.025 * fbm(p * 15.0 - u_time * 1.2);
-          
-          // Multi-sample for RGB channel separation
-          vec3 resR = fungalFractal(p + glitchOffset);
-          vec3 resG = fungalFractal(p);
-          vec3 resB = fungalFractal(p - glitchOffset);
-          
-          // Map smooth iteration count to Acid Neon palette
-          vec3 colR = acidNeon(resR.x * 0.04 - u_time * 0.4);
-          vec3 colG = acidNeon(resG.x * 0.04 - u_time * 0.4);
-          vec3 colB = acidNeon(resB.x * 0.04 - u_time * 0.4);
-          
-          // Combine separated channels
-          vec3 color = vec3(colR.r, colG.g, colB.b);
-          
-          // Interior of the fractal (did not escape)
-          if(resG.x == 0.0) {
-              color = vec3(0.02, 0.0, 0.05); // Void black
-          }
-          
-          // ============================================================
-          // STRUCTURAL COLOR IN ORBIT TRAPS (Repo 4)
-          // ============================================================
-          float avgTrap = (resR.y + resG.y + resB.y) / 3.0;
-          vec3 iri = iridescence(avgTrap * 3.0 - u_time * 0.2);
-          color = mix(color, iri, exp(-avgTrap * 12.0));
-          
-          // ============================================================
-          // WHITE ROT BLEACHING (Repo 5)
-          // ============================================================
-          float avgFungus = (resR.z + resG.z + resB.z) / 3.0;
-          color = mix(color, vec3(0.8, 1.0, 0.7), smoothstep(0.2, 0.7, avgFungus));
-          
-          // ============================================================
-          // HALFTONE PRINT ARTIFACT OVERLAY (Repo 9)
-          // ============================================================
-          float luma = dot(color, vec3(0.299, 0.587, 0.114));
-          float ht = halftone(gl_FragCoord.xy, luma);
-          
-          // Multiply blend with a toxic deep-purple ink base
-          vec3 inkColor = mix(vec3(0.1, 0.0, 0.2), vec3(1.0), ht);
-          color *= inkColor;
-          
-          // Additive screen blend for intense neon pop
-          color += (1.0 - ht) * vec3(0.1, 0.3, 0.1) * smoothstep(0.5, 1.0, luma);
-          
-          // Vignette
-          float vignette = 1.0 - smoothstep(0.3, 1.4, length(vUv - 0.5));
-          color *= vignette;
-          
-          fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
-      }
-    `;
+            // --- REPO 4: Structural Color / Thin Film Interference ---
+            vec3 thinFilm(float d, float n_film) {
+                vec3 lambda = vec3(650.0, 530.0, 440.0); // RGB wavelengths in nm
+                float pathDiff = 2.0 * n_film * d * 1000.0;
+                vec3 phase = (pathDiff / lambda) * TAU;
+                return 0.5 + 0.5 * cos(phase);
+            }
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
-    });
+            // --- REPO 1 & 5: Celtic Burning Ship + Mycelial Infestation ---
+            vec4 map(vec2 p, float ca_shift) {
+                vec2 z = p;
+                // Base coordinate drift
+                vec2 c = p + vec2(sin(u_time * 0.15), cos(u_time * 0.11)) * 0.4;
+                
+                // Mouse-driven psychic attractor
+                c += (u_mouse - 0.5) * 1.5;
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
+                float trap_hyphae = 1e10; 
+                float trap_spores = 1e10; 
+                float iter = 0.0;
+                float final_d2 = 0.0;
 
-    canvas.__three = { renderer, scene, camera, material };
-  }
+                for(int i = 0; i < MAX_ITER; i++) {
+                    // Celtic Burning Ship iteration (Repo 1)
+                    float rx = z.x * z.x - z.y * z.y;
+                    z = vec2(abs(rx) + c.x, 2.0 * z.x * z.y + c.y);
 
-  const { renderer, scene, camera, material } = canvas.__three;
+                    // Semantic Infestation: Domain warping inside the fractal loop (Repo 5)
+                    // Simulates anastomosing hyphae seeking nutrients
+                    z += 0.06 * vec2(fbm(z * 4.0 + u_time * 0.5), fbm(z * 4.0 - u_time * 0.5));
 
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
+                    // Orbit Traps
+                    trap_hyphae = min(trap_hyphae, abs(z.x * z.y)); // Cross trap -> mycelial grid
+                    trap_spores = min(trap_spores, length(z - vec2(0.6, -0.6))); // Point trap -> fruiting bodies
 
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
+                    final_d2 = dot(z, z);
+                    if(final_d2 > BAILOUT) break;
+                    iter++;
+                }
+
+                float smooth_n = iter;
+                if(iter < float(MAX_ITER)) {
+                    smooth_n += 1.0 - log2(log2(final_d2) * 0.5);
+                }
+
+                return vec4(smooth_n, trap_hyphae, trap_spores, length(z));
+            }
+
+            #define TAU 6.28318530718
+
+            void main() {
+                vec2 uv = (vUv - 0.5) * 2.0;
+                uv.x *= u_resolution.x / u_resolution.y;
+
+                // Projective Poincare mapping (folding the screen into an infinite cathedral)
+                float r2 = dot(uv, uv);
+                vec2 p = uv / (1.0 + r2 * 0.15 * sin(u_time * 0.2));
+
+                // Zoom & Pan
+                float zoom = 1.8 - sin(u_time * 0.1) * 0.6;
+                p *= zoom;
+
+                // Chromatic aberration (Glitch Neon Composite pipeline - Repo 9)
+                float shift = 0.02 * fbm(uv * 12.0 + u_time);
+
+                // Multi-channel fractal sampling for RGB split
+                vec4 resR = map(p + vec2(shift, 0.0), shift);
+                vec4 resG = map(p, 0.0);
+                vec4 resB = map(p - vec2(shift, 0.0), -shift);
+
+                // Base Coloring: Escape Time -> Acid Vibration
+                vec3 col;
+                col.r = acidPalette(resR.x * 0.04 - u_time * 0.3).r;
+                col.g = acidPalette(resG.x * 0.04 - u_time * 0.3).g;
+                col.b = acidPalette(resB.x * 0.04 - u_time * 0.3).b;
+
+                // Inject Structural Color via Mycelial Trap
+                // Iridescent Bragg reflection on the "hyphae" edges
+                vec3 film = thinFilm(resG.y * 0.3, 1.56); // Chitin refractive index approx 1.56
+                col = mix(col, film, exp(-resG.y * 6.0));
+
+                // Spore Trap Glow (Occult Jewel palette accent)
+                float sporeGlow = exp(-resG.z * 4.0);
+                col += vec3(1.0, 0.0, 0.8) * sporeGlow * 2.0; // Electric Magenta
+
+                // --- REPO 9: Print Artifacts (Halftone Screen & Xerox Noise) ---
+                float luma = dot(col, vec3(0.299, 0.587, 0.114));
+                float freq = 140.0;
+                mat2 rot = mat2(0.707, -0.707, 0.707, 0.707); // 45 degree screen angle
+                vec2 grid = fract(rot * vUv * freq) - 0.5;
+                float dotSize = sqrt(1.0 - luma) * 0.45;
+                float halftone = smoothstep(dotSize + 0.15, dotSize - 0.15, length(grid));
+
+                // Blend halftone aggressively to simulate 60s acid poster
+                col *= mix(vec3(0.05, 0.0, 0.15), vec3(1.0), halftone);
+
+                // CMYK Misregistration & Xerox Streak
+                col.r += 0.15 * noise(uv * 80.0 + u_time * 2.0);
+                col.b += 0.15 * noise(uv * 80.0 - u_time * 2.0);
+                float xerox_streak = smoothstep(0.8, 1.0, noise(vec2(uv.y * 10.0, u_time)));
+                col += xerox_streak * 0.1;
+
+                // Vignette frame burn
+                col *= 1.0 - smoothstep(0.3, 1.8, length(vUv - 0.5));
+
+                fragColor = vec4(col, 1.0);
+            }
+        `;
+
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+                u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
+            },
+            vertexShader,
+            fragmentShader
+        });
+
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        canvas.__three = { renderer, scene, camera, material };
+    }
+
+    const { renderer, scene, camera, material } = canvas.__three;
+
+    if (material && material.uniforms) {
+        if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+        if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+        if (material.uniforms.u_mouse) {
+            // Normalize mouse to 0-1 range, default to center if unpressed to keep it alive
+            let mx = mouse.isPressed ? mouse.x / grid.width : 0.5 + Math.sin(time * 0.3) * 0.2;
+            let my = mouse.isPressed ? 1.0 - (mouse.y / grid.height) : 0.5 + Math.cos(time * 0.25) * 0.2;
+            material.uniforms.u_mouse.value.set(mx, my);
+        }
+    }
+
+    renderer.setSize(grid.width, grid.height, false);
+    renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("WebGL Initialization or Render Failed:", e);
+    console.error("WebGL Initialization Failed. The Weird Code Guy requires a WebGL2 context.", e);
 }
