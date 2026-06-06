@@ -1,134 +1,155 @@
-// [THE FRACTAL IS NOT A SHAPE. IT IS AN INFECTION.]
-// Injecting mycelial network logic into an Iterated Function System (Sierpinski).
-// Applying VHS tracking tears (damage_aesthetics), CMYK misregistration (psychedelic_collage),
-// and Thin-Film Interference phase mapping (structural_color) against a Void Background (merrys_visual_bible).
+const w = grid.width;
+const h = grid.height;
+const cx = w / 2;
+const cy = h / 2;
 
-if (!canvas.__feral_sierpinski) {
-    canvas.__feral_sierpinski = {
-        x: grid.width / 2,
-        y: grid.height / 2,
-        history: []
+// [THE VOID RULE] - Initialize the feral substrate
+if (!canvas.__feralSierpinski) {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, w, h);
+    
+    // Initialize fungal spores (agents for the Iterated Function System)
+    canvas.__feralSierpinski = {
+        points: Array.from({length: 200}, () => ({
+            x: cx + (Math.random() - 0.5) * 10, 
+            y: cy + (Math.random() - 0.5) * 10,
+            r: 255, g: 255, b: 255,
+            ox: cx, oy: cy
+        }))
     };
-    // Initial void flood
-    ctx.fillStyle = '#020105';
-    ctx.fillRect(0, 0, grid.width, grid.height);
 }
+const state = canvas.__feralSierpinski;
 
-const state = canvas.__feral_sierpinski;
-const cx = grid.width / 2;
-const cy = grid.height / 2;
-const maxRad = Math.min(cx, cy) * 0.8;
-
-// [THE VOID RULE & PHOSPHOR SMEAR]
-// We don't clear the screen. We let the history decay into the void.
+// 1. ENVIRONMENTAL DECAY & OUTWARD GROWTH PRESSURE
+// (Repo: Damage Aesthetics - Copy of Copy Decay + Repo: Mycelial Networks - Expansion)
 ctx.globalCompositeOperation = 'source-over';
-ctx.fillStyle = 'rgba(2, 1, 5, 0.06)'; // Deep abyssal purple-black
-ctx.fillRect(0, 0, grid.width, grid.height);
+ctx.fillStyle = 'rgba(5, 5, 5, 0.07)';
+ctx.fillRect(0, 0, w, h);
 
-ctx.globalCompositeOperation = 'screen'; // Additive blending for neon bloom
+// Anastomosis drift / zoom feedback
+ctx.save();
+ctx.translate(cx, cy);
+ctx.rotate(Math.sin(time * 0.2) * 0.0015);
+ctx.scale(1.004, 1.004); // Fungal growth pressure
+ctx.translate(-cx, -cy);
+ctx.globalAlpha = 0.88;
+ctx.drawImage(canvas, 0, 0);
+ctx.restore();
 
-// Calculate drifting, breathing vertices (The geometry is alive)
-const vertices = [];
-for (let i = 0; i < 3; i++) {
-    // Orbital mechanics + machine hesitation
-    const angle = time * 0.15 + (i * Math.PI * 2) / 3;
-    const breath = 1.0 + 0.15 * Math.sin(time * 2.0 + i * 1.5);
-    vertices.push({
-        x: cx + Math.cos(angle) * maxRad * breath,
-        y: cy + Math.sin(angle) * maxRad * breath
-    });
-}
+// 2. DEFINE THE ATTRACTORS
+// (Repo: Psychedelic Collage - Cyberdelic Neon Palette + Radial Centered Composition)
+const R = Math.min(w, h) * 0.38 + Math.sin(time * 0.7) * 25.0;
+const rot = time * 0.2;
 
-// Introduce a parasitic 4th attractor (Bureaucratic Failure / Mutation)
+// The canonical Sierpinski anchors, but mutating
+const anchors = [
+    { x: cx + R * Math.cos(rot), y: cy + R * Math.sin(rot), c: [255, 107, 0] },         // Electric Orange
+    { x: cx + R * Math.cos(rot + 2.094), y: cy + R * Math.sin(rot + 2.094), c: [0, 255, 240] },   // Neon Cyan
+    { x: cx + R * Math.cos(rot + 4.188), y: cy + R * Math.sin(rot + 4.188), c: [255, 0, 200] }    // Hot Magenta
+];
+
+// The Parasite / Mythic Attractor (Repo: THE-LISTS - Divine Data Corruption)
+// A 4th anchor that orbits erratically, injecting chaos into the strict Sierpinski math
 const parasite = {
-    x: cx + Math.cos(time * 0.8) * maxRad * 0.3,
-    y: cy + Math.sin(time * 1.1) * maxRad * 0.3
+    x: cx + R * 0.6 * Math.cos(time * -1.4) * Math.sin(time * 0.5),
+    y: cy + R * 0.6 * Math.sin(time * 1.1) * Math.cos(time * 0.3),
+    c: [170, 255, 0] // Acid Lime
 };
 
-const ITERATIONS = 1500; // Dense maximalism
+// Draw the fruiting bodies (anchors)
+ctx.globalCompositeOperation = 'screen';
+for (let a of [...anchors, parasite]) {
+    let pulse = Math.max(0, 6 + Math.sin(time * 8 + a.x) * 3);
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, pulse, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${a.c[0]}, ${a.c[1]}, ${a.c[2]}, 0.15)`;
+    ctx.fill();
+}
 
-for (let i = 0; i < ITERATIONS; i++) {
-    // 1. CHOOSE TARGET
-    let target;
-    if (Math.random() < 0.02) {
-        // Occasional genetic misfire -> jump to parasite
-        target = parasite;
-    } else {
-        target = vertices[Math.floor(Math.random() * 3)];
-    }
+// 3. FERAL IFS ITERATION (The Wet Engine)
+const ITERS = 250; // Hits per frame per spore
 
-    // 2. MACHINE HESITATION RATIO
-    // Instead of a clean 0.5, the fold distance wavers based on biological pulsing
-    const ratio = 0.5 + 0.03 * Math.sin(time * 3.0 + state.x * 0.01);
-    
-    state.x += (target.x - state.x) * ratio;
-    state.y += (target.y - state.y) * ratio;
+for (let p of state.points) {
+    for (let i = 0; i < ITERS; i++) {
+        p.ox = p.x;
+        p.oy = p.y;
 
-    // 3. ANISOTROPIC CURL NOISE (Morphogenesis)
-    // The mathematical ideal is corrupted by organic curl
-    const nx = Math.sin(state.y * 0.015 + time) * 3.0;
-    const ny = Math.cos(state.x * 0.015 - time) * 3.0;
-    let wx = state.x + nx;
-    let wy = state.y + ny;
-
-    // 4. VHS TRACKING TEAR (damage_aesthetics)
-    // Horizontal shear based on vertical position and time
-    if (Math.abs(Math.sin(wy * 0.03 + time * 4.0)) > 0.96) {
-        wx += Math.sin(wy * 0.2) * 25.0; // Violent horizontal rip
-    }
-
-    // 5. THIN-FILM INTERFERENCE & ACID PALETTE (structural_color + color_fields)
-    // Distance from center drives the phase of the cosine palette
-    const dist = Math.hypot(wx - cx, wy - cy);
-    const phase = dist * 0.005 - time * 1.5;
-
-    // IQ Cosine Palette: "Neon Acid" variant
-    const rCol = 0.5 + 0.5 * Math.cos(6.28318 * (2.0 * phase + 0.5));
-    const gCol = 0.5 + 0.5 * Math.cos(6.28318 * (1.0 * phase + 0.2));
-    const bCol = 0.5 + 0.33 * Math.cos(6.28318 * (1.0 * phase + 0.25));
-
-    // 6. CMYK MISREGISTRATION / CHROMATIC ABERRATION
-    // Split the RGB channels spatially
-    const offset = 1.5 + Math.sin(time * 5.0 + i) * 1.5;
-    
-    // Fungal spore size (Halftone illusion)
-    const rad = Math.max(0.5, 1.5 + Math.sin(phase * 10.0));
-
-    // Draw Red Channel
-    ctx.fillStyle = `rgba(${Math.floor(rCol * 255)}, 0, 0, 0.7)`;
-    ctx.beginPath(); ctx.arc(wx - offset, wy, rad, 0, Math.PI * 2); ctx.fill();
-
-    // Draw Green Channel
-    ctx.fillStyle = `rgba(0, ${Math.floor(gCol * 255)}, 0, 0.7)`;
-    ctx.beginPath(); ctx.arc(wx + offset, wy, rad, 0, Math.PI * 2); ctx.fill();
-
-    // Draw Blue Channel
-    ctx.fillStyle = `rgba(0, 0, ${Math.floor(bCol * 255)}, 0.7)`;
-    ctx.beginPath(); ctx.arc(wx, wy - offset, rad, 0, Math.PI * 2); ctx.fill();
-
-    // 7. ANASTOMOSIS (mycelial_networks)
-    // If spores land near recent spores, they fuse into glowing hyphal threads
-    for (let pt of state.history) {
-        const d = Math.hypot(wx - pt.x, wy - pt.y);
-        if (d > 2.0 && d < 12.0) {
-            ctx.strokeStyle = `rgba(${Math.floor(rCol*200)}, ${Math.floor(gCol*200)}, 255, 0.15)`;
-            ctx.lineWidth = 0.5;
+        // Pick an anchor
+        let a;
+        let isParasite = Math.random() < 0.09; // 9% chance to follow parasite logic
+        if (isParasite) {
+            a = parasite;
+        } else {
+            a = anchors[Math.floor(Math.random() * 3)];
+        }
+        
+        // Machine Hesitation / Fungal Distortion
+        // Instead of the pristine 0.5 ratio of a Sierpinski gasket, the ratio warps based on spatial noise
+        let hesitation = 0.5 
+            + 0.045 * Math.sin(p.x * 0.015 + time) 
+            + 0.045 * Math.cos(p.y * 0.015 - time * 0.8);
+        
+        if (isParasite) hesitation = 0.58; // Parasite pulls with a different gravitational weight
+        
+        p.x += (a.x - p.x) * hesitation;
+        p.y += (a.y - p.y) * hesitation;
+        
+        // Chromatic assimilation (Spore absorbs the anchor's color)
+        p.r = p.r * 0.88 + a.c[0] * 0.12;
+        p.g = p.g * 0.88 + a.c[1] * 0.12;
+        p.b = p.b * 0.88 + a.c[2] * 0.12;
+        
+        // Orbit Traps (Repo: Fractals - Orbit trap shimmer)
+        let dCenter = Math.hypot(p.x - cx, p.y - cy);
+        let dParasite = Math.hypot(p.x - parasite.x, p.y - parasite.y);
+        
+        let size = 1.2;
+        let alpha = 0.35;
+        
+        // Trap 1: The Core (Gumball aesthetic)
+        if (dCenter < R * 0.18) {
+            size = 2.8;
+            alpha = 0.8;
+        }
+        // Trap 2: Parasitic Halo (Glitter mold)
+        else if (dParasite < R * 0.25) {
+            size = 2.0;
+            alpha = 0.6;
+        }
+        
+        // Deposit spore
+        ctx.fillStyle = `rgba(${p.r | 0}, ${p.g | 0}, ${p.b | 0}, ${alpha})`;
+        ctx.fillRect(p.x, p.y, size, size);
+        
+        // Mycelial Cord Formation / Anastomosis (Repo: Mycelial Networks)
+        // Occasionally draw the path the spore took, simulating hyphal threads
+        if (Math.random() < 0.0015) {
+            ctx.strokeStyle = `rgba(${p.r | 0}, ${p.g | 0}, ${p.b | 0}, 0.5)`;
+            ctx.lineWidth = 0.6;
             ctx.beginPath();
-            ctx.moveTo(wx, wy);
-            ctx.lineTo(pt.x, pt.y);
+            ctx.moveTo(p.ox, p.oy);
+            // Curvature injection for organic feel
+            let cx_ctrl = (p.ox + p.x) / 2 + (Math.random() - 0.5) * 30;
+            let cy_ctrl = (p.oy + p.y) / 2 + (Math.random() - 0.5) * 30;
+            ctx.quadraticCurveTo(cx_ctrl, cy_ctrl, p.x, p.y);
             ctx.stroke();
         }
     }
+}
 
-    // 8. FRUITING BODIES (Gross-but-cute mold blooms)
-    if (Math.random() < 0.001) {
-        ctx.fillStyle = `rgba(255, 255, 255, 0.9)`;
-        ctx.beginPath(); 
-        ctx.arc(wx, wy, Math.random() * 4 + 2, 0, Math.PI * 2); 
-        ctx.fill();
-    }
-
-    // Update spatial memory
-    state.history.push({ x: wx, y: wy });
-    if (state.history.length > 8) state.history.shift();
+// 4. GLITCH / ABERRATION PASS (Repo: Damage Aesthetics - Scanline Dropout)
+// Emulate "Divine Data Corruption" via periodic horizontal tearing
+if (Math.random() < 0.08) {
+    let sliceY = Math.random() * h;
+    let sliceH = Math.random() * 15 + 2;
+    let shiftX = (Math.random() - 0.5) * 12;
+    
+    ctx.globalCompositeOperation = 'source-over';
+    // Copy a horizontal slice and shift it
+    ctx.drawImage(canvas, 0, sliceY, w, sliceH, shiftX, sliceY, w, sliceH);
+    
+    // Add RGB split halo to the tear
+    ctx.fillStyle = 'rgba(255, 0, 200, 0.1)';
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillRect(shiftX, sliceY, w, sliceH);
 }
