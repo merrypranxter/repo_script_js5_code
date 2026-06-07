@@ -1,235 +1,226 @@
-try {
-  if (!ctx) throw new Error("WebGL 2 context not available");
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
-  if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({
-      canvas: canvas,
-      context: ctx,
-      alpha: true,
-      antialias: true,
-      powerPreference: "high-performance"
-    });
-    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+
     const vertexShader = `
-      in vec3 position;
-      in vec2 uv;
       out vec2 vUv;
       void main() {
         vUv = uv;
-        gl_Position = vec4(position, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `;
 
     const fragmentShader = `
-      uniform float u_time;
-      uniform vec2 u_resolution;
       in vec2 vUv;
       out vec4 fragColor;
 
-      // --- Feral Noise Engine ---
-      vec2 hash22(vec2 p) {
+      uniform float u_time;
+      uniform vec2 u_resolution;
+
+      // --- Hash & Noise Functions ---
+      vec2 hash2(vec2 p) {
         p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-        return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+        return fract(sin(p) * 43758.5453123);
       }
 
-      float snoise(vec2 p) {
-        const float K1 = 0.366025404; 
-        const float K2 = 0.211324865; 
-        vec2 i = floor(p + (p.x + p.y) * K1);
-        vec2 a = p - i + (i.x + i.y) * K2;
-        float m = step(a.y, a.x);
-        vec2 o = vec2(m, 1.0 - m);
-        vec2 b = a - o + K2;
-        vec2 c = a - 1.0 + 2.0 * K2;
-        vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
-        vec3 n = h * h * h * h * vec3(dot(a, hash22(i + 0.0)), dot(b, hash22(i + o)), dot(c, hash22(i + 1.0)));
-        return dot(n, vec3(70.0));
+      float hash1(vec2 p) {
+        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash1(i);
+        float b = hash1(i + vec2(1.0, 0.0));
+        float c = hash1(i + vec2(0.0, 1.0));
+        float d = hash1(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
       }
 
       float fbm(vec2 p) {
-        float f = 0.0;
-        float amp = 0.5;
-        for(int i = 0; i < 5; i++) {
-          f += amp * snoise(p);
-          p = p * 2.0 + vec2(1.23, 4.56);
-          amp *= 0.5;
+        float v = 0.0;
+        float a = 0.5;
+        for (int i = 0; i < 5; i++) {
+          v += a * noise(p);
+          p *= 2.0;
+          a *= 0.5;
         }
-        return f;
+        return v;
       }
 
-      // --- Structural Topology ---
-      // Combines Mycelial anastomosis, Resist Dye crackle, and fluid domain warping
-      float structural_density(vec2 p, float t_slow, float t_med) {
-        // Domain Warp (Slow drift)
-        vec2 warp1 = vec2(fbm(p + t_slow), fbm(p + vec2(5.2, 1.3) - t_slow));
-        vec2 warp2 = vec2(fbm(p + 2.0 * warp1 + t_med), fbm(p + 2.0 * warp1 - t_med));
-        p += warp2 * 0.3;
+      // --- Crackle Network (Anisotropic Voronoi) ---
+      // Adapted from resist_dye_patterns (wax crackle) and mycelial_networks (anastomosis)
+      vec3 voronoi(vec2 p) {
+        vec2 n = floor(p);
+        vec2 f = fract(p);
+        float F1 = 8.0;
+        float F2 = 8.0;
+        vec2 mr;
+        for (int j = -1; j <= 1; j++) {
+          for (int i = -1; i <= 1; i++) {
+            vec2 g = vec2(float(i), float(j));
+            vec2 o = hash2(n + g);
+            // Medium Time Scale: Structural Motion / Cell Jitter
+            o = 0.5 + 0.5 * sin(u_time * 0.3 + 6.2831 * o);
+            vec2 r = g - f + o;
+            float d = dot(r, r);
+            if (d < F1) {
+              F2 = F1;
+              F1 = d;
+              mr = r;
+            } else if (d < F2) {
+              F2 = d;
+            }
+          }
+        }
+        return vec3(sqrt(F1), sqrt(F2), F2 - F1);
+      }
 
-        // Base structural mass
-        float mass = fbm(p * 3.0);
+      // --- Perceptual Color Math (OKLab) ---
+      // Sourced from color_systems repo to prevent muddy midpoints
+      vec3 linear_srgb_to_oklab(vec3 c) {
+        float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+        float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+        float s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+        float l_ = pow(max(l, 0.0), 1.0/3.0);
+        float m_ = pow(max(m, 0.0), 1.0/3.0);
+        float s_ = pow(max(s, 0.0), 1.0/3.0);
+        return vec3(
+          0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+          1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+          0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+        );
+      }
 
-        // Resist Dye Crackle / Mycelial Veins
-        float n1 = fbm(p * 8.0);
-        float n2 = fbm(p * 8.0 + 10.0);
-        float veins = 1.0 - smoothstep(0.0, 0.08, abs(n1 - n2));
+      vec3 oklab_to_linear_srgb(vec3 c) {
+        float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
+        float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
+        float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
+        float l = l_ * l_ * l_;
+        float m = m_ * m_ * m_;
+        float s = s_ * s_ * s_;
+        return vec3(
+           4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        );
+      }
 
-        // Turing-like activation/inhibition spots
-        float act = fbm(p * 15.0 - t_med * 0.5);
-        float inh = fbm(p * 5.0 + t_med * 0.5);
-        float spots = smoothstep(0.1, 0.4, act - inh * 0.5);
-
-        return mass * 0.5 + veins * 0.35 + spots * 0.15;
+      vec3 oklab_mix(vec3 c1, vec3 c2, float t) {
+        vec3 o1 = linear_srgb_to_oklab(c1);
+        vec3 o2 = linear_srgb_to_oklab(c2);
+        return oklab_to_linear_srgb(mix(o1, o2, t));
       }
 
       void main() {
-        // --- Three Time Scales ---
-        float t_slow = u_time * 0.05;
-        float t_med  = u_time * 0.25;
-        float t_fast = u_time * 2.0;
-
-        // Aspect ratio correction
-        vec2 uv = vUv;
+        vec2 uv = vUv * 2.0 - 1.0;
         uv.x *= u_resolution.x / u_resolution.y;
-        uv *= 1.5; // Scale
 
-        // --- CMYK Misregistration & Chromatic Aberration ---
-        // Calculate dynamic offsets for color channels
-        vec2 offset_dir = normalize(vec2(fbm(uv * 4.0), fbm(uv * 4.0 + 3.14)));
-        float aberration = 0.015 + 0.01 * snoise(uv * 2.0 + t_fast * 0.5);
+        // --- Slow Time Scale: Tectonic Domain Warping ---
+        // Simulates the slow creeping growth of a fungal mat
+        vec2 warp = vec2(
+          fbm(uv * 1.5 + u_time * 0.015),
+          fbm(uv * 1.5 - u_time * 0.012 + 10.0)
+        );
+        vec2 w_uv = uv + warp * 0.5;
 
-        vec2 uv_C = uv + offset_dir * aberration;
-        vec2 uv_M = uv;
-        vec2 uv_Y = uv - offset_dir * aberration;
+        // --- Medium Time Scale: Crackle & Anastomosis ---
+        vec3 v = voronoi(w_uv * 3.0);
+        vec3 v_micro = voronoi(w_uv * 15.0 - warp);
 
-        // Evaluate physical thickness for each channel
-        float d_C = structural_density(uv_C, t_slow, t_med);
-        float d_M = structural_density(uv_M, t_slow, t_med);
-        float d_Y = structural_density(uv_Y, t_slow, t_med);
+        // Calculate crack lines (F2 - F1)
+        float crack = smoothstep(0.12, 0.0, v.z);
+        float micro_crack = smoothstep(0.04, 0.0, v_micro.z) * 0.8;
+        
+        // Combine into a hierarchical network
+        float network = max(crack, micro_crack * smoothstep(0.2, 0.6, v.x));
 
-        // --- Thin-Film Interference / Fabry-Perot Peaks ---
-        // Map thickness to sharp interference bands
-        float band_C = pow(sin(d_C * 35.0 - t_slow * 10.0) * 0.5 + 0.5, 16.0);
-        float band_M = pow(sin(d_M * 38.0 - t_slow * 10.0 + 1.0) * 0.5 + 0.5, 16.0);
-        float band_Y = pow(sin(d_Y * 42.0 - t_slow * 10.0 + 2.0) * 0.5 + 0.5, 16.0);
+        // --- Fast Time Scale: Thin-Film Interference Shimmer ---
+        // Derived from structural_color repo (Bragg reflection & iridescence)
+        // Film thickness varies based on distance to the cell edge
+        float thickness = v.x + fbm(uv * 25.0) * 0.2;
+        
+        // High-frequency phase shifting
+        float phase_c = thickness * 15.0 - u_time * 2.1;
+        float phase_m = thickness * 18.0 - u_time * 3.4;
+        float phase_y = thickness * 12.0 - u_time * 2.7;
 
-        // Add base structural fill to prevent complete darkness
-        float fill_C = smoothstep(0.3, 0.8, d_C) * 0.4;
-        float fill_M = smoothstep(0.3, 0.8, d_M) * 0.4;
-        float fill_Y = smoothstep(0.3, 0.8, d_Y) * 0.4;
+        // Constructive/destructive interference waves
+        float ic = 0.5 + 0.5 * cos(phase_c);
+        float im = 0.5 + 0.5 * cos(phase_m);
+        float iy = 0.5 + 0.5 * cos(phase_y);
 
-        float val_C = max(band_C, fill_C);
-        float val_M = max(band_M, fill_M);
-        float val_Y = max(band_Y, fill_Y);
+        // Neon CMY Palette
+        vec3 CYAN = vec3(0.0, 1.0, 1.0);
+        vec3 MAGENTA = vec3(1.0, 0.0, 1.0);
+        vec3 YELLOW = vec3(1.0, 1.0, 0.0);
 
-        // --- Physical Depth & Lighting ---
-        // Compute pseudo-normals from the master density map
-        float eps = 0.002;
-        float h0 = d_M;
-        float hx = structural_density(uv_M + vec2(eps, 0.0), t_slow, t_med);
-        float hy = structural_density(uv_M + vec2(0.0, eps), t_slow, t_med);
-        vec3 normal = normalize(vec3(h0 - hx, h0 - hy, 0.025));
+        // Perceptually uniform mixing for vibrant structural color
+        vec3 structColor = oklab_mix(CYAN, MAGENTA, im);
+        structColor = oklab_mix(structColor, YELLOW, iy);
+        
+        // Amplify intensity where interference aligns constructively
+        float shimmer = pow(ic * im * iy, 0.4) * 2.5;
+        structColor *= (0.4 + shimmer);
 
-        // Dynamic light source (Fast Shimmer)
-        vec3 light_pos = vec3(sin(t_fast * 0.7), cos(t_fast * 0.9), 0.8);
-        vec3 light_dir = normalize(light_pos - vec3(vUv * 2.0 - 1.0, 0.0));
+        // --- Material Synthesis ---
+        // Laccase stain / Enzymatic halo bleeding from the cracks
+        float halo = smoothstep(0.4, 0.0, v.z);
+        vec3 haloColor = oklab_mix(vec3(0.0), structColor, pow(halo, 1.5) * 0.6);
 
-        float diff = max(dot(normal, light_dir), 0.0);
-        float spec = pow(max(dot(reflect(-light_dir, normal), vec3(0.0, 0.0, 1.0)), 0.0), 24.0);
+        // Deep void substrate (textured black)
+        float voidNoise = fbm(w_uv * 20.0);
+        vec3 voidColor = vec3(0.01 + 0.02 * voidNoise);
 
-        // Modulate values by lighting
-        val_C = val_C * (0.4 + 0.6 * diff) + spec * 0.6;
-        val_M = val_M * (0.4 + 0.6 * diff) + spec * 0.6;
-        val_Y = val_Y * (0.4 + 0.6 * diff) + spec * 0.6;
+        // Composite the material layers
+        vec3 finalColor = mix(voidColor, haloColor, halo);
+        finalColor = mix(finalColor, structColor * 1.5, network);
 
-        // --- Color Synthesis (Void Black + Neon CMY) ---
-        vec3 void_black = vec3(0.015, 0.02, 0.025);
-        vec3 neon_C = vec3(0.0, 1.0, 0.94);
-        vec3 neon_M = vec3(1.0, 0.0, 0.8);
-        vec3 neon_Y = vec3(1.0, 0.9, 0.0);
+        // Add physical substance (film grain / chitin micro-texture)
+        float grain = hash1(uv * (u_time + 1.0)) * 0.15;
+        finalColor += grain * (network + halo * 0.5);
 
-        vec3 color = void_black;
-        // Screen Blend layering
-        color = 1.0 - (1.0 - color) * (1.0 - neon_C * clamp(val_C, 0.0, 1.0));
-        color = 1.0 - (1.0 - color) * (1.0 - neon_M * clamp(val_M, 0.0, 1.0));
-        color = 1.0 - (1.0 - color) * (1.0 - neon_Y * clamp(val_Y, 0.0, 1.0));
+        // Simple Reinhard tone mapping / Gamma
+        finalColor = pow(clamp(finalColor, 0.0, 1.0), vec3(1.0/2.2));
 
-        // Ambient Occlusion (darken deep crevices)
-        color *= smoothstep(-0.1, 0.6, h0);
-
-        // --- Xerox Grain / Film Texture (Fast) ---
-        float grain = fract(sin(dot(gl_FragCoord.xy + t_fast, vec2(12.9898, 78.233))) * 43758.5453);
-        // Soft light blend for grain
-        vec3 grain_vec = vec3(grain);
-        color = mix(color, color * (1.0 + (grain_vec - 0.5) * 0.5), 0.65);
-
-        // Vignette
-        vec2 centered = vUv * 2.0 - 1.0;
-        float vig = dot(centered, centered);
-        color *= 1.0 - vig * 0.35;
-
-        // Posterize slightly to enhance the 'printed' acid aesthetic
-        color = smoothstep(0.02, 0.98, color);
-
-        fragColor = vec4(color, 1.0);
+        fragColor = vec4(finalColor, 1.0);
       }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
         u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
       },
+      vertexShader,
+      fragmentShader,
       depthWrite: false,
       depthTest: false
     });
 
-    const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-      -1.0, -1.0, 0.0,
-       1.0, -1.0, 0.0,
-      -1.0,  1.0, 0.0,
-       1.0, -1.0, 0.0,
-       1.0,  1.0, 0.0,
-      -1.0,  1.0, 0.0
-    ]);
-    const uvs = new Float32Array([
-      0.0, 0.0,
-      1.0, 0.0,
-      0.0, 1.0,
-      1.0, 0.0,
-      1.0, 1.0,
-      0.0, 1.0
-    ]);
-    
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
 
     canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
   }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) {
-      material.uniforms.u_time.value = time;
-    }
-    if (material.uniforms.u_resolution) {
-      material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    }
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("WebGL Initialization or Render Failed:", e);
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
