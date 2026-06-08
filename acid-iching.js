@@ -1,205 +1,241 @@
-try {
-  if (!ctx) throw new Error("WebGL 2 context not available");
+// THE WEIRD CODE GUY - KIYOSHI-ABSORBER-V1 MODULE
+// [ALCHEMICAL SCRIPTURE W-10]: XOR-Ghost Manifold applied to Fungal Bureaucracy
+// 
+// DIRECTIVE: Procedural Material. No character grids.
+// MECHANISM: I-Ching FBM. The 64 hexagrams are not symbols; they are 6-dimensional 
+// spatial frequencies evaluating at every pixel to create a topographic, gummy, 
+// iridescent "candy" resin. Moving lines (transitions) trigger photon starvation
+// and holographic thin-film interference.
 
-  if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
-    camera.position.z = 1;
+if (!canvas.__three) {
+    try {
+        if (!ctx) throw new Error("WebGL 2 context not available. The wet engine requires hardware acceleration.");
+        
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+        
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
+            
+            uniform float u_time;
+            uniform vec2 u_resolution;
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
+            // [LITHOGENESIS MODULE]: 3D Simplex Noise for organic base
+            vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+            vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+            float snoise(vec3 v){ 
+                const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+                const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+                vec3 i  = floor(v + dot(v, C.yyy) );
+                vec3 x0 = v - i + dot(i, C.xxx) ;
+                vec3 g = step(x0.yzx, x0.xyz);
+                vec3 l = 1.0 - g;
+                vec3 i1 = min( g.xyz, l.zxy );
+                vec3 i2 = max( g.xyz, l.zxy );
+                vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+                vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+                vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
+                i = mod(i, 289.0 ); 
+                vec4 p = permute( permute( permute( 
+                           i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                         + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+                         + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+                float n_ = 1.0/7.0;
+                vec3  ns = n_ * D.wyz - D.xzx;
+                vec4 j = p - 49.0 * floor(p * ns.z *ns.z);
+                vec4 x_ = floor(j * ns.z);
+                vec4 y_ = floor(j - 7.0 * x_ );
+                vec4 x = x_ *ns.x + ns.yyyy;
+                vec4 y = y_ *ns.x + ns.yyyy;
+                vec4 h = 1.0 - abs(x) - abs(y);
+                vec4 b0 = vec4( x.xy, y.xy );
+                vec4 b1 = vec4( x.zw, y.zw );
+                vec4 s0 = floor(b0)*2.0 + 1.0;
+                vec4 s1 = floor(b1)*2.0 + 1.0;
+                vec4 sh = -step(h, vec4(0.0));
+                vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+                vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+                vec3 p0 = vec3(a0.xy,h.x);
+                vec3 p1 = vec3(a0.zw,h.y);
+                vec3 p2 = vec3(a1.xy,h.z);
+                vec3 p3 = vec3(a1.zw,h.w);
+                vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+                p0 *= norm.x;
+                p1 *= norm.y;
+                p2 *= norm.z;
+                p3 *= norm.w;
+                vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                m = m * m;
+                return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
+                                              dot(p2,x2), dot(p3,x3) ) );
+            }
 
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
+            // [ACIDIC CANDY POP PALETTE]
+            // Extracts raw neon values mapped to the 64 hexagram states
+            vec3 getAcidCandyColor(float hex_norm) {
+                // Base Cosine Palette (Neon Acid)
+                vec3 a = vec3(0.5, 0.5, 0.5);
+                vec3 b = vec3(0.5, 0.5, 0.5);
+                vec3 c = vec3(1.0, 1.0, 1.0);
+                vec3 d = vec3(0.3, 0.2, 0.8);
+                vec3 col = a + b * cos(6.28318 * (c * hex_norm + d));
+                
+                // Inject extreme acidic colors based on specific hexagram resonance frequencies
+                float pink_mask = smoothstep(0.85, 1.0, sin(hex_norm * 3.14159 * 4.0));
+                col = mix(col, vec3(1.0, 0.08, 0.58), pink_mask); // Hot Pink
+                
+                float lime_mask = smoothstep(0.85, 1.0, sin(hex_norm * 3.14159 * 7.0 + 1.0));
+                col = mix(col, vec3(0.74, 0.95, 0.05), lime_mask); // Toxic Lime
+                
+                float cyan_mask = smoothstep(0.85, 1.0, sin(hex_norm * 3.14159 * 5.0 + 2.0));
+                col = mix(col, vec3(0.05, 0.95, 0.86), cyan_mask); // Electric Cyan
+                
+                float yellow_mask = smoothstep(0.85, 1.0, sin(hex_norm * 3.14159 * 3.0 + 3.0));
+                col = mix(col, vec3(0.95, 0.95, 0.05), yellow_mask); // Sour Yellow
+                
+                return col;
+            }
 
-      // 2D Simplex Noise
-      vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
-      float snoise(vec2 v){
-          const vec4 C = vec4(0.211324865405187, 0.366025403784439,
-                   -0.577350269189626, 0.024390243902439);
-          vec2 i  = floor(v + dot(v, C.yy) );
-          vec2 x0 = v -   i + dot(i, C.xx);
-          vec2 i1;
-          i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-          vec4 x12 = x0.xyxy + C.xxzz;
-          x12.xy -= i1;
-          i = mod(i, 289.0);
-          vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
-          + i.x + vec3(0.0, i1.x, 1.0 ));
-          vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
-            dot(x12.zw,x12.zw)), 0.0);
-          m = m*m ;
-          m = m*m ;
-          vec3 x = 2.0 * fract(p * C.www) - 1.0;
-          vec3 h = abs(x) - 0.5;
-          vec3 ox = floor(x + 0.5);
-          vec3 a0 = x - ox;
-          m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-          vec3 g;
-          g.x  = a0.x  * x0.x  + h.x  * x0.y;
-          g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-          return 130.0 * dot(m, g);
-      }
+            // [FUNGAL BUREAUCRACY MODULE]
+            // Evaluates the 6 bits of an I-Ching hexagram at a spatial coordinate,
+            // returning the physical height, the hexagram ID (0-63), and the "changing line" intensity.
+            void evaluateHexagramField(vec2 p, out float height, out float hex_id, out float changing) {
+                vec2 q = p;
+                height = 0.0;
+                hex_id = 0.0;
+                changing = 0.0;
+                
+                float amp = 1.0;
+                float freq = 1.0;
+                
+                for(int i = 0; i < 6; i++) {
+                    // Evaluate Yao (line) state
+                    float n = snoise(vec3(q * freq, u_time * 0.15 + float(i) * 11.3));
+                    
+                    // Bureaucratic Quantization: blend organic fluid with stepped terraces
+                    float terraced = mix(n, floor(n * 3.0 + 0.5) / 3.0, 0.6);
+                    height += terraced * amp;
+                    
+                    // Binary thresholding (Yin vs Yang)
+                    float bit = smoothstep(-0.05, 0.05, n);
+                    hex_id += bit * exp2(float(i));
+                    
+                    // Changing Lines (Old Yin 6 / Old Yang 9) occur when noise approaches threshold (0.0)
+                    float c_line = smoothstep(0.3, 0.0, abs(n));
+                    changing += c_line * exp2(float(i)) / 63.0;
+                    
+                    // [XOR-Ghost Manifold]: The current bit warps the spatial domain for the next bit
+                    float warp_angle = bit * 3.14159265 + (mod(hex_id, 8.0) / 8.0) * 6.28318 + u_time * 0.1;
+                    q += vec2(cos(warp_angle), sin(warp_angle)) * 0.25 * amp;
+                    
+                    freq *= 1.5;
+                    amp *= 0.55;
+                }
+            }
 
-      // I-Ching 6-bit Continuous Heightfield
-      // Evaluates 6 frequencies of noise to create a 64-level terraced landscape
-      float get_height(vec2 pos) {
-          float h = 0.0;
-          for(int i = 0; i < 6; i++) {
-              float fi = float(i);
-              float freq = 2.0 * pow(1.5, fi);
-              float speed = 0.15 * (fi + 1.0);
-              float n = snoise(pos * freq + u_time * speed * (mod(fi, 2.0) == 0.0 ? 1.0 : -1.0));
-              
-              // Smooth quantization to create "candy ridges"
-              float bit_weight = smoothstep(-0.08, 0.08, n);
-              h += bit_weight * pow(0.5, fi + 1.0);
-          }
-          return h;
-      }
+            void main() {
+                // Normalize and scale UV
+                vec2 uv = (vUv - 0.5) * (u_resolution.xy / min(u_resolution.x, u_resolution.y)) * 3.0;
+                
+                // Drift
+                uv += vec2(u_time * 0.05, u_time * 0.02);
 
-      // I-Ching 6-bit Discrete Evaluator
-      int get_hex(vec2 pos) {
-          int h = 0;
-          for(int i = 0; i < 6; i++) {
-              float fi = float(i);
-              float freq = 2.0 * pow(1.5, fi);
-              float speed = 0.15 * (fi + 1.0);
-              float n = snoise(pos * freq + u_time * speed * (mod(fi, 2.0) == 0.0 ? 1.0 : -1.0));
-              if(n > 0.0) h |= (1 << i);
-          }
-          return h;
-      }
+                float h, hex_id, changing;
+                evaluateHexagramField(uv, h, hex_id, changing);
+                
+                // [TENSOR BIAS]: Compute Sobel-like gradients for surface normals
+                float eps = 0.01;
+                float hX, tmp1, tmp2;
+                evaluateHexagramField(uv + vec2(eps, 0.0), hX, tmp1, tmp2);
+                float hY, tmp3, tmp4;
+                evaluateHexagramField(uv + vec2(0.0, eps), hY, tmp3, tmp4);
+                
+                // Normal vector of the gummy surface
+                vec3 N = normalize(vec3(h - hX, h - hY, eps * 3.0));
+                vec3 V = vec3(0.0, 0.0, 1.0);
+                
+                // Dynamic environmental lighting
+                vec3 L1 = normalize(vec3(sin(u_time * 0.5), cos(u_time * 0.5), 1.2));
+                vec3 L2 = normalize(vec3(-cos(u_time * 0.3), sin(u_time * 0.3), 0.8));
+                
+                // Base Material Color mapped from the 6-bit Hexagram identity
+                vec3 baseColor = getAcidCandyColor(hex_id / 63.0);
+                
+                // [PBR LIGHTING APPROXIMATION]
+                float diff1 = max(dot(N, L1), 0.0);
+                float diff2 = max(dot(N, L2), 0.0);
+                
+                vec3 H1 = normalize(L1 + V);
+                vec3 H2 = normalize(L2 + V);
+                
+                // Glossy wet candy specular
+                float spec1 = pow(max(dot(N, H1), 0.0), 64.0);
+                float spec2 = pow(max(dot(N, H2), 0.0), 32.0);
+                
+                // [OPTICAL PHENOMENA]: Thin-film interference on changing lines
+                float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+                vec3 interference = 0.5 + 0.5 * cos(6.28318 * (fresnel * 2.5 + changing * 4.0 + vec3(0.0, 0.33, 0.67)));
+                
+                // Combine Lighting
+                vec3 color = baseColor * (diff1 * 0.7 + diff2 * 0.3 + 0.3); // Ambient + Diffuse
+                color += (spec1 + spec2 * 0.5) * vec3(1.0); // Specular
+                
+                // Apply Holographic Iridescence where I-Ching lines are transitioning
+                color = mix(color, interference * 1.5, fresnel * 0.7 + changing * 0.6);
+                
+                // [GLITCH PROPHET]: High-frequency stochastic sparkle on highly volatile nodes
+                float sparkle_hash = fract(sin(dot(uv * 150.0, vec2(12.9898, 78.233))) * 43758.5453);
+                float sparkle = smoothstep(0.92, 1.0, sparkle_hash) * changing;
+                color += sparkle * vec3(1.0, 0.9, 1.0) * 3.0; 
+                
+                // Subsurface scattering glow in the valleys
+                float valleys = smoothstep(0.4, -0.4, h);
+                color += baseColor * valleys * 0.6;
 
-      // Acidic Candy Pop Trigram Palette
-      vec3 trigramColor(int tri) {
-          if(tri == 0) return vec3(0.8, 0.0, 0.5); // Earth - Hot Pink/Magenta
-          if(tri == 1) return vec3(0.6, 1.0, 0.0); // Thunder - Toxic Lime
-          if(tri == 2) return vec3(0.0, 1.0, 0.8); // Water - Electric Cyan
-          if(tri == 3) return vec3(1.0, 0.0, 0.8); // Lake - Bubblegum
-          if(tri == 4) return vec3(0.4, 0.0, 1.0); // Mountain - Deep Violet
-          if(tri == 5) return vec3(1.0, 0.2, 0.0); // Fire - Neon Orange
-          if(tri == 6) return vec3(0.0, 1.0, 0.3); // Wind - Sour Green
-          return vec3(1.0, 0.9, 0.0);              // Heaven - Radioactive Lemon
-      }
-
-      void main() {
-          // Aspect ratio correction and domain warping
-          vec2 p = vUv * 4.0;
-          p.x *= u_resolution.x / u_resolution.y;
-          
-          // Mycological/Fluid Domain Warp
-          p += vec2(snoise(p * 0.8 + u_time * 0.1), snoise(p.yx * 0.8 - u_time * 0.1)) * 0.5;
-
-          // Compute Normals from the terraced heightfield (Candy Surface)
-          vec2 e = vec2(0.005, 0.0);
-          float H = get_height(p);
-          vec3 N = normalize(vec3(
-              get_height(p + e.xy) - H,
-              get_height(p + e.yx) - H,
-              0.03 // Depth / Sharpness of the candy ridges
-          ));
-
-          // Base 6-bit state
-          int hex = get_hex(p);
-          
-          // Changing Lines Cellular Automata (XOR mutation over time)
-          int time_seed = int(u_time * 6.0) % 64;
-          int mutated = hex ^ time_seed; 
-
-          // Extract Trigrams & Nuclear Hexagram
-          int lower = mutated & 7;
-          int upper = (mutated >> 3) & 7;
-          int nuclear = ((mutated >> 1) & 7) | (((mutated >> 2) & 7) << 3);
-
-          // Color Synthesis (Acid Pop)
-          vec3 c_lower = trigramColor(lower);
-          vec3 c_upper = trigramColor(upper);
-          
-          // Blend based on the nuclear ghost state
-          float blend_factor = 0.5 + 0.5 * sin(float(nuclear) * 0.1 + u_time);
-          vec3 base_color = mix(c_lower, c_upper, blend_factor);
-
-          // Lighting Setup (Glossy Wet Candy)
-          vec3 V = vec3(0.0, 0.0, 1.0);
-          vec3 L = normalize(vec3(sin(u_time * 0.5), cos(u_time * 0.3), 1.0));
-          vec3 L2 = normalize(vec3(-sin(u_time * 0.7), -cos(u_time * 0.4), 0.5)); // Secondary rim light
-          vec3 H_vec = normalize(L + V);
-          vec3 H_vec2 = normalize(L2 + V);
-
-          float diff = max(dot(N, L), 0.0);
-          float diff2 = max(dot(N, L2), 0.0);
-          float spec = pow(max(dot(N, H_vec), 0.0), 128.0); // Extremely sharp specularity
-          float spec2 = pow(max(dot(N, H_vec2), 0.0), 64.0);
-          
-          // Fresnel for gummy edges
-          float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
-
-          // Subsurface scattering approximation (internal glow based on depth)
-          float sss = smoothstep(0.0, 1.0, H);
-
-          // Iridescence / Thin-film interference on the candy coating
-          vec3 iridescence = vec3(
-              0.5 + 0.5 * cos(u_time * 2.0 + fresnel * 15.0),
-              0.5 + 0.5 * cos(u_time * 2.0 + fresnel * 15.0 + 2.0),
-              0.5 + 0.5 * cos(u_time * 2.0 + fresnel * 15.0 + 4.0)
-          );
-
-          // Composite the material
-          vec3 final_color = base_color * (diff * 0.7 + 0.3); // Diffuse
-          final_color += base_color * diff2 * 0.4; // Secondary diffuse
-          final_color += vec3(1.0) * spec * 1.5; // Primary highlight
-          final_color += iridescence * spec2 * 0.8; // Iridescent secondary highlight
-          final_color += base_color * sss * 0.6; // Subsurface glow
-          final_color += iridescence * fresnel * 0.8; // Rim iridescence
-
-          // Vignette
-          vec2 centered_uv = vUv - 0.5;
-          final_color *= 1.0 - dot(centered_uv, centered_uv) * 0.8;
-
-          // Output
-          fragColor = vec4(final_color, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0.0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(plane);
-
-    canvas.__three = { renderer, scene, camera, material };
-  }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("WebGL 2 / Three.js Initialization Failed:", e);
+                // Tonemapping (ACES-like soft curve) & Gamma
+                color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
+                color = pow(color, vec3(1.0 / 2.2));
+                
+                fragColor = vec4(color, 1.0);
+            }
+        `;
+        
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader,
+            fragmentShader
+        });
+        
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        
+        canvas.__three = { renderer, scene, camera, material };
+    } catch (e) {
+        console.error("Wet Engine Boot Failure:", e);
+        return;
+    }
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms && material.uniforms.u_time) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
