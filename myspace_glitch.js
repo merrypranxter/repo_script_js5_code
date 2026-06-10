@@ -1,226 +1,275 @@
-try {
-  // Feral WebGL2 / Three.js Initialization
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL2 context unavailable");
+const w = 320;
+const h = 240;
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas: canvas,
-      context: ctx,
-      alpha: true,
-      antialias: false, // Turn off antialias for harsher pixel/glitch edges
-      preserveDrawingBuffer: true // Autophagic memory trace
-    });
-    renderer.autoClearColor = false;
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 1;
-
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-
-    const fragmentShader = `
-      in vec2 vUv;
-      out vec4 fragColor;
-
-      uniform float u_time;
-      uniform vec2 u_resolution;
-
-      #define PI 3.14159265359
-
-      // --- FERAL NOISE & HASHING ---
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-      }
-
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      }
-
-      // --- OP-ART METRIC COMPETITION ---
-      // Morphing between L2 (circle) and L1/L-inf (diamond/square)
-      float minkowski(vec2 p, float q) {
-        return pow(pow(abs(p.x), q) + pow(abs(p.y), q), 1.0/q);
-      }
-
-      // --- MYSPACE BLINGEE STARBURST ---
-      float sdStar(vec2 p) {
-        float a = atan(p.y, p.x);
-        float r = length(p);
-        // 4-point sparkle
-        float s = 0.02 / (abs(p.x * p.y) + 0.001);
-        return s * exp(-r * 10.0);
-      }
-
-      void main() {
-        vec2 p = vUv * 2.0 - 1.0;
-        p.x *= u_resolution.x / u_resolution.y;
-
-        float t = u_time * 0.4;
-
-        // --- GLITCH DATA ROT (CANDY-CRASH COMPRESSION) ---
-        // Macroblock horizontal tearing
-        float tear_y = floor(p.y * 15.0) / 15.0;
-        float glitch_trigger = step(0.92, hash(vec2(tear_y, floor(t * 10.0))));
-        float tear = glitch_trigger * (hash(vec2(tear_y, 1.0)) - 0.5) * 1.5;
-        p.x += tear;
-
-        // --- THE OPTICAL ILLUSION ENGINE (RETINAL SURREALISM) ---
-        float q = mix(0.8, 2.5, sin(t * 1.2) * 0.5 + 0.5); // Morphing manifold
-        float r = minkowski(p, q);
-        float a = atan(p.y, p.x);
-
-        // Hyperbolic Tunnel Projection
-        float z = 1.0 / (r + 0.01);
-        
-        // --- EARLY INTERNET / MYSPACE DEBRIS (TOPOLOGICAL FOLD) ---
-        // Projecting a Win95 Error Box / Popup into the infinite hyperbolic tunnel
-        vec2 hyper_p = vec2(a, z);
-        vec2 win_p = hyper_p - vec2(sin(t * 0.5), t * 2.0);
-        win_p.x = mod(win_p.x + PI, 2.0 * PI) - PI; // Wrap around tunnel
-        win_p.y = fract(win_p.y * 0.5) - 0.5; // Repeat endlessly in depth
-        
-        float win_d = max(abs(win_p.x) - 0.6, abs(win_p.y) - 0.25);
-        float win_bar = max(abs(win_p.x) - 0.6, abs(win_p.y - 0.15) - 0.1);
-        
-        // --- CHROMATIC INTERFERENCE OP ---
-        vec3 col = vec3(0.0);
-        float freq = 12.0;
-        float spokes = 10.0;
-
-        // Multi-sample for RGB channel split (Chromatic Aberration)
-        for(int i = 0; i < 3; i++) {
-            // Split widens where the glitch tear is active
-            float offset = float(i) * 0.03 * (1.0 + glitch_trigger * 5.0);
-            
-            vec2 p_shift = p * (1.0 + offset);
-            float r_shift = minkowski(p_shift, q);
-            float z_shift = 1.0 / (r_shift + 0.01);
-            float a_shift = atan(p_shift.y, p_shift.x);
-            
-            float spiral = a_shift + z_shift * 0.3 + t;
-            float rings = z_shift * freq - t * 5.0;
-            
-            // Core Moiré / Phase Field
-            float pattern = sin(rings) * cos(spiral * spokes);
-            
-            // Harsh B&W Retinal Burn
-            float bw = step(0.0, pattern);
-            
-            if(i == 0) col.r = bw;
-            if(i == 1) col.g = bw;
-            if(i == 2) col.b = bw;
-        }
-
-        // --- PALETTE MAPPING (HYPERPOP RUPTURE / ACID) ---
-        vec3 final_col = vec3(0.0);
-        if (col == vec3(1.0)) {
-            final_col = vec3(0.95); // White scaffold
-        } else if (col == vec3(0.0)) {
-            final_col = vec3(0.05); // Black scaffold
-        } else {
-            // Where channels misalign, inject Toxic Acid & Hot Pink
-            final_col += col.r * vec3(1.0, 0.0, 0.6); // Hot Pink
-            final_col += col.g * vec3(0.0, 1.0, 0.8); // Cyan
-            final_col += col.b * vec3(0.9, 1.0, 0.0); // Acid Yellow
-        }
-
-        // --- INTEGRATE THE DEBRIS ---
-        if (win_d < 0.0) {
-            if (win_bar < 0.0) {
-                // Classic deep blue title bar
-                final_col = mix(final_col, vec3(0.0, 0.0, 0.7), 0.9); 
-            } else {
-                // Gray window body with fake text lines
-                float txt = step(0.6, sin(win_p.x * 50.0) * sin(win_p.y * 80.0));
-                final_col = mix(vec3(0.75), vec3(0.2), txt);
-            }
-            // Hot pink neon border
-            if (abs(win_d) < 0.02) final_col = vec3(1.0, 0.0, 0.5);
-        }
-
-        // --- MYSPACE GLITTER / SPARKLE OVERLAY ---
-        // High frequency noise field
-        float glitter_noise = hash(p * 200.0 + t);
-        // Concentrate glitter on high-contrast edges (dFdx/dFdy equivalent via simple offset)
-        float edge = abs(col.r - col.g) + abs(col.g - col.b); 
-        float glitter = step(0.95, glitter_noise) * edge;
-        
-        // Large Blingee Starbursts
-        vec2 grid_p = fract(p * 4.0 + t * 0.2) - 0.5;
-        float star_val = sdStar(grid_p);
-        float star_mask = step(0.98, hash(floor(p * 4.0 + t * 0.2)));
-        
-        // Apply glitter & stars
-        final_col = mix(final_col, vec3(1.0), glitter); // White noise sparkles
-        final_col += star_val * star_mask * vec3(1.0, 0.5, 0.9); // Pink glowing stars
-
-        // --- CRT SCANLINE BLEED ---
-        float scanline = sin(vUv.y * u_resolution.y * 3.1415) * 0.04;
-        final_col -= scanline;
-
-        // Vignette
-        float vig = length(vUv - 0.5) * 2.0;
-        final_col *= 1.0 - pow(vig, 3.0) * 0.3;
-
-        fragColor = vec4(final_col, 1.0);
-      }
-    `;
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      depthWrite: false,
-      depthTest: false
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-
-    canvas.__three = { renderer, scene, camera, material };
-  }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  // Update Uniforms safely
-  if (material?.uniforms) {
-    material.uniforms.u_time.value = time;
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  
-  // Create a slight feedback motion by not clearing fully, relying on preserveDrawingBuffer
-  // and drawing over it, though the shader is fully opaque. 
-  // The feral decay is primarily driven by the fragment shader math.
-  renderer.render(scene, camera);
-
-} catch (err) {
-  console.error("Feral MySpace WebGL Initialization Failed:", err);
-  // Fallback to canvas 2D if WebGL is totally wrecked
-  if (ctx && !canvas.__three) {
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(0, 0, grid.width, grid.height);
-    ctx.fillStyle = '#ff00ff';
-    ctx.font = '20px monospace';
-    ctx.fillText("CRITICAL ERROR: WEBGL_CONTEXT_LOST", 20, 40);
-    ctx.fillText("MYSPACE_DECAY_PROTOCOL_FAILED", 20, 70);
-  }
+// Initialize offscreen canvases and agents on first run
+if (!canvas.__init_glitchcore) {
+    canvas.__opArt = document.createElement('canvas');
+    canvas.__opArt.width = w; canvas.__opArt.height = h;
+    canvas.__opCtx = canvas.__opArt.getContext('2d', { willReadFrequently: true });
+    
+    canvas.__stickers = document.createElement('canvas');
+    canvas.__stickers.width = w; canvas.__stickers.height = h;
+    canvas.__stCtx = canvas.__stickers.getContext('2d', { willReadFrequently: true });
+    
+    canvas.__comp = document.createElement('canvas');
+    canvas.__comp.width = w; canvas.__comp.height = h;
+    canvas.__compCtx = canvas.__comp.getContext('2d', { willReadFrequently: true });
+    
+    canvas.__agents = [];
+    const acidColors = ['#ff00ff', '#00ffff', '#bdf20d', '#ff3300', '#7a2cff', '#ffffff'];
+    const texts = ["xX_oP_Xx", "RAWR", "glitter.gif", "404", "<3", "ERROR", "loading..."];
+    
+    for(let i = 0; i < 25; i++) {
+        canvas.__agents.push({
+            x: Math.random() * w, 
+            y: Math.random() * h,
+            vx: (Math.random() - 0.5) * 4, 
+            vy: (Math.random() - 0.5) * 4,
+            type: Math.floor(Math.random() * 5),
+            color: acidColors[Math.floor(Math.random() * acidColors.length)],
+            s: 10 + Math.random() * 20,
+            text: texts[Math.floor(Math.random() * texts.length)],
+            phase: Math.random() * Math.PI * 2
+        });
+    }
+    canvas.__init_glitchcore = true;
 }
+
+const opCtx = canvas.__opCtx;
+const stCtx = canvas.__stCtx;
+const compCtx = canvas.__compCtx;
+
+// ---------------------------------------------------------
+// 1. OP-ART LAYER (Retinal Surrealism / Checker Funnel)
+// ---------------------------------------------------------
+opCtx.fillStyle = 'black';
+opCtx.fillRect(0, 0, w, h);
+
+opCtx.save();
+opCtx.translate(w / 2, h / 2);
+opCtx.rotate(time * 0.3); // Slow radial hypnosis spin
+
+const rings = 18;
+const segments = 24;
+const totalPhase = time * 2.5;
+const phase = totalPhase % 1;
+const intPhase = Math.floor(totalPhase);
+
+for (let r = rings; r > 0; r--) {
+    // Continuous perspective warp for infinite tunnel illusion
+    let rF = r + phase;
+    let radOuter = Math.pow(rF / rings, 2) * 350;
+    let radInner = Math.pow(Math.max(0, rF - 1) / rings, 2) * 350;
+    
+    // Lock color to physical geometry to prevent strobing
+    let ringIndex = r - intPhase; 
+    
+    for (let s = 0; s < segments; s++) {
+        let angleStart = (s / segments) * Math.PI * 2;
+        let angleEnd = ((s + 1) / segments) * Math.PI * 2;
+        
+        // Stripe fluid distortion / domain warp
+        let twist = Math.sin(time * 1.5 + rF * 0.2) * 0.4;
+        
+        opCtx.fillStyle = (Math.abs(ringIndex) + s) % 2 === 0 ? 'white' : 'black';
+        
+        opCtx.beginPath();
+        opCtx.arc(0, 0, radOuter, angleStart + twist, angleEnd + twist, false);
+        opCtx.arc(0, 0, radInner, angleEnd + twist, angleStart + twist, true);
+        opCtx.closePath();
+        opCtx.fill();
+    }
+}
+opCtx.restore();
+
+// ---------------------------------------------------------
+// 2. MYSPACE STICKER LAYER (Temporal Trails & Blingee Core)
+// ---------------------------------------------------------
+// Slow fade for ghost-frame trails
+stCtx.fillStyle = 'rgba(0, 0, 0, 0.12)'; 
+stCtx.fillRect(0, 0, w, h);
+
+canvas.__agents.forEach(a => {
+    a.phase += 0.1;
+    // Jittery cursor-swarm movement
+    a.x += a.vx + Math.sin(a.phase) * 1.5;
+    a.y += a.vy + Math.cos(a.phase * 0.8) * 1.5;
+    
+    // Screen wrap
+    if(a.x < -30) a.x = w + 30;
+    if(a.x > w + 30) a.x = -30;
+    if(a.y < -30) a.y = h + 30;
+    if(a.y > h + 30) a.y = -30;
+    
+    stCtx.fillStyle = a.color;
+    stCtx.strokeStyle = a.color;
+    stCtx.lineWidth = 2;
+    stCtx.shadowColor = a.color;
+    stCtx.shadowBlur = 10;
+    
+    stCtx.save();
+    stCtx.translate(a.x, a.y);
+    stCtx.rotate(Math.sin(time + a.phase) * 0.5);
+    
+    // Pulse animation
+    let pulse = 1 + Math.sin(time * 6 + a.phase) * 0.15;
+    stCtx.scale(pulse, pulse);
+    
+    if (a.type === 0) { // Star
+        stCtx.beginPath();
+        for(let j = 0; j < 5; j++) {
+            let ang1 = j * Math.PI * 0.4 - Math.PI/2;
+            let ang2 = ang1 + Math.PI * 0.2;
+            stCtx.lineTo(Math.cos(ang1) * a.s, Math.sin(ang1) * a.s);
+            stCtx.lineTo(Math.cos(ang2) * a.s * 0.4, Math.sin(ang2) * a.s * 0.4);
+        }
+        stCtx.closePath();
+        stCtx.fill();
+    } else if (a.type === 1) { // Heart
+        stCtx.beginPath();
+        let hs = a.s * 0.5;
+        stCtx.arc(-hs, 0, hs, Math.PI, 0);
+        stCtx.arc(hs, 0, hs, Math.PI, 0);
+        stCtx.lineTo(0, a.s);
+        stCtx.closePath();
+        stCtx.fill();
+    } else if (a.type === 2) { // Win95 Error Box (UI Relic)
+        stCtx.shadowBlur = 0; 
+        stCtx.fillStyle = '#c0c0c0';
+        stCtx.fillRect(-a.s, -a.s*0.6, a.s*2, a.s*1.2);
+        stCtx.fillStyle = '#ffffff';
+        stCtx.fillRect(-a.s, -a.s*0.6, a.s*2, 2);
+        stCtx.fillRect(-a.s, -a.s*0.6, 2, a.s*1.2);
+        stCtx.fillStyle = '#808080';
+        stCtx.fillRect(-a.s, a.s*0.6-2, a.s*2, 2);
+        stCtx.fillRect(a.s-2, -a.s*0.6, 2, a.s*1.2);
+        stCtx.fillStyle = '#000080'; // Title bar
+        stCtx.fillRect(-a.s+2, -a.s*0.6+2, a.s*2-4, a.s*0.4);
+        stCtx.fillStyle = 'white';
+        stCtx.font = 'bold 8px monospace';
+        stCtx.textAlign = 'left';
+        stCtx.fillText("404", -a.s+4, -a.s*0.3);
+    } else if (a.type === 3) { // Text Debris
+        stCtx.textAlign = 'center';
+        stCtx.textBaseline = 'middle';
+        stCtx.font = 'bold ' + Math.floor(a.s) + 'px "Comic Sans MS", Impact, sans-serif';
+        stCtx.fillText(a.text, 0, 0);
+    } else { // Sparkle Cross
+        stCtx.beginPath();
+        stCtx.moveTo(0, -a.s); stCtx.lineTo(0, a.s);
+        stCtx.moveTo(-a.s, 0); stCtx.lineTo(a.s, 0);
+        stCtx.moveTo(-a.s*0.3, -a.s*0.3); stCtx.lineTo(a.s*0.3, a.s*0.3);
+        stCtx.moveTo(-a.s*0.3, a.s*0.3); stCtx.lineTo(a.s*0.3, -a.s*0.3);
+        stCtx.stroke();
+    }
+    stCtx.restore();
+});
+stCtx.shadowBlur = 0; 
+
+// ---------------------------------------------------------
+// 3. COMPOSITE & GLITCH PASS (VHS + RGB Split + Datamosh)
+// ---------------------------------------------------------
+compCtx.globalCompositeOperation = 'source-over';
+compCtx.drawImage(canvas.__opArt, 0, 0);
+compCtx.globalCompositeOperation = 'screen';
+compCtx.drawImage(canvas.__stickers, 0, 0);
+
+const imgData = compCtx.getImageData(0, 0, w, h);
+const d = imgData.data;
+const out = compCtx.createImageData(w, h);
+const od = out.data;
+
+// Analog video tracking tear
+const trackingTearY = Math.floor((time * 80) % h);
+const tearHeight = 15 + Math.sin(time * 5) * 10;
+const tearShift = Math.floor(Math.sin(time * 15) * 20);
+
+// Chromatic separation width pulsing with time
+const rgbOffset = 2 + Math.floor(Math.abs(Math.sin(time * 4)) * 5);
+
+for (let y = 0; y < h; y++) {
+    let shift = 0;
+    if (y > trackingTearY && y < trackingTearY + tearHeight) {
+        shift = tearShift;
+        if (Math.random() < 0.3) shift += (Math.random() - 0.5) * 15; // Jitter
+    }
+    
+    // Screen curvature / CRT scanline warping
+    shift += Math.floor(Math.sin(y * 0.03 + time * 4) * 3);
+
+    for (let x = 0; x < w; x++) {
+        let sx = x + shift;
+        if (sx < 0) sx += w;
+        if (sx >= w) sx -= w;
+        
+        let idx = (y * w + sx) * 4;
+        let idxR = (y * w + ((sx - rgbOffset + w) % w)) * 4;
+        let idxB = (y * w + ((sx + rgbOffset) % w)) * 4;
+        let outIdx = (y * w + x) * 4;
+        
+        // Apply RGB split
+        od[outIdx]     = d[idxR];       // R
+        od[outIdx + 1] = d[idx + 1];    // G
+        od[outIdx + 2] = d[idxB + 2];   // B
+        od[outIdx + 3] = 255;           // Alpha
+    }
+}
+
+// Macroblocking / Candy Crash Compression
+const numBlocks = 12;
+for(let i = 0; i < numBlocks; i++) {
+    if(Math.random() < 0.3) continue;
+    let bx = Math.floor(Math.random() * (w - 32));
+    let by = Math.floor(Math.random() * (h - 32));
+    let bw = 16 + Math.floor(Math.random() * 32);
+    let bh = 8 + Math.floor(Math.random() * 24);
+    
+    // Copy from adjacent corrupted memory sector
+    let ox = Math.floor((Math.random() - 0.5) * 40);
+    let oy = Math.floor((Math.random() - 0.5) * 20);
+    let invert = Math.random() < 0.15; // Rare toxic inversion
+    
+    for(let y = 0; y < bh; y++) {
+        for(let x = 0; x < bw; x++) {
+            if (by + y >= h || bx + x >= w) continue;
+            let srcX = Math.min(w - 1, Math.max(0, bx + x + ox));
+            let srcY = Math.min(h - 1, Math.max(0, by + y + oy));
+            
+            let dstIdx = ((by + y) * w + (bx + x)) * 4;
+            let srcIdx = (srcY * w + srcX) * 4;
+            
+            if (invert) {
+                od[dstIdx]     = 255 - od[srcIdx];
+                od[dstIdx + 1] = 255 - od[srcIdx + 1];
+                od[dstIdx + 2] = 255 - od[srcIdx + 2];
+            } else {
+                od[dstIdx]     = od[srcIdx];
+                od[dstIdx + 1] = od[srcIdx + 1];
+                od[dstIdx + 2] = od[srcIdx + 2];
+            }
+        }
+    }
+}
+
+compCtx.putImageData(out, 0, 0);
+
+// Phosphor scanlines overlay
+compCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+for(let y = 0; y < h; y += 2) {
+    compCtx.fillRect(0, y, w, 1);
+}
+
+// ---------------------------------------------------------
+// 4. RENDER TO MAIN CANVAS (Scaled for low-res charm)
+// ---------------------------------------------------------
+ctx.imageSmoothingEnabled = false; 
+ctx.fillStyle = '#050505';
+ctx.fillRect(0, 0, grid.width, grid.height);
+
+const scale = Math.max(grid.width / w, grid.height / h);
+const drawW = w * scale;
+const drawH = h * scale;
+const drawX = (grid.width - drawW) / 2;
+const drawY = (grid.height - drawH) / 2;
+
+ctx.drawImage(canvas.__comp, drawX, drawY, drawW, drawH);
