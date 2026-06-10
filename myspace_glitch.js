@@ -1,275 +1,185 @@
-const w = 320;
-const h = 240;
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL context not available");
+    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
 
-// Initialize offscreen canvases and agents on first run
-if (!canvas.__init_glitchcore) {
-    canvas.__opArt = document.createElement('canvas');
-    canvas.__opArt.width = w; canvas.__opArt.height = h;
-    canvas.__opCtx = canvas.__opArt.getContext('2d', { willReadFrequently: true });
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position, 1.0);
+      }
+    `;
+
+    const fragmentShader = `
+      in vec2 vUv;
+      out vec4 fragColor;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
+
+      // Alchemical Math: Hash & Noise
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
+                     mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+      }
+
+      // OKLab to sRGB (Perceptual Color System)
+      vec3 oklab_to_srgb(vec3 c) {
+          float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
+          float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
+          float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
+          float l = l_ * l_ * l_;
+          float m = m_ * m_ * m_;
+          float s = s_ * s_ * s_;
+          vec3 rgb = vec3(
+               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+          );
+          vec3 srgb = mix(rgb * 12.92, 1.055 * pow(max(rgb, vec3(0.0)), vec3(1.0/2.4)) - 0.055, step(0.0031308, rgb));
+          return clamp(srgb, 0.0, 1.0);
+      }
+
+      // Early Internet "Text Debris" abstraction
+      float text_debris(vec2 p, float t) {
+          vec2 grid = floor(p * vec2(30.0, 50.0));
+          float n = hash(grid + floor(t * 8.0));
+          return step(0.85, n) * step(0.3, hash(vec2(grid.y, 1.0)));
+      }
+
+      // Retinal Surrealism: Hyperbolic Moiré Pattern Generator
+      float get_pattern(vec2 p, float t) {
+          // Macroblocking & Data Rot
+          float block_glitch = step(0.96, hash(vec2(floor(p.y * 12.0), floor(t * 3.0))));
+          if (block_glitch > 0.5) {
+              p.x += (hash(vec2(t)) - 0.5) * 0.8;
+              p = floor(p * 15.0) / 15.0;
+          }
+
+          // Möbius Transformation (Hyperbolic Tilings)
+          vec2 mob = vec2(sin(t * 0.5) * 0.2, cos(t * 0.8) * 0.15);
+          vec2 num = p - mob;
+          vec2 den = vec2(1.0, 0.0) - vec2(dot(mob, p), mob.x * p.y - mob.y * p.x);
+          float den2 = dot(den, den);
+          vec2 z = den2 > 1e-12 ? vec2(dot(num, den), num.x * den.y - num.y * den.x) / den2 : p;
+
+          float r = length(z);
+          float a = atan(z.y, z.x);
+
+          // Funnel / Tunnel Lens Forms
+          float depth = 1.0 / (r + 0.05);
+          vec2 tunnel_uv = vec2(a / 3.14159265, depth + t * 0.8);
+
+          // Zebra Waves & Radial Hypnosis
+          float stripes = sin(tunnel_uv.x * 40.0 + sin(tunnel_uv.y * 12.0) * 4.0);
+          float rings = sin(tunnel_uv.y * 25.0 - t * 4.0);
+          float op_art = step(0.0, stripes * rings); 
+
+          // Tiled Surface Patterns (Checkerboard collapse)
+          float checker = step(0.0, sin(tunnel_uv.x * 60.0) * sin(tunnel_uv.y * 60.0));
+          op_art = mix(op_art, checker, smoothstep(0.0, 1.5, r));
+
+          return op_art;
+      }
+
+      void main() {
+          vec2 p = vUv * 2.0 - 1.0;
+          p.x *= u_resolution.x / u_resolution.y;
+
+          // P-adic Time Leak (Stuttering Frame Echo)
+          float t = u_time + 0.3 * sin(u_time * 20.0) * step(0.85, hash(vec2(u_time)));
+
+          // VHS Tracking Error & Tape Wear
+          float tracking_tear = step(0.92, sin(p.y * 15.0 + t * 8.0)) * hash(vec2(t, p.y));
+          vec2 drift_p = p + vec2(tracking_tear * 0.2 * sin(t * 10.0), 0.0);
+
+          // RGB Phantom / Chromatic Interference Op
+          float split_dist = 0.03 * sin(t * 3.0) + 0.08 * step(0.95, hash(vec2(t, 2.0)));
+          float col_r = get_pattern(drift_p + vec2(split_dist, 0.0), t);
+          float col_g = get_pattern(drift_p, t);
+          float col_b = get_pattern(drift_p - vec2(split_dist, 0.0), t);
+
+          // Acid Candy / MySpace Palette via OKLab
+          vec3 oklab_pink = vec3(0.65, 0.25, -0.1);  // Hyperpop Magenta
+          vec3 oklab_cyan = vec3(0.70, -0.15, -0.05); // Electric Cyan
+          
+          vec3 final_color = vec3(0.05); // Dark background energy
+          final_color = mix(final_color, oklab_to_srgb(oklab_pink), col_r);
+          final_color = mix(final_color, oklab_to_srgb(oklab_cyan), col_b);
+          // White intersection for maximum contrast
+          final_color = mix(final_color, vec3(1.0), col_r * col_g * col_b); 
+
+          // MySpace Glitter / Sparkle Logic
+          float glitter_noise = hash(drift_p * 200.0 + t);
+          float glitter_mask = step(0.97, glitter_noise) * step(0.15, length(p));
+          vec3 glitter_color = mix(vec3(1.0, 0.0, 0.8), vec3(0.0, 1.0, 1.0), hash(p - t));
+          final_color = mix(final_color, glitter_color + 1.0, glitter_mask);
+
+          // Text / UI Debris
+          float debris = text_debris(drift_p * 1.5, t);
+          final_color = mix(final_color, vec3(0.9, 0.9, 1.0), debris * tracking_tear);
+
+          // Invert colors in tracking bands (Cursed Shitpost / Glitch Rot)
+          if (tracking_tear > 0.6) {
+              final_color = vec3(1.0) - final_color;
+          }
+
+          // CRT Scanline Bleed
+          float scanline = sin(vUv.y * u_resolution.y * 3.14159);
+          final_color -= (scanline * 0.08);
+
+          // Phosphor Vignette
+          float vignette = 1.0 - dot(p, p) * 0.25;
+          final_color *= vignette;
+
+          fragColor = vec4(final_color, 1.0);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader,
+      fragmentShader,
+      depthWrite: false,
+      depthTest: false
+    });
+
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
     
-    canvas.__stickers = document.createElement('canvas');
-    canvas.__stickers.width = w; canvas.__stickers.height = h;
-    canvas.__stCtx = canvas.__stickers.getContext('2d', { willReadFrequently: true });
-    
-    canvas.__comp = document.createElement('canvas');
-    canvas.__comp.width = w; canvas.__comp.height = h;
-    canvas.__compCtx = canvas.__comp.getContext('2d', { willReadFrequently: true });
-    
-    canvas.__agents = [];
-    const acidColors = ['#ff00ff', '#00ffff', '#bdf20d', '#ff3300', '#7a2cff', '#ffffff'];
-    const texts = ["xX_oP_Xx", "RAWR", "glitter.gif", "404", "<3", "ERROR", "loading..."];
-    
-    for(let i = 0; i < 25; i++) {
-        canvas.__agents.push({
-            x: Math.random() * w, 
-            y: Math.random() * h,
-            vx: (Math.random() - 0.5) * 4, 
-            vy: (Math.random() - 0.5) * 4,
-            type: Math.floor(Math.random() * 5),
-            color: acidColors[Math.floor(Math.random() * acidColors.length)],
-            s: 10 + Math.random() * 20,
-            text: texts[Math.floor(Math.random() * texts.length)],
-            phase: Math.random() * Math.PI * 2
-        });
-    }
-    canvas.__init_glitchcore = true;
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL 2 initialization failed:", e);
+    return;
+  }
 }
 
-const opCtx = canvas.__opCtx;
-const stCtx = canvas.__stCtx;
-const compCtx = canvas.__compCtx;
+const { renderer, scene, camera, material } = canvas.__three;
 
-// ---------------------------------------------------------
-// 1. OP-ART LAYER (Retinal Surrealism / Checker Funnel)
-// ---------------------------------------------------------
-opCtx.fillStyle = 'black';
-opCtx.fillRect(0, 0, w, h);
-
-opCtx.save();
-opCtx.translate(w / 2, h / 2);
-opCtx.rotate(time * 0.3); // Slow radial hypnosis spin
-
-const rings = 18;
-const segments = 24;
-const totalPhase = time * 2.5;
-const phase = totalPhase % 1;
-const intPhase = Math.floor(totalPhase);
-
-for (let r = rings; r > 0; r--) {
-    // Continuous perspective warp for infinite tunnel illusion
-    let rF = r + phase;
-    let radOuter = Math.pow(rF / rings, 2) * 350;
-    let radInner = Math.pow(Math.max(0, rF - 1) / rings, 2) * 350;
-    
-    // Lock color to physical geometry to prevent strobing
-    let ringIndex = r - intPhase; 
-    
-    for (let s = 0; s < segments; s++) {
-        let angleStart = (s / segments) * Math.PI * 2;
-        let angleEnd = ((s + 1) / segments) * Math.PI * 2;
-        
-        // Stripe fluid distortion / domain warp
-        let twist = Math.sin(time * 1.5 + rF * 0.2) * 0.4;
-        
-        opCtx.fillStyle = (Math.abs(ringIndex) + s) % 2 === 0 ? 'white' : 'black';
-        
-        opCtx.beginPath();
-        opCtx.arc(0, 0, radOuter, angleStart + twist, angleEnd + twist, false);
-        opCtx.arc(0, 0, radInner, angleEnd + twist, angleStart + twist, true);
-        opCtx.closePath();
-        opCtx.fill();
-    }
-}
-opCtx.restore();
-
-// ---------------------------------------------------------
-// 2. MYSPACE STICKER LAYER (Temporal Trails & Blingee Core)
-// ---------------------------------------------------------
-// Slow fade for ghost-frame trails
-stCtx.fillStyle = 'rgba(0, 0, 0, 0.12)'; 
-stCtx.fillRect(0, 0, w, h);
-
-canvas.__agents.forEach(a => {
-    a.phase += 0.1;
-    // Jittery cursor-swarm movement
-    a.x += a.vx + Math.sin(a.phase) * 1.5;
-    a.y += a.vy + Math.cos(a.phase * 0.8) * 1.5;
-    
-    // Screen wrap
-    if(a.x < -30) a.x = w + 30;
-    if(a.x > w + 30) a.x = -30;
-    if(a.y < -30) a.y = h + 30;
-    if(a.y > h + 30) a.y = -30;
-    
-    stCtx.fillStyle = a.color;
-    stCtx.strokeStyle = a.color;
-    stCtx.lineWidth = 2;
-    stCtx.shadowColor = a.color;
-    stCtx.shadowBlur = 10;
-    
-    stCtx.save();
-    stCtx.translate(a.x, a.y);
-    stCtx.rotate(Math.sin(time + a.phase) * 0.5);
-    
-    // Pulse animation
-    let pulse = 1 + Math.sin(time * 6 + a.phase) * 0.15;
-    stCtx.scale(pulse, pulse);
-    
-    if (a.type === 0) { // Star
-        stCtx.beginPath();
-        for(let j = 0; j < 5; j++) {
-            let ang1 = j * Math.PI * 0.4 - Math.PI/2;
-            let ang2 = ang1 + Math.PI * 0.2;
-            stCtx.lineTo(Math.cos(ang1) * a.s, Math.sin(ang1) * a.s);
-            stCtx.lineTo(Math.cos(ang2) * a.s * 0.4, Math.sin(ang2) * a.s * 0.4);
-        }
-        stCtx.closePath();
-        stCtx.fill();
-    } else if (a.type === 1) { // Heart
-        stCtx.beginPath();
-        let hs = a.s * 0.5;
-        stCtx.arc(-hs, 0, hs, Math.PI, 0);
-        stCtx.arc(hs, 0, hs, Math.PI, 0);
-        stCtx.lineTo(0, a.s);
-        stCtx.closePath();
-        stCtx.fill();
-    } else if (a.type === 2) { // Win95 Error Box (UI Relic)
-        stCtx.shadowBlur = 0; 
-        stCtx.fillStyle = '#c0c0c0';
-        stCtx.fillRect(-a.s, -a.s*0.6, a.s*2, a.s*1.2);
-        stCtx.fillStyle = '#ffffff';
-        stCtx.fillRect(-a.s, -a.s*0.6, a.s*2, 2);
-        stCtx.fillRect(-a.s, -a.s*0.6, 2, a.s*1.2);
-        stCtx.fillStyle = '#808080';
-        stCtx.fillRect(-a.s, a.s*0.6-2, a.s*2, 2);
-        stCtx.fillRect(a.s-2, -a.s*0.6, 2, a.s*1.2);
-        stCtx.fillStyle = '#000080'; // Title bar
-        stCtx.fillRect(-a.s+2, -a.s*0.6+2, a.s*2-4, a.s*0.4);
-        stCtx.fillStyle = 'white';
-        stCtx.font = 'bold 8px monospace';
-        stCtx.textAlign = 'left';
-        stCtx.fillText("404", -a.s+4, -a.s*0.3);
-    } else if (a.type === 3) { // Text Debris
-        stCtx.textAlign = 'center';
-        stCtx.textBaseline = 'middle';
-        stCtx.font = 'bold ' + Math.floor(a.s) + 'px "Comic Sans MS", Impact, sans-serif';
-        stCtx.fillText(a.text, 0, 0);
-    } else { // Sparkle Cross
-        stCtx.beginPath();
-        stCtx.moveTo(0, -a.s); stCtx.lineTo(0, a.s);
-        stCtx.moveTo(-a.s, 0); stCtx.lineTo(a.s, 0);
-        stCtx.moveTo(-a.s*0.3, -a.s*0.3); stCtx.lineTo(a.s*0.3, a.s*0.3);
-        stCtx.moveTo(-a.s*0.3, a.s*0.3); stCtx.lineTo(a.s*0.3, -a.s*0.3);
-        stCtx.stroke();
-    }
-    stCtx.restore();
-});
-stCtx.shadowBlur = 0; 
-
-// ---------------------------------------------------------
-// 3. COMPOSITE & GLITCH PASS (VHS + RGB Split + Datamosh)
-// ---------------------------------------------------------
-compCtx.globalCompositeOperation = 'source-over';
-compCtx.drawImage(canvas.__opArt, 0, 0);
-compCtx.globalCompositeOperation = 'screen';
-compCtx.drawImage(canvas.__stickers, 0, 0);
-
-const imgData = compCtx.getImageData(0, 0, w, h);
-const d = imgData.data;
-const out = compCtx.createImageData(w, h);
-const od = out.data;
-
-// Analog video tracking tear
-const trackingTearY = Math.floor((time * 80) % h);
-const tearHeight = 15 + Math.sin(time * 5) * 10;
-const tearShift = Math.floor(Math.sin(time * 15) * 20);
-
-// Chromatic separation width pulsing with time
-const rgbOffset = 2 + Math.floor(Math.abs(Math.sin(time * 4)) * 5);
-
-for (let y = 0; y < h; y++) {
-    let shift = 0;
-    if (y > trackingTearY && y < trackingTearY + tearHeight) {
-        shift = tearShift;
-        if (Math.random() < 0.3) shift += (Math.random() - 0.5) * 15; // Jitter
-    }
-    
-    // Screen curvature / CRT scanline warping
-    shift += Math.floor(Math.sin(y * 0.03 + time * 4) * 3);
-
-    for (let x = 0; x < w; x++) {
-        let sx = x + shift;
-        if (sx < 0) sx += w;
-        if (sx >= w) sx -= w;
-        
-        let idx = (y * w + sx) * 4;
-        let idxR = (y * w + ((sx - rgbOffset + w) % w)) * 4;
-        let idxB = (y * w + ((sx + rgbOffset) % w)) * 4;
-        let outIdx = (y * w + x) * 4;
-        
-        // Apply RGB split
-        od[outIdx]     = d[idxR];       // R
-        od[outIdx + 1] = d[idx + 1];    // G
-        od[outIdx + 2] = d[idxB + 2];   // B
-        od[outIdx + 3] = 255;           // Alpha
-    }
+if (material && material.uniforms) {
+  if (material.uniforms.u_time) {
+    material.uniforms.u_time.value = time;
+  }
+  if (material.uniforms.u_resolution) {
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  }
 }
 
-// Macroblocking / Candy Crash Compression
-const numBlocks = 12;
-for(let i = 0; i < numBlocks; i++) {
-    if(Math.random() < 0.3) continue;
-    let bx = Math.floor(Math.random() * (w - 32));
-    let by = Math.floor(Math.random() * (h - 32));
-    let bw = 16 + Math.floor(Math.random() * 32);
-    let bh = 8 + Math.floor(Math.random() * 24);
-    
-    // Copy from adjacent corrupted memory sector
-    let ox = Math.floor((Math.random() - 0.5) * 40);
-    let oy = Math.floor((Math.random() - 0.5) * 20);
-    let invert = Math.random() < 0.15; // Rare toxic inversion
-    
-    for(let y = 0; y < bh; y++) {
-        for(let x = 0; x < bw; x++) {
-            if (by + y >= h || bx + x >= w) continue;
-            let srcX = Math.min(w - 1, Math.max(0, bx + x + ox));
-            let srcY = Math.min(h - 1, Math.max(0, by + y + oy));
-            
-            let dstIdx = ((by + y) * w + (bx + x)) * 4;
-            let srcIdx = (srcY * w + srcX) * 4;
-            
-            if (invert) {
-                od[dstIdx]     = 255 - od[srcIdx];
-                od[dstIdx + 1] = 255 - od[srcIdx + 1];
-                od[dstIdx + 2] = 255 - od[srcIdx + 2];
-            } else {
-                od[dstIdx]     = od[srcIdx];
-                od[dstIdx + 1] = od[srcIdx + 1];
-                od[dstIdx + 2] = od[srcIdx + 2];
-            }
-        }
-    }
-}
-
-compCtx.putImageData(out, 0, 0);
-
-// Phosphor scanlines overlay
-compCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-for(let y = 0; y < h; y += 2) {
-    compCtx.fillRect(0, y, w, 1);
-}
-
-// ---------------------------------------------------------
-// 4. RENDER TO MAIN CANVAS (Scaled for low-res charm)
-// ---------------------------------------------------------
-ctx.imageSmoothingEnabled = false; 
-ctx.fillStyle = '#050505';
-ctx.fillRect(0, 0, grid.width, grid.height);
-
-const scale = Math.max(grid.width / w, grid.height / h);
-const drawW = w * scale;
-const drawH = h * scale;
-const drawX = (grid.width - drawW) / 2;
-const drawY = (grid.height - drawH) / 2;
-
-ctx.drawImage(canvas.__comp, drawX, drawY, drawW, drawH);
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
