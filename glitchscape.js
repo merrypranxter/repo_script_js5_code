@@ -1,211 +1,234 @@
-if (!canvas.__three) {
-  try {
-    if (!ctx) throw new Error("WebGL context not available");
+// Autophagic MySpace Op-Tunnel
+// A collision of Retinal Surrealism (Op Art), MySpace Glitter Rot, and Zeno's Infinite Descent.
+// Uses a feedback loop with 'difference' blending to create an optical illusion that eats its own history.
+
+const MAX_RINGS = 35;
+const PALETTE = ['#FF0080', '#00FFFF', '#AAFF00', '#FFFFFF']; // Hot Pink, Cyan, Acid Lime, White
+const DEBRIS_TEXT = ["x_x", "404_not_found", "glitter.gif", "connection_lost", "<blink>", "r.i.p."];
+
+// Initialize persistent state attached to the canvas
+if (!canvas.__glitchState || canvas.__glitchState.w !== grid.width || canvas.__glitchState.h !== grid.height) {
+    const offscreen = document.createElement('canvas');
+    offscreen.width = grid.width;
+    offscreen.height = grid.height;
     
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    camera.position.z = 1;
+    // Generate initial fake UI windows
+    const windows = [];
+    for (let i = 0; i < 6; i++) {
+        windows.push({
+            x: Math.random() * grid.width,
+            y: Math.random() * grid.height,
+            w: 120 + Math.random() * 100,
+            h: 60 + Math.random() * 40,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            msg: DEBRIS_TEXT[Math.floor(Math.random() * DEBRIS_TEXT.length)],
+            color: PALETTE[Math.floor(Math.random() * PALETTE.length)]
+        });
+    }
+
+    canvas.__glitchState = {
+        off: offscreen,
+        octx: offscreen.getContext('2d', { willReadFrequently: true }),
+        w: grid.width,
+        h: grid.height,
+        cx: grid.width / 2,
+        cy: grid.height / 2,
+        windows: windows,
+        sparkles: []
+    };
     
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
-      },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
-        in vec2 vUv;
-        out vec4 fragColor;
-        uniform float u_time;
-        uniform vec2 u_resolution;
+    // Fill offscreen initially
+    canvas.__glitchState.octx.fillStyle = '#050505';
+    canvas.__glitchState.octx.fillRect(0, 0, grid.width, grid.height);
+}
 
-        float hash12(vec2 p) {
-            vec3 p3  = fract(vec3(p.xyx) * .1031);
-            p3 += dot(p3, p3.yzx + 33.33);
-            return fract((p3.x + p3.y) * p3.z);
-        }
+const state = canvas.__glitchState;
 
-        float noise(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            f = f*f*(3.0-2.0*f);
-            return mix(mix(hash12(i), hash12(i+vec2(1.0,0.0)), f.x),
-                       mix(hash12(i+vec2(0.0,1.0)), hash12(i+vec2(1.0,1.0)), f.x), f.y);
-        }
+// Smooth mouse tracking for the optical center
+let targetX = mouse.x || grid.width / 2;
+let targetY = mouse.y || grid.height / 2;
+state.cx += (targetX - state.cx) * 0.05;
+state.cy += (targetY - state.cy) * 0.05;
 
-        vec3 palette(float t) {
-            vec3 a = vec3(0.5, 0.5, 0.5);
-            vec3 b = vec3(0.5, 0.5, 0.5);
-            vec3 c = vec3(2.0, 1.0, 1.0);
-            vec3 d = vec3(0.5, 0.2, 0.25);
-            return a + b * cos(6.28318 * (c * t + d));
-        }
+// 1. BASE: Draw the feedback loop (Zeno Tunnel / Temporal Echo)
+// This scales, rotates, and chromatic-aberrates the previous frame.
+ctx.save();
+ctx.fillStyle = '#050505';
+ctx.fillRect(0, 0, grid.width, grid.height);
 
-        float sdStar5(in vec2 p, in float r, in float rf) {
-            const vec2 k1 = vec2(0.809016994375, -0.587785252292);
-            const vec2 k2 = vec2(-k1.x,k1.y);
-            p.x = abs(p.x);
-            p -= 2.0*max(dot(k1,p),0.0)*k1;
-            p -= 2.0*max(dot(k2,p),0.0)*k2;
-            p.x = abs(p.x);
-            p.y -= r;
-            vec2 ba = rf*vec2(-k1.y,k1.x) - vec2(0,1);
-            float h = clamp( dot(p,ba)/dot(ba,ba), 0.0, r );
-            return length(p-ba*h) * sign(p.y*ba.x-p.x*ba.y);
-        }
+ctx.translate(state.cx, state.cy);
+// Slight rotation and scale-up creates the infinite descent tunnel
+ctx.rotate(Math.sin(time * 0.5) * 0.02);
+ctx.scale(1.04, 1.04);
+ctx.translate(-state.cx, -state.cy);
 
-        float sdBox( in vec2 p, in vec2 b ) {
-            vec2 d = abs(p)-b;
-            return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
-        }
+ctx.globalAlpha = 0.92;
+ctx.globalCompositeOperation = 'screen';
 
-        float tunnel(vec2 p, float timeOffset) {
-            float r = length(p);
-            float a = atan(p.y, p.x);
-            float z = 0.5 / (r + 0.05) + u_time * 1.5 + timeOffset;
-            float twist = a + sin(z * 0.2) * 2.0;
-            float val = sin(z * 10.0) * sin(twist * 12.0);
-            return step(0.0, val);
-        }
+// RGB split feedback (Chromatic Aberration Op)
+ctx.drawImage(state.off, -3, 0); // Red bias (simulated by positioning)
+ctx.globalAlpha = 0.8;
+ctx.drawImage(state.off, 3, 0);  // Cyan bias
+ctx.restore();
 
-        void main() {
-            vec2 crtUV = vUv - 0.5;
-            float rsq = dot(crtUV, crtUV);
-            crtUV *= 1.0 + rsq * 0.15;
-            crtUV += 0.5;
-            
-            if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {
-                fragColor = vec4(0.0, 0.0, 0.0, 1.0);
-                return;
-            }
+// 2. MACROBLOCKING / DATAMOSH (Glitch Data Rot)
+// Randomly rip chunks of the screen and shift them
+if (Math.random() < 0.15) {
+    ctx.save();
+    let bx = Math.random() * grid.width;
+    let by = Math.random() * grid.height;
+    let bw = Math.random() * 300 + 50;
+    let bh = Math.random() * 50 + 10;
+    ctx.drawImage(state.off, bx, by, bw, bh, bx + (Math.random() - 0.5) * 40, by + (Math.random() - 0.5) * 10, bw, bh);
+    ctx.restore();
+}
 
-            vec2 uv = (crtUV - 0.5) * 2.0;
-            uv.x *= u_resolution.x / u_resolution.y;
-            
-            vec2 p = uv;
-            
-            float blockNoise = noise(floor(p * 12.0) + u_time * 2.0);
-            if (blockNoise > 0.8) {
-                p.x += (hash12(floor(p * 12.0)) - 0.5) * 0.3;
-                p.y -= u_time * 0.15; 
-            }
-            
-            float rowNoise = noise(vec2(floor(crtUV.y * 60.0), u_time * 15.0));
-            if (rowNoise > 0.85) {
-                p.x += sin(u_time * 50.0) * 0.08;
-            }
-            
-            float r_val = tunnel(p, 0.0);
-            float g_val = tunnel(p, rowNoise > 0.8 ? 0.05 : 0.0);
-            float b_val = tunnel(p, rowNoise > 0.8 ? 0.1 : 0.0);
-            
-            vec3 opColor = vec3(r_val, g_val, b_val);
-            
-            float bwMask = smoothstep(0.9, 0.3, length(uv));
-            if (blockNoise < 0.7) {
-                opColor = mix(opColor, vec3(tunnel(p, 0.0)), bwMask);
-            }
+// 3. OPTICAL ILLUSION (Retinal Surrealism / Zebra Waves)
+// High-contrast B&W rings drawn with 'difference' blending to invert the underlying neon feedback
+ctx.save();
+ctx.translate(state.cx, state.cy);
+ctx.globalCompositeOperation = 'difference';
+ctx.lineWidth = 6 + Math.sin(time * 2) * 2;
 
-            vec3 finalColor = opColor;
-            
-            float sparkleHash = hash12(p * 400.0 + u_time);
-            float sparkle = step(0.99, sparkleHash);
-            vec3 glitterColor = palette(p.x + p.y - u_time) * 2.5; 
-            finalColor = mix(finalColor, glitterColor, sparkle);
-            
-            vec2 stP = uv;
-            stP.y -= u_time * 0.4; 
-            vec2 id = floor(stP * 3.5);
-            vec2 localP = fract(stP * 3.5) - 0.5;
-            float starHash = hash12(id + 123.45);
-            
-            if (starHash > 0.7) {
-                float t = u_time * (starHash > 0.85 ? 3.0 : -3.0);
-                mat2 rot = mat2(cos(t), -sin(t), sin(t), cos(t));
-                vec2 rotP = rot * localP;
-                
-                float dStar = sdStar5(rotP, 0.25, 0.45);
-                float starMask = smoothstep(0.02, 0.01, dStar);
-                float outline = smoothstep(0.05, 0.02, dStar);
-                
-                vec3 starCol = palette(starHash * 20.0 + u_time * 0.5);
-                
-                finalColor = mix(finalColor, vec3(0.0), outline);
-                finalColor = mix(finalColor, starCol, starMask);
-            }
-            
-            vec2 winP = uv - vec2(0.6*sin(u_time*0.3), -0.4*cos(u_time*0.5));
-            float dWin = sdBox(winP, vec2(0.45, 0.3));
-            float winMask = smoothstep(0.01, 0.0, dWin);
-            float winOutline = smoothstep(0.03, 0.01, dWin);
-            
-            if (winOutline > 0.0 && winMask == 0.0) {
-                finalColor *= 0.3; 
-            }
-            
-            if (winMask > 0.0) {
-                finalColor = vec3(0.8); 
-                
-                float dTitle = sdBox(winP - vec2(0.0, 0.23), vec2(0.43, 0.05));
-                float titleMask = smoothstep(0.01, 0.0, dTitle);
-                finalColor = mix(finalColor, vec3(0.0, 0.0, 0.6), titleMask);
-                
-                vec2 innerP = winP;
-                float innerNoise = noise(innerP * 40.0 - u_time * 5.0);
-                if (innerNoise > 0.4) {
-                    finalColor = mix(finalColor, palette(innerP.y * 5.0 + u_time), innerNoise);
-                }
-                
-                float dXBtn = sdBox(winP - vec2(0.38, 0.23), vec2(0.03, 0.03));
-                if (dXBtn < 0.0) finalColor = vec3(0.8, 0.1, 0.1);
-                
-                finalColor = mix(finalColor, vec3(0.0), smoothstep(0.0, 0.01, abs(dWin)));
-            }
-            
-            float scanline = sin(crtUV.y * u_resolution.y * 3.14159);
-            finalColor -= scanline * 0.1;
-            
-            float px = mod(gl_FragCoord.x, 3.0);
-            if (px < 1.0) finalColor *= vec3(1.0, 0.8, 0.8);
-            else if (px < 2.0) finalColor *= vec3(0.8, 1.0, 0.8);
-            else finalColor *= vec3(0.8, 0.8, 1.0);
-            
-            float vig = length(crtUV - 0.5) * 2.0;
-            finalColor *= 1.0 - pow(vig, 2.5) * 0.6;
-            
-            finalColor = smoothstep(0.0, 1.0, finalColor);
-            
-            fragColor = vec4(finalColor, 1.0);
-        }
-      `
+for (let i = 0; i < MAX_RINGS; i++) {
+    // Rings expand outward to create a funnel/tunnel effect
+    let radius = (i * 30 + (time * 120)) % (MAX_RINGS * 30);
+    if (radius < 1) continue;
+
+    ctx.strokeStyle = i % 2 === 0 ? '#FFFFFF' : '#000000';
+    ctx.beginPath();
+    
+    // Draw wavy/deformed rings (Zebra Waves)
+    let segments = 60;
+    for (let j = 0; j <= segments; j++) {
+        let angle = (j / segments) * Math.PI * 2;
+        // Deformation based on angle, time, and radius depth
+        let deform = Math.sin(angle * 8 + time * 3) * (radius * 0.05) + Math.cos(angle * 3 - time) * 10;
+        let rDef = Math.max(0.1, radius + deform);
+        
+        let x = Math.cos(angle) * rDef;
+        let y = Math.sin(angle) * rDef;
+        
+        if (j === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+}
+ctx.restore();
+
+// 4. MYSPACE UI DEBRIS (Early Internet / Candy Crash)
+// Floating, broken window frames that leave trails
+ctx.save();
+ctx.globalCompositeOperation = 'source-over';
+state.windows.forEach((w, i) => {
+    // Erratic movement
+    w.x += w.vx;
+    w.y += w.vy;
+    
+    // Wrap around screen
+    if (w.x > grid.width + 50) w.x = -w.w;
+    if (w.x < -w.w - 50) w.x = grid.width;
+    if (w.y > grid.height + 50) w.y = -w.h;
+    if (w.y < -w.h - 50) w.y = grid.height;
+
+    // Jitter
+    let jx = (Math.random() - 0.5) * 4;
+    let jy = (Math.random() - 0.5) * 4;
+
+    ctx.translate(w.x + jx, w.y + jy);
+    
+    // Window Body (Win95 Grey)
+    ctx.fillStyle = '#C0C0C0';
+    ctx.fillRect(0, 0, w.w, w.h);
+    
+    // Window Title Bar (Deep Blue or Glitch Color)
+    ctx.fillStyle = Math.random() < 0.1 ? w.color : '#000080';
+    ctx.fillRect(2, 2, w.w - 4, 18);
+    
+    // Title Text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText("error.exe", 5, 14);
+    
+    // Content Text (Acid / Neon)
+    ctx.fillStyle = w.color;
+    ctx.font = '14px monospace';
+    ctx.fillText(w.msg, 10, 40);
+    
+    // Glitch block over window
+    if (Math.random() < 0.2) {
+        ctx.fillStyle = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+        ctx.fillRect(Math.random() * w.w, Math.random() * w.h, 40, 10);
+    }
+    
+    ctx.translate(-(w.x + jx), -(w.y + jy));
+});
+ctx.restore();
+
+// 5. VHS TRACKING & CHROMATIC TEARS (Analog Artifacts)
+ctx.save();
+ctx.globalCompositeOperation = 'screen';
+for (let i = 0; i < 3; i++) {
+    if (Math.random() < 0.4) {
+        let ty = Math.random() * grid.height;
+        let th = Math.random() * 8 + 2;
+        ctx.fillStyle = PALETTE[Math.floor(Math.random() * 3)]; // Pink, Cyan, or Lime
+        ctx.globalAlpha = Math.random() * 0.8;
+        ctx.fillRect(0, ty, grid.width, th);
+    }
+}
+ctx.restore();
+
+// 6. MYSPACE GLITTER / STARBURSTS (Plush Candy Worlds)
+// Spawn new sparkles
+if (Math.random() < 0.5) {
+    state.sparkles.push({
+        x: Math.random() * grid.width,
+        y: Math.random() * grid.height,
+        life: 1.0,
+        decay: 0.02 + Math.random() * 0.05,
+        color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
+        size: 10 + Math.random() * 30
     });
-    
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
-    
-    canvas.__three = { renderer, scene, camera, material };
-  } catch (e) {
-    console.error("WebGL Initialization Failed:", e);
-    return;
-  }
 }
 
-const { renderer, scene, camera, material } = canvas.__three;
+ctx.save();
+ctx.globalCompositeOperation = 'lighter';
+for (let i = state.sparkles.length - 1; i >= 0; i--) {
+    let s = state.sparkles[i];
+    s.life -= s.decay;
+    if (s.life <= 0) {
+        state.sparkles.splice(i, 1);
+        continue;
+    }
 
-if (material && material.uniforms) {
-  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-  if (material.uniforms.u_resolution) {
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
+    ctx.translate(s.x, s.y);
+    ctx.rotate(time * 2);
+    ctx.globalAlpha = s.life;
+    ctx.fillStyle = s.color;
+    
+    // Draw 4-point starburst
+    ctx.beginPath();
+    ctx.moveTo(0, -s.size);
+    ctx.quadraticCurveTo(s.size*0.1, -s.size*0.1, s.size, 0);
+    ctx.quadraticCurveTo(s.size*0.1, s.size*0.1, 0, s.size);
+    ctx.quadraticCurveTo(-s.size*0.1, s.size*0.1, -s.size, 0);
+    ctx.quadraticCurveTo(-s.size*0.1, -s.size*0.1, 0, -s.size);
+    ctx.fill();
+    
+    // Inner white core
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(0, 0, s.size * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.rotate(-time * 2);
+    ctx.translate(-s.x, -s.y);
 }
+ctx.restore();
 
-renderer.setSize(grid.width, grid.height, false);
-renderer.render(scene, camera);
+// 7. FOSSILIZE STATE (Save to offscreen for next frame's feedback)
+state.octx.globalCompositeOperation = 'copy';
+state.octx.drawImage(canvas, 0, 0);
