@@ -1,294 +1,226 @@
 try {
+  // Feral WebGL2 / Three.js Initialization
   if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL 2 context not available");
+    if (!ctx) throw new Error("WebGL2 context unavailable");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
+    const renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      context: ctx,
+      alpha: true,
+      antialias: false, // Turn off antialias for harsher pixel/glitch edges
+      preserveDrawingBuffer: true // Autophagic memory trace
+    });
+    renderer.autoClearColor = false;
+
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const geometry = new THREE.PlaneGeometry(2, 2);
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+
+    const vertexShader = `
+      out vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
 
     const fragmentShader = `
-#ifdef GL_ES
-precision highp float;
-precision highp int;
-#endif
+      in vec2 vUv;
+      out vec4 fragColor;
 
-in vec2 vUv;
-out vec4 fragColor;
+      uniform float u_time;
+      uniform vec2 u_resolution;
 
-uniform float u_time;
-uniform vec2 u_resolution;
+      #define PI 3.14159265359
 
-// --- UTILS ---
-float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-}
+      // --- FERAL NOISE & HASHING ---
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
 
-float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
 
-float sdBox(vec2 p, vec2 b) {
-    vec2 d = abs(p) - b;
-    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
-}
+      // --- OP-ART METRIC COMPETITION ---
+      // Morphing between L2 (circle) and L1/L-inf (diamond/square)
+      float minkowski(vec2 p, float q) {
+        return pow(pow(abs(p.x), q) + pow(abs(p.y), q), 1.0/q);
+      }
 
-float sdStarburst(vec2 p) {
-    float a = atan(p.y, p.x);
-    float r = length(p);
-    float rays = sin(a * 5.0) * 0.5 + 0.5;
-    return r - 0.05 * (1.0 + rays * 2.5);
-}
+      // --- MYSPACE BLINGEE STARBURST ---
+      float sdStar(vec2 p) {
+        float a = atan(p.y, p.x);
+        float r = length(p);
+        // 4-point sparkle
+        float s = 0.02 / (abs(p.x * p.y) + 0.001);
+        return s * exp(-r * 10.0);
+      }
 
-float sdHeart(vec2 p) {
-    p.x = abs(p.x);
-    if(p.y + p.x > 1.0) return sqrt(dot(p - vec2(0.25, 0.75), p - vec2(0.25, 0.75))) - sqrt(2.0)/4.0;
-    return sqrt(min(dot(p, p), dot(p - vec2(0.0, 1.0), p - vec2(0.0, 1.0)))) * sign(p.x - p.y);
-}
+      void main() {
+        vec2 p = vUv * 2.0 - 1.0;
+        p.x *= u_resolution.x / u_resolution.y;
 
-// --- OPTICAL ENGINE ---
-float opticalEngine(vec2 uv, float t) {
-    vec2 p = uv * 2.0 - 1.0;
-    p.x *= u_resolution.x / u_resolution.y;
-    
-    // Stripe fluid distortion (domain warping)
-    p += vec2(sin(p.y * 10.0 + t * 2.0), cos(p.x * 10.0 - t * 2.0)) * 0.05;
-    p *= 1.0 + sin(t * 0.5) * 0.2; // Pulse zoom
-    
-    float r = length(p);
-    float a = atan(p.y, p.x);
-    
-    // Radial hypnosis & Moiré
-    float rings = sin(r * 50.0 - t * 10.0);
-    float spokes = sin(a * 24.0 + r * 20.0 + t * 5.0);
-    
-    // Checker funnel
-    float checker = sign(sin(r * 30.0 - t * 5.0) * sin(a * 16.0));
-    
-    // Figure-ground instability mix
-    float pattern = step(0.0, mix(rings * spokes, checker, sin(t * 0.3) * 0.5 + 0.5));
-    return pattern;
-}
+        float t = u_time * 0.4;
 
-void main() {
-    vec2 uv = vUv;
-    float t = u_time;
-    
-    // --- GLOBAL GLITCH (Frame Slicing) ---
-    float sliceNoise = hash(vec2(floor(uv.y * 25.0), floor(t * 15.0)));
-    if(sliceNoise > 0.95) {
-        uv.x += (hash(vec2(floor(t * 15.0))) - 0.5) * 0.3;
-    }
-    
-    vec2 p = uv * 2.0 - 1.0;
-    p.x *= u_resolution.x / u_resolution.y;
+        // --- GLITCH DATA ROT (CANDY-CRASH COMPRESSION) ---
+        // Macroblock horizontal tearing
+        float tear_y = floor(p.y * 15.0) / 15.0;
+        float glitch_trigger = step(0.92, hash(vec2(tear_y, floor(t * 10.0))));
+        float tear = glitch_trigger * (hash(vec2(tear_y, 1.0)) - 0.5) * 1.5;
+        p.x += tear;
 
-    // --- MACROBLOCK DATAMOSH ---
-    vec2 blockUv = floor(uv * 30.0) / 30.0;
-    float glitchTrigger = step(0.85, hash(blockUv + floor(t * 10.0)));
-    vec2 gUv = uv;
-    if(glitchTrigger > 0.5) {
-        gUv.x += (hash(blockUv.yy + t) - 0.5) * 0.15;
-        gUv.y += (hash(blockUv.xx - t) - 0.5) * 0.15;
-    }
-    
-    // Horizontal tear (VHS tracking error)
-    float tear = step(0.98, sin(uv.y * 60.0 + t * 15.0));
-    gUv.x += tear * (hash(vec2(t)) - 0.5) * 0.25;
+        // --- THE OPTICAL ILLUSION ENGINE (RETINAL SURREALISM) ---
+        float q = mix(0.8, 2.5, sin(t * 1.2) * 0.5 + 0.5); // Morphing manifold
+        float r = minkowski(p, q);
+        float a = atan(p.y, p.x);
 
-    // --- CHROMATIC INTERFERENCE OP (RGB Split) ---
-    float split = 0.02 + glitchTrigger * 0.05 + tear * 0.1;
-    float rPat = opticalEngine(gUv + vec2(split, 0.0), t);
-    float gPat = opticalEngine(gUv, t);
-    float bPat = opticalEngine(gUv - vec2(split, 0.0), t);
-    vec3 col = vec3(rPat, gPat, bPat);
-    
-    // --- NEON ACID PALETTE TINTING ---
-    vec3 hotPink = vec3(1.0, 0.15, 0.6);
-    vec3 cyan = vec3(0.0, 1.0, 1.0);
-    vec3 lime = vec3(0.6, 1.0, 0.0);
-    vec3 purple = vec3(0.5, 0.0, 1.0);
-    
-    float colorZone = noise(gUv * 4.0 - t);
-    vec3 tint = mix(hotPink, cyan, step(0.33, colorZone));
-    tint = mix(tint, lime, step(0.66, colorZone));
-    
-    float isWhite = step(2.9, col.r + col.g + col.b);
-    vec3 tintedWhite = tint * 1.2;
-    col = mix(col, tintedWhite, isWhite * step(0.5, noise(gUv * 10.0 + t)));
-
-    // JPEG Crust / Mosquito Noise
-    col += noise(uv * 200.0 + t) * 0.15 * glitchTrigger;
-
-    // --- XOR-GHOST MANIFOLD GLITCH ---
-    int ix = int(uv.x * u_resolution.x * 0.15);
-    int iy = int(uv.y * u_resolution.y * 0.15);
-    if((ix ^ iy) % 23 == 0 && glitchTrigger > 0.5) {
-        col = vec3(1.0) - col; // Bitwise color inversion
-    }
-
-    // --- MYSPACE GLITTER & BLINGEE ---
-    vec2 gridUv = fract(uv * 12.0) - 0.5;
-    vec2 gridId = floor(uv * 12.0);
-    float starPhase = t * 4.0 + hash(gridId) * 20.0;
-    float starSize = (sin(starPhase) * 0.5 + 0.5) * step(0.8, hash(gridId + 12.34));
-    float dStar = sdStarburst(gridUv / max(starSize, 0.001));
-    
-    if(dStar < 0.0 && starSize > 0.0) {
-        col = vec3(1.0);
-        if(dStar > -0.02) col = mix(hotPink, cyan, hash(gridId));
-    }
-
-    // --- EYE-OBJECT ICONOGRAPHY ---
-    for(float i=0.0; i<3.0; i++) {
-        vec2 eyePos = vec2(0.2 + i*0.3, 0.2 + sin(t + i)*0.1);
-        vec2 eUv = uv - eyePos;
-        float a = sin(t * 0.5 + i) * 0.3;
-        mat2 rot = mat2(cos(a), -sin(a), sin(a), cos(a));
-        eUv = rot * eUv;
+        // Hyperbolic Tunnel Projection
+        float z = 1.0 / (r + 0.01);
         
-        float d1 = length(eUv - vec2(0.0, 0.12)) - 0.15;
-        float d2 = length(eUv - vec2(0.0, -0.12)) - 0.15;
-        float dEye = max(d1, d2);
+        // --- EARLY INTERNET / MYSPACE DEBRIS (TOPOLOGICAL FOLD) ---
+        // Projecting a Win95 Error Box / Popup into the infinite hyperbolic tunnel
+        vec2 hyper_p = vec2(a, z);
+        vec2 win_p = hyper_p - vec2(sin(t * 0.5), t * 2.0);
+        win_p.x = mod(win_p.x + PI, 2.0 * PI) - PI; // Wrap around tunnel
+        win_p.y = fract(win_p.y * 0.5) - 0.5; // Repeat endlessly in depth
         
-        if(dEye < 0.0) {
-            col = vec3(1.0); // sclera
-            float dIris = length(eUv) - 0.06;
-            if(dIris < 0.0) col = lime; // toxic green iris
-            float dPupil = length(eUv) - 0.025;
-            if(dPupil < 0.0) col = vec3(0.0); // pupil
-            if(dEye > -0.01) col = hotPink; // bleeding edge
-        }
-    }
-
-    // --- PLUSH CANDY HEARTS ---
-    for(float i=0.0; i<4.0; i++) {
-        vec2 hPos = vec2(0.8 - i*0.15, 0.8 + sin(t*1.1+i)*0.1);
-        vec2 hUv = uv - hPos;
-        hUv *= 4.0;
-        hUv.y += 0.6;
-        float a = sin(t + i) * 0.5;
-        mat2 rot = mat2(cos(a), -sin(a), sin(a), cos(a));
-        hUv = rot * hUv;
+        float win_d = max(abs(win_p.x) - 0.6, abs(win_p.y) - 0.25);
+        float win_bar = max(abs(win_p.x) - 0.6, abs(win_p.y - 0.15) - 0.1);
         
-        float dHeart = sdHeart(hUv);
-        if(dHeart < 0.0) {
-            col = mix(hotPink, purple, hash(vec2(i)));
-            if(hash(hUv * 20.0 + t) > 0.8) col = vec3(1.0); // glitter fill
-            if(dHeart > -0.08) col = vec3(0.0); // outline
-        }
-    }
+        // --- CHROMATIC INTERFERENCE OP ---
+        vec3 col = vec3(0.0);
+        float freq = 12.0;
+        float spokes = 10.0;
 
-    // --- CASCADING ERROR WINDOWS ---
-    float cascadeTime = mod(t, 12.0);
-    for(float i = 0.0; i < 15.0; i++) {
-        if(cascadeTime > i * 0.15) {
-            vec2 center = vec2(0.1 + i * 0.04, 0.8 - i * 0.04);
-            if(hash(vec2(i, t)) > 0.92) center += (hash(vec2(t, i))-0.5)*0.05; // Jitter
+        // Multi-sample for RGB channel split (Chromatic Aberration)
+        for(int i = 0; i < 3; i++) {
+            // Split widens where the glitch tear is active
+            float offset = float(i) * 0.03 * (1.0 + glitch_trigger * 5.0);
             
-            vec2 bUv = uv - center;
-            float dBox = sdBox(bUv, vec2(0.25, 0.15));
-            if(dBox < 0.0) {
-                col = vec3(0.75); // Win9x gray
-                float dInner = sdBox(bUv, vec2(0.24, 0.14));
-                if(dInner > 0.0) col = vec3(0.9); // Bevel
-                
-                // Title bar
-                if(bUv.y > 0.10) col = mix(vec3(0.0, 0.0, 0.5), vec3(0.2, 0.5, 1.0), (bUv.x + 0.25)/0.5); 
-                
-                // Close button
-                if(bUv.y > 0.105 && bUv.x > 0.20) col = vec3(0.8, 0.2, 0.2);
-                
-                // Error icon
-                if(length(bUv - vec2(-0.15, 0.0)) < 0.04) {
-                    col = vec3(0.9, 0.1, 0.1);
-                    if(abs(abs(bUv.x + 0.15) - abs(bUv.y)) < 0.008) col = vec3(1.0);
-                }
-                
-                // Text lines
-                if(bUv.y < 0.04 && bUv.y > -0.08 && bUv.x > -0.08 && bUv.x < 0.2) {
-                    if(mod(bUv.y * 100.0, 4.0) < 1.5) col = vec3(0.0);
-                }
-                
-                // Datamosh the box
-                if(hash(bUv * 15.0 + t) > 0.97) col = mix(col, vec3(1.0, 0.0, 1.0), 0.8);
-            }
-            else if(dBox < 0.02 && bUv.x > 0.0 && bUv.y < 0.0) {
-                col *= 0.3; // shadow
-            }
+            vec2 p_shift = p * (1.0 + offset);
+            float r_shift = minkowski(p_shift, q);
+            float z_shift = 1.0 / (r_shift + 0.01);
+            float a_shift = atan(p_shift.y, p_shift.x);
+            
+            float spiral = a_shift + z_shift * 0.3 + t;
+            float rings = z_shift * freq - t * 5.0;
+            
+            // Core Moiré / Phase Field
+            float pattern = sin(rings) * cos(spiral * spokes);
+            
+            // Harsh B&W Retinal Burn
+            float bw = step(0.0, pattern);
+            
+            if(i == 0) col.r = bw;
+            if(i == 1) col.g = bw;
+            if(i == 2) col.b = bw;
         }
-    }
 
-    // --- CURSOR TRAIL ---
-    vec2 curPos = vec2(0.5) + vec2(sin(t * 1.1), cos(t * 1.4)) * 0.4;
-    vec2 cUv = uv - curPos;
-    float curDist = length(cUv);
-    if(curDist < 0.01) {
-        col = vec3(1.0);
-    } else if(curDist < 0.04) {
-        col += cyan * (0.04 - curDist) * 30.0;
-    }
-    for(float i = 1.0; i < 8.0; i++) {
-        vec2 pastPos = vec2(0.5) + vec2(sin((t - i*0.05) * 1.1), cos((t - i*0.05) * 1.4)) * 0.4;
-        vec2 pUv = uv - pastPos;
-        if(length(pUv) < 0.008) col = mix(col, vec3(1.0, 0.0, 1.0), 0.8 / i);
-    }
-
-    // --- BSOD FLASH ---
-    if(mod(t, 20.0) > 19.7) {
-        col = vec3(0.0, 0.0, 0.6); // Classic BSOD blue
-        if(hash(uv + t) > 0.85) col = vec3(1.0); // Static noise
-        if(uv.x > 0.1 && uv.x < 0.9 && uv.y > 0.2 && uv.y < 0.8) {
-            if(mod(uv.y * 40.0, 2.0) < 0.3) col = vec3(1.0); // Fake text
+        // --- PALETTE MAPPING (HYPERPOP RUPTURE / ACID) ---
+        vec3 final_col = vec3(0.0);
+        if (col == vec3(1.0)) {
+            final_col = vec3(0.95); // White scaffold
+        } else if (col == vec3(0.0)) {
+            final_col = vec3(0.05); // Black scaffold
+        } else {
+            // Where channels misalign, inject Toxic Acid & Hot Pink
+            final_col += col.r * vec3(1.0, 0.0, 0.6); // Hot Pink
+            final_col += col.g * vec3(0.0, 1.0, 0.8); // Cyan
+            final_col += col.b * vec3(0.9, 1.0, 0.0); // Acid Yellow
         }
-    }
 
-    // --- CRT BLEED & VIGNETTE ---
-    col.r *= 1.0 + sin(uv.y * u_resolution.y * 0.5) * 0.05;
-    col.g *= 1.0 + cos(uv.y * u_resolution.y * 0.5) * 0.05;
-    col.b *= 1.0 + sin(uv.y * u_resolution.y * 0.5 + 3.14) * 0.05;
-    
-    col *= smoothstep(1.8, 0.4, length(p));
-    
-    fragColor = vec4(col, 1.0);
-}
+        // --- INTEGRATE THE DEBRIS ---
+        if (win_d < 0.0) {
+            if (win_bar < 0.0) {
+                // Classic deep blue title bar
+                final_col = mix(final_col, vec3(0.0, 0.0, 0.7), 0.9); 
+            } else {
+                // Gray window body with fake text lines
+                float txt = step(0.6, sin(win_p.x * 50.0) * sin(win_p.y * 80.0));
+                final_col = mix(vec3(0.75), vec3(0.2), txt);
+            }
+            // Hot pink neon border
+            if (abs(win_d) < 0.02) final_col = vec3(1.0, 0.0, 0.5);
+        }
+
+        // --- MYSPACE GLITTER / SPARKLE OVERLAY ---
+        // High frequency noise field
+        float glitter_noise = hash(p * 200.0 + t);
+        // Concentrate glitter on high-contrast edges (dFdx/dFdy equivalent via simple offset)
+        float edge = abs(col.r - col.g) + abs(col.g - col.b); 
+        float glitter = step(0.95, glitter_noise) * edge;
+        
+        // Large Blingee Starbursts
+        vec2 grid_p = fract(p * 4.0 + t * 0.2) - 0.5;
+        float star_val = sdStar(grid_p);
+        float star_mask = step(0.98, hash(floor(p * 4.0 + t * 0.2)));
+        
+        // Apply glitter & stars
+        final_col = mix(final_col, vec3(1.0), glitter); // White noise sparkles
+        final_col += star_val * star_mask * vec3(1.0, 0.5, 0.9); // Pink glowing stars
+
+        // --- CRT SCANLINE BLEED ---
+        float scanline = sin(vUv.y * u_resolution.y * 3.1415) * 0.04;
+        final_col -= scanline;
+
+        // Vignette
+        float vig = length(vUv - 0.5) * 2.0;
+        final_col *= 1.0 - pow(vig, 3.0) * 0.3;
+
+        fragColor = vec4(final_col, 1.0);
+      }
     `;
 
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
+      vertexShader,
+      fragmentShader,
       uniforms: {
         u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
       },
-      vertexShader: `
-        out vec2 vUv;
-        void main() {
-            vUv = uv;
-            gl_Position = vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: fragmentShader,
+      depthWrite: false,
+      depthTest: false
     });
 
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     scene.add(mesh);
+
     canvas.__three = { renderer, scene, camera, material };
   }
 
   const { renderer, scene, camera, material } = canvas.__three;
 
-  if (material && material.uniforms) {
-    if (material.uniforms.u_time) material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
+  // Update Uniforms safely
+  if (material?.uniforms) {
+    material.uniforms.u_time.value = time;
+    material.uniforms.u_resolution.value.set(grid.width, grid.height);
   }
 
   renderer.setSize(grid.width, grid.height, false);
+  
+  // Create a slight feedback motion by not clearing fully, relying on preserveDrawingBuffer
+  // and drawing over it, though the shader is fully opaque. 
+  // The feral decay is primarily driven by the fragment shader math.
   renderer.render(scene, camera);
 
-} catch (e) {
-  console.error("WebGL Initialization or Render Failed:", e);
+} catch (err) {
+  console.error("Feral MySpace WebGL Initialization Failed:", err);
+  // Fallback to canvas 2D if WebGL is totally wrecked
+  if (ctx && !canvas.__three) {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, grid.width, grid.height);
+    ctx.fillStyle = '#ff00ff';
+    ctx.font = '20px monospace';
+    ctx.fillText("CRITICAL ERROR: WEBGL_CONTEXT_LOST", 20, 40);
+    ctx.fillText("MYSPACE_DECAY_PROTOCOL_FAILED", 20, 70);
+  }
 }
