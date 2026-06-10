@@ -1,11 +1,11 @@
-try {
-  if (!canvas.__three) {
-    if (!ctx) throw new Error("WebGL context not available");
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
 
     const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
+    
     const vertexShader = `
       out vec2 vUv;
       void main() {
@@ -17,153 +17,168 @@ try {
     const fragmentShader = `
       in vec2 vUv;
       out vec4 fragColor;
-
+      
       uniform float u_time;
       uniform vec2 u_resolution;
 
-      #define PI 3.14159265359
-
-      // --- UTILS & NOISE ---
+      // --- ALCHEMICAL MATH & NOISE ---
       float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
       }
 
       float noise(vec2 p) {
           vec2 i = floor(p);
           vec2 f = fract(p);
-          vec2 u = f * f * (3.0 - 2.0 * f);
-          return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
-                     mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
       }
 
-      // --- PALETTES (MySpace Acid / Glitchcore) ---
-      vec3 getNeonColor(float t) {
-          vec3 a = vec3(0.5, 0.5, 0.5);
-          vec3 b = vec3(0.5, 0.5, 0.5);
-          vec3 c = vec3(1.0, 1.0, 1.0);
-          vec3 d = vec3(0.8, 0.0, 0.4); // Hot pink bias
-          vec3 col = a + b * cos(2.0 * PI * (c * t + d));
-          
-          // Force into toxic extremes (Cyan, Magenta, Acid Green)
-          if(t < 0.33) return vec3(1.0, 0.0, 1.0); // Magenta
-          if(t < 0.66) return vec3(0.0, 1.0, 1.0); // Cyan
-          return vec3(0.8, 1.0, 0.0); // Acid Green
+      // --- SDF PRIMITIVES ---
+      float sdBox(vec2 p, vec2 b) {
+          vec2 d = abs(p) - b;
+          return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
       }
 
-      // --- OP-ART HYPERBOLIC TUNNEL ---
-      float opArtTunnel(vec2 p, float time_offset) {
-          // Hyperbolic-ish warp: compress space near center
-          float r = length(p);
-          float a = atan(p.y, p.x);
+      // --- GLITCHCORE DOMAIN WARPING ---
+      vec2 glitchWarp(vec2 p, float t) {
+          vec2 gp = p;
           
-          // Zeno infinite descent log-depth
-          float z = log(r + 0.001) * 8.0 - time_offset * 3.0;
+          // Macroblocking / Codec Chew
+          vec2 block = floor(p * 12.0) / 12.0;
+          float g = step(0.96, hash(block + floor(t * 6.0)));
+          gp.x += g * (hash(block * 2.0) - 0.5) * 0.4;
           
-          // Concentric target + radial spokes
-          float rings = sin(z);
-          float spokes = sin(a * 12.0 + z * 0.5);
+          // VHS Tearing (Horizontal)
+          float tear = step(0.98, fract(p.y * 3.0 + t * 4.0));
+          gp.x += tear * 0.15 * sin(t * 20.0);
           
-          // Checkerboard logic
-          float pattern = rings * spokes;
+          // Analog tracking jitter
+          gp.y += sin(p.x * 50.0 + t * 15.0) * 0.002;
           
-          // Hard threshold for B&W retinal burn
-          return step(0.0, pattern);
+          return gp;
       }
 
-      // --- MYSPACE GLITTER / BLINGEE ---
-      float glitterSparkle(vec2 p, float t) {
-          // Grid layout for stamps
-          vec2 gv = fract(p * 8.0) - 0.5;
-          vec2 id = floor(p * 8.0);
+      // --- THE MYSPACE SINGULARITY (SCENE COMPOSITION) ---
+      vec3 renderScene(vec2 uv, vec2 rawUv, float t) {
+          // 1. PURE OPTICAL SYSTEMS (B&W Zeno Tunnel Base)
+          float r = length(uv);
+          float a = atan(uv.y, uv.x);
           
-          // Randomize existence and blink
-          float h = hash(id);
-          if (h > 0.3) return 0.0;
+          // Logarithmic spiral + Zeno descent
+          float zeno = sin(25.0 * log(r + 0.001) - t * 6.0 + a * 5.0);
+          // Moiré phase field interference
+          float moire = sin(uv.x * 120.0 + t * 2.0) * sin(uv.y * 120.0 - t * 2.0);
           
-          float blink = sin(t * 10.0 * h + h * 100.0) * 0.5 + 0.5;
-          blink = smoothstep(0.8, 1.0, blink); // sharp pop
+          // High-contrast retinal split
+          float bw = step(0.0, zeno + moire * 0.4);
+          vec3 col = vec3(bw);
+
+          // 2. GARBAGE ENLIGHTENMENT / MYSPACE UI DEBRIS
+          // A trail of frozen/crashing error windows (Windows XP / early web aesthetic)
+          for(int i = 4; i >= 0; i--) {
+              float fi = float(i);
+              // Windows dragging lag effect
+              vec2 offset = vec2(sin(t * 0.8 + fi * 0.25), cos(t * 0.4 + fi * 0.3)) * 0.6;
+              vec2 bp = uv - offset;
+              
+              // Rotate windows slightly for chaos
+              float rot = sin(t * 0.2 + fi) * 0.2;
+              mat2 m = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+              bp = m * bp;
+              
+              float dBox = sdBox(bp, vec2(0.35, 0.25));
+              
+              if(dBox < 0.0) {
+                  // Inside the UI Window
+                  if(bp.y > 0.15) {
+                      // Window Header: MySpace Glitter Graphics
+                      float spk = step(0.6, hash(bp * 300.0 + t * 5.0)); // High frequency noise
+                      vec3 glitter1 = vec3(1.0, 0.0, 0.8); // Hot Pink
+                      vec3 glitter2 = vec3(0.0, 1.0, 1.0); // Cyan
+                      col = mix(glitter1, glitter2, hash(bp * 20.0)) * spk;
+                      if(spk == 0.0) col = vec3(0.1); // Dark background for glitter
+                  } else {
+                      // Window Content: Checkerboard or Acid Green
+                      float cb = step(0.0, sin(bp.x * 50.0) * sin(bp.y * 50.0));
+                      vec3 bgCol = mix(vec3(0.8, 1.0, 0.0), vec3(0.1, 0.0, 0.2), cb); // Acid / Dark Violet
+                      col = bgCol;
+                      
+                      // Body Glyphs (Sweet Corruption / Mock Esoterica)
+                      if (mod(fi, 2.0) == 0.0) {
+                          // The Staring Eye
+                          vec2 ep = bp + vec2(0.0, 0.05);
+                          float eyeOuter = length(ep * vec2(1.0, 2.2)) - 0.12;
+                          float eyeInner = length(ep) - 0.05;
+                          float pupil = length(ep) - 0.015;
+                          
+                          if(eyeOuter < 0.0) col = vec3(1.0); // Sclera
+                          if(eyeInner < 0.0) col = vec3(0.0, 1.0, 1.0); // Electric Cyan Iris
+                          if(pupil < 0.0) col = vec3(0.0); // Pupil
+                          
+                          // Bleeding mascara / glitch tear
+                          if(ep.y < 0.0 && abs(ep.x) < 0.02 && fract(t*2.0+fi) > 0.5) {
+                             col = vec3(0.0);
+                          }
+                      } else {
+                          // The Jagged Mouth
+                          vec2 mp = bp + vec2(0.0, 0.05);
+                          float mouth = max(length(mp) - 0.15, -(length(mp - vec2(0.0, 0.08)) - 0.2));
+                          if(mouth < 0.0) {
+                              col = vec3(1.0, 0.0, 0.4); // Toxic Candy Red
+                              // Teeth
+                              float teeth = step(0.8, sin(mp.x * 80.0));
+                              if(abs(mp.y) < 0.02) col = mix(col, vec3(1.0), teeth);
+                          }
+                      }
+                  }
+                  
+                  // Faux Chrome UI Bevel
+                  if(abs(dBox) < 0.015) {
+                      col = vec3(0.9) + 0.1 * sin(bp.x * 100.0 + t * 10.0);
+                  }
+              }
+          }
           
-          // 4-point star SDF approx
-          float d = length(gv) - 0.02 / (abs(gv.x * gv.y) + 0.001);
-          return smoothstep(0.05, 0.0, d) * blink;
+          return col;
       }
 
       void main() {
-          vec2 uv = (vUv - 0.5) * 2.0;
+          vec2 rawUv = vUv;
+          vec2 uv = (rawUv - 0.5) * 2.0;
           uv.x *= u_resolution.x / u_resolution.y;
-          float t = u_time;
-
-          vec2 warped_uv = uv;
-
-          // --- GLITCH MECHANICS: "HTML Table Collapse" & VHS Tracking ---
-          // Horizontal banding that tears the space
-          float tear_band = step(0.95, sin(uv.y * 15.0 + t * 4.0)) * sin(t * 10.0);
-          warped_uv.x += tear_band * 0.2;
-
-          // Macroblock compression (Candy Crash)
-          float block_glitch = hash(vec2(floor(t * 5.0), 0.0));
-          bool is_glitching = block_glitch > 0.8;
           
-          if (is_glitching) {
-              float block_size = 0.15;
-              vec2 grid = floor(warped_uv / block_size);
-              if (hash(grid + floor(t*2.0)) > 0.4) {
-                  warped_uv = grid * block_size + block_size * 0.5;
-              }
-          }
-
-          // --- CHROMATIC ABERRATION (RGB SPLIT) ---
-          float split_dist = 0.04 * (sin(t * 3.0) * 0.5 + 0.5) + (is_glitching ? 0.1 : 0.0);
+          // Apply Glitchcore Domain Warping
+          vec2 guv = glitchWarp(uv, u_time);
           
-          // Sample the B&W Op-Art structural engine
-          float r_val = opArtTunnel(warped_uv * (1.0 + split_dist), t);
-          float g_val = opArtTunnel(warped_uv, t);
-          float b_val = opArtTunnel(warped_uv * (1.0 - split_dist), t);
-
-          vec3 structure_col = vec3(r_val, g_val, b_val);
-
-          // --- COLOR INJECTION (The Feral Brain) ---
-          // Determine where the RGB split occurred (edges)
-          float edge_mismatch = abs(r_val - g_val) + abs(b_val - g_val);
+          // Chromatic Aberration (RGB Split)
+          // Heavy split triggered by noise for datamosh/codec crash feel
+          float splitTrig = step(0.95, hash(vec2(floor(u_time * 8.0))));
+          float splitAmt = 0.01 + 0.05 * splitTrig;
           
-          vec3 final_col;
-          if (edge_mismatch > 0.1) {
-              // Edges bleed into toxic neon (Acid Vibration)
-              float hue_seed = hash(floor(warped_uv * 10.0) + t);
-              final_col = getNeonColor(hue_seed) * edge_mismatch;
-          } else {
-              // Core structure is harsh Black and White (Classic Retinal Op)
-              // We map the 0/1 signal to a slight off-black / off-white to simulate paper/screen
-              final_col = mix(vec3(0.02, 0.0, 0.05), vec3(0.95, 0.98, 1.0), g_val);
-          }
-
-          // Sometimes entire blocks invert to negative space (Cursed Shitpost)
-          if (is_glitching && hash(warped_uv * 2.0) > 0.7) {
-              final_col = 1.0 - final_col;
-              final_col *= getNeonColor(t * 0.1);
-          }
-
-          // --- OVERLAYS: MySpace Glitter & UI Debris ---
-          // Rotate glitter grid slowly
-          float ca = cos(t * 0.2);
-          float sa = sin(t * 0.2);
-          vec2 glitter_uv = vec2(ca * uv.x - sa * uv.y, sa * uv.x + ca * uv.y);
+          vec3 finalColor;
+          finalColor.r = renderScene(guv + vec2(splitAmt, 0.0), rawUv, u_time).r;
+          finalColor.g = renderScene(guv, rawUv, u_time).g;
+          finalColor.b = renderScene(guv - vec2(splitAmt, 0.0), rawUv, u_time).b;
           
-          float spark = glitterSparkle(glitter_uv + vec2(sin(t), cos(t))*0.1, t);
-          vec3 spark_col = getNeonColor(hash(floor(glitter_uv * 8.0))) * 1.5 + vec3(1.0); // Bright white core
+          // CRT Phosphor / Scanlines (Analog Video Damage)
+          float scanline = sin(rawUv.y * u_resolution.y * 1.5) * 0.08;
+          finalColor -= scanline;
           
-          final_col += spark * spark_col;
+          // CRT Flicker
+          finalColor *= 0.95 + 0.05 * sin(u_time * 60.0);
+          
+          // Deep Internet Vignette
+          float vig = length(rawUv - 0.5);
+          finalColor *= smoothstep(0.8, 0.3, vig);
+          
+          // Overdrive colors slightly for Hyperpop Rupture
+          finalColor = clamp(finalColor * 1.1, 0.0, 1.0);
 
-          // CRT Scanline Burn
-          float scanline = sin(vUv.y * u_resolution.y * 1.5) * 0.04;
-          final_col -= scanline;
-
-          // Vignette (Browser Window claustrophobia)
-          float vignette = length(uv);
-          final_col *= smoothstep(1.8, 0.4, vignette);
-
-          // Hard clamp to prevent NaN/Inf blowouts
-          fragColor = vec4(clamp(final_col, 0.0, 1.0), 1.0);
+          fragColor = vec4(finalColor, 1.0);
       }
     `;
 
@@ -183,20 +198,18 @@ try {
     scene.add(mesh);
 
     canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
   }
-
-  const { renderer, scene, camera, material } = canvas.__three;
-
-  if (material && material.uniforms) {
-    material.uniforms.u_time.value = time;
-    if (material.uniforms.u_resolution) {
-      material.uniforms.u_resolution.value.set(grid.width, grid.height);
-    }
-  }
-
-  renderer.setSize(grid.width, grid.height, false);
-  renderer.render(scene, camera);
-
-} catch (e) {
-  console.error("Feral Glitchcore Engine Failed:", e);
 }
+
+const { renderer, scene, camera, material } = canvas.__three;
+
+if (material && material.uniforms) {
+  material.uniforms.u_time.value = time;
+  material.uniforms.u_resolution.value.set(grid.width, grid.height);
+}
+
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
