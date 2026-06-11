@@ -1,284 +1,186 @@
-const { width, height } = grid;
-const cx = width / 2;
-const cy = height / 2;
+if (!canvas.__three) {
+  try {
+    if (!ctx) throw new Error("WebGL 2 context not available");
+    
+    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    
+    const fragmentShader = `
+      out vec4 fragColor;
+      in vec2 vUv;
+      
+      uniform float u_time;
+      uniform vec2 u_resolution;
 
-// --- STATE INITIALIZATION ---
-if (!canvas.__feralState) {
-    canvas.__feralState = {
-        agents: [],
-        nodes: [],
-        windows: [],
-        sparkles: [],
-        frame: 0,
-        palettes: {
-            hyperpop: ['#FF1493', '#00FFFF', '#B0FF00', '#8B00FF', '#F0F8FF'],
-            op: ['#000000', '#FFFFFF']
+      const float PI = 3.14159265359;
+
+      // Noise & Hash Functions
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+      float hash1(float n) { return fract(sin(n)*43758.5453); }
+
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f*f*(3.0-2.0*f);
+          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+
+      // Early Internet Window Cascade Logic
+      vec2 winCascade(vec2 uv, float t) {
+          float id = floor(t * 3.0);
+          vec2 offset = vec2(hash1(id)*1.5 - 0.75, hash1(id+10.0)*1.5 - 0.75);
+          vec2 boxUv = uv - offset;
+          
+          float winW = 0.4;
+          float winH = 0.3;
+          float titleH = 0.05;
+          
+          float isBox = step(abs(boxUv.x), winW) * step(abs(boxUv.y), winH);
+          float isTitle = isBox * step(winH - titleH, boxUv.y);
+          float isBody = isBox * (1.0 - isTitle);
+          
+          float activeCas = step(0.4, hash1(id+20.0));
+          
+          vec2 newUv = uv;
+          // Body repeats (tiled background logic)
+          newUv = mix(newUv, fract(boxUv * 4.0) - 0.5, isBody * activeCas);
+          // Title bar distorts to a solid color line
+          newUv = mix(newUv, vec2(0.0), isTitle * activeCas);
+          
+          return newUv;
+      }
+
+      // Optical Illusion Pattern (Spiral / Grid Morph)
+      float illusion(vec2 uv, float t) {
+          float r = length(uv);
+          float a = atan(uv.y, uv.x);
+          
+          // Archimedean spiral
+          float s = sin(60.0 * r - 6.0 * a - t * 10.0);
+          
+          // Concentric grid interference
+          float g = sin(80.0 * uv.x) * sin(80.0 * uv.y);
+          
+          // Morphing between spiral and grid
+          float morph = 0.5 + 0.5 * sin(t * 0.5);
+          float v = mix(s, g, morph);
+          
+          return smoothstep(-0.15, 0.15, v);
+      }
+
+      void main() {
+          vec2 uv = vUv;
+          vec2 centerUv = uv * 2.0 - 1.0;
+          centerUv.x *= u_resolution.x / u_resolution.y;
+          
+          float t = u_time;
+          
+          // 1. VHS Tracking Tear
+          float tearY = hash1(floor(t * 6.0));
+          float isTear = step(0.93, 1.0 - abs(uv.y - tearY));
+          centerUv.x += isTear * (hash(vec2(t, uv.y)) - 0.5) * 0.6;
+          
+          // 2. Window Cascades
+          vec2 cascUv = winCascade(centerUv, t);
+          
+          // 3. Datamosh Macroblocking
+          vec2 blockUv = floor(cascUv * 25.0) / 25.0;
+          float moshTrigger = step(0.75, hash(blockUv + floor(t * 4.0)));
+          vec2 moshOffset = vec2(noise(blockUv * 12.0), noise(blockUv * 22.0)) * 2.0 - 1.0;
+          vec2 finalUv = mix(cascUv, cascUv + moshOffset * 0.4, moshTrigger);
+          
+          // 4. Base Optical Illusion (B&W)
+          float m = illusion(finalUv, t);
+          vec3 baseCol = vec3(m); 
+          
+          // 5. MySpace Hyperpop Palette
+          vec3 colA = vec3(0.5);
+          vec3 colB = vec3(0.5);
+          vec3 colC = vec3(1.0);
+          vec3 colD = vec3(0.8, 0.1, 0.6); // Hot Pink & Cyan
+          vec3 neonCol = colA + colB * cos(PI * 2.0 * (colC * (length(finalUv) - t * 0.4) + colD));
+          
+          // Toxic accents (Acid Lime & Electric Cyan)
+          neonCol = mix(neonCol, vec3(0.0, 1.0, 0.9), step(0.9, sin(finalUv.x * 15.0 + t)));
+          neonCol = mix(neonCol, vec3(0.8, 1.0, 0.0), step(0.95, sin(finalUv.y * 25.0 - t)));
+          
+          // 6. Chromatic Aberration (RGB Split)
+          float shift = 0.05 * hash1(floor(t * 8.0));
+          float rM = illusion(finalUv + vec2(shift, 0.0), t);
+          float bM = illusion(finalUv - vec2(shift, 0.0), t);
+          vec3 glitchCol = vec3(rM, m, bM);
+          
+          // 7. Spatial Masking (B&W vs Color)
+          float zoneMask = noise(finalUv * 2.5 + t * 0.3);
+          vec3 compCol = mix(baseCol, neonCol, smoothstep(0.35, 0.65, zoneMask));
+          
+          // Apply RGB Glitch
+          compCol = mix(compCol, glitchCol, step(0.65, zoneMask) * moshTrigger);
+          
+          // 8. Missing Texture Checkerboard
+          vec2 checkUv = floor(finalUv * 12.0);
+          float check = mod(checkUv.x + checkUv.y, 2.0);
+          vec3 missingTex = mix(vec3(0.0), vec3(1.0, 0.0, 1.0), check);
+          compCol = mix(compCol, missingTex, step(0.96, noise(finalUv * 3.0 - t)));
+          
+          // 9. MySpace Glitter / Sparkle
+          float sparkleNoise = hash(finalUv * 150.0 + t);
+          float sparkle = step(0.97, sparkleNoise);
+          float twinkle = 0.5 + 0.5 * sin(t * 25.0 + sparkleNoise * 100.0);
+          compCol += sparkle * twinkle * vec3(1.0, 0.4, 0.9) * 2.0;
+          
+          // 10. Fake UI Cursor
+          float cursorX = fract(t * 0.6) * 3.0 - 1.5;
+          float cursorY = sin(t * 3.0) * 0.8;
+          vec2 cursorUv = finalUv - vec2(cursorX, cursorY);
+          float cursor = step(abs(cursorUv.x), 0.03) * step(abs(cursorUv.y), 0.05);
+          compCol = mix(compCol, vec3(1.0), cursor);
+          
+          // 11. CRT Textures & Vignette
+          float scanline = sin(uv.y * 600.0);
+          compCol -= scanline * 0.04;
+          
+          float vignette = length(uv - 0.5);
+          compCol *= smoothstep(0.85, 0.2, vignette);
+          
+          fragColor = vec4(compCol, 1.0);
+      }
+    `;
+    
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        u_time: { value: 0 },
+        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+      },
+      vertexShader: `
+        out vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position, 1.0);
         }
-    };
-
-    // Seed initial agents (Mycelial web crawlers)
-    for (let i = 0; i < 15; i++) {
-        canvas.__feralState.agents.push({
-            x: cx, y: cy,
-            vx: (Math.random() - 0.5) * 10,
-            vy: (Math.random() - 0.5) * 10,
-            life: Math.random() * 200 + 100,
-            color: canvas.__feralState.palettes.hyperpop[Math.floor(Math.random() * 5)],
-            size: Math.random() * 4 + 1
-        });
-    }
-}
-
-const state = canvas.__feralState;
-state.frame++;
-const t = time;
-
-// --- 1. TEMPORAL ECHO & VHS DEGRADATION (Feedback Loop) ---
-// Simulates generation loss, temporal stacking, and Op-Art funneling
-ctx.save();
-ctx.globalCompositeOperation = 'source-over';
-ctx.translate(cx, cy);
-// Slight scale and rotation for the infinite tunnel/melt effect
-ctx.scale(1.005, 1.005);
-ctx.rotate(Math.sin(t * 0.5) * 0.002);
-ctx.translate(-cx, -cy);
-ctx.drawImage(canvas, 0, 0);
-ctx.restore();
-
-// Fade to black (Phosphor Noir / Deep Internet void)
-ctx.globalCompositeOperation = 'source-over';
-ctx.fillStyle = `rgba(5, 5, 8, 0.08)`;
-ctx.fillRect(0, 0, width, height);
-
-// --- 2. VHS TRACKING ERROR / TAPE TEAR ---
-if (Math.random() < 0.08) {
-    const tearY = Math.random() * height;
-    const tearH = Math.random() * 30 + 5;
-    const shift = (Math.random() - 0.5) * 40;
-    
-    // Slice and shift the canvas horizontally
-    ctx.drawImage(canvas, 0, tearY, width, tearH, shift, tearY, width, tearH);
-    
-    // Add white noise static line
-    ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.3})`;
-    ctx.fillRect(0, tearY, width, Math.random() * 4);
-}
-
-// --- 3. MYCELIAL WEB CRAWLERS (Growth + Data Rot) ---
-ctx.lineCap = 'round';
-ctx.lineJoin = 'round';
-
-for (let i = state.agents.length - 1; i >= 0; i--) {
-    let a = state.agents[i];
-    
-    // Gematria/Harmonic resonance math driving movement (373 = Logos, 26 = YHWH)
-    a.vx += Math.sin(a.y * 0.0373 + t * 2) * 0.4;
-    a.vy += Math.cos(a.x * 0.0026 + t * 1.5) * 0.4;
-    
-    // Friction
-    a.vx *= 0.95;
-    a.vy *= 0.95;
-    
-    let nx = a.x + a.vx;
-    let ny = a.y + a.vy;
-    
-    // Draw trail (Chroma bleed via composite operations)
-    ctx.globalCompositeOperation = 'screen';
-    ctx.lineWidth = a.size;
-    
-    // RGB Phantom Split
-    ctx.strokeStyle = 'red';
-    ctx.beginPath(); ctx.moveTo(a.x - 2, a.y); ctx.lineTo(nx - 2, ny); ctx.stroke();
-    
-    ctx.strokeStyle = 'cyan';
-    ctx.beginPath(); ctx.moveTo(a.x + 2, a.y); ctx.lineTo(nx + 2, ny); ctx.stroke();
-    
-    ctx.strokeStyle = a.color;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(nx, ny); ctx.stroke();
-    
-    a.x = nx;
-    a.y = ny;
-    a.life--;
-    
-    // Screen wrap
-    if (a.x < 0) a.x = width; if (a.x > width) a.x = 0;
-    if (a.y < 0) a.y = height; if (a.y > height) a.y = 0;
-    
-    // Anastomosis / Branching (Fungal logic)
-    if (Math.random() < 0.03) {
-        state.agents.push({
-            x: a.x, y: a.y,
-            vx: a.vx + (Math.random() - 0.5) * 5,
-            vy: a.vy + (Math.random() - 0.5) * 5,
-            life: Math.random() * 100 + 50,
-            color: state.palettes.hyperpop[Math.floor(Math.random() * 5)],
-            size: a.size * 0.8
-        });
-    }
-    
-    // Node Formation (Op Art Shrine birth)
-    if (Math.random() < 0.01 && state.nodes.length < 15) {
-        state.nodes.push({
-            x: a.x, y: a.y,
-            maxR: Math.random() * 80 + 20,
-            birth: t,
-            rings: Math.floor(Math.random() * 6) + 4
-        });
-    }
-    
-    // Myspace Sparkle shedding
-    if (Math.random() < 0.05) {
-        state.sparkles.push({
-            x: a.x, y: a.y,
-            size: Math.random() * 15 + 5,
-            life: 1.0,
-            rot: Math.random() * Math.PI
-        });
-    }
-    
-    if (a.life <= 0 || a.size < 0.5) {
-        state.agents.splice(i, 1);
-    }
-}
-
-// Keep agent population alive
-if (state.agents.length < 10) {
-    state.agents.push({
-        x: Math.random() * width, y: Math.random() * height,
-        vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10,
-        life: 200, color: '#FF1493', size: 4
+      `,
+      fragmentShader: fragmentShader
     });
+    
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    scene.add(mesh);
+    
+    canvas.__three = { renderer, scene, camera, material };
+  } catch (e) {
+    console.error("WebGL Initialization Failed:", e);
+    return;
+  }
 }
 
-// --- 4. OP ART SHRINE NODES (Retinal Surrealism) ---
-// Draws high-contrast concentric targets that vibrate and flip figure/ground
-ctx.globalCompositeOperation = 'difference';
+const { renderer, scene, camera, material } = canvas.__three;
 
-for (let i = state.nodes.length - 1; i >= 0; i--) {
-    let n = state.nodes[i];
-    let age = t - n.birth;
-    
-    ctx.save();
-    ctx.translate(n.x, n.y);
-    // Radial Hypnosis rotation
-    ctx.rotate(age * 0.5);
-    
-    // Moiré expansion
-    let currentMaxR = Math.min(n.maxR, age * 50);
-    
-    for (let r = n.rings; r > 0; r--) {
-        ctx.beginPath();
-        // Curvature logic: pulsating thickness
-        let radius = (currentMaxR / n.rings) * r + Math.sin(age * 8 + r) * (currentMaxR * 0.1);
-        if (radius < 0) radius = 0;
-        
-        ctx.arc(0, 0, radius, 0, Math.PI * 2);
-        // Strict B&W for optical interference
-        ctx.fillStyle = r % 2 === 0 ? '#FFFFFF' : '#000000';
-        ctx.fill();
-    }
-    ctx.restore();
-    
-    if (age > 5) state.nodes.splice(i, 1); // Nodes collapse after 5 seconds
+if (material && material.uniforms) {
+  if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+  if (material.uniforms.u_resolution) material.uniforms.u_resolution.value.set(grid.width, grid.height);
 }
 
-// --- 5. EARLY INTERNET / UI DEBRIS ---
-if (Math.random() < 0.02 && state.windows.length < 5) {
-    state.windows.push({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        w: Math.random() * 200 + 100,
-        h: Math.random() * 150 + 50,
-        birth: t
-    });
-}
-
-ctx.globalCompositeOperation = 'source-over';
-for (let i = state.windows.length - 1; i >= 0; i--) {
-    let win = state.windows[i];
-    let age = t - win.birth;
-    
-    ctx.save();
-    // Distortion Warp (Datamosh melt)
-    let warpX = Math.sin(age * 5 + win.y * 0.05) * 10;
-    let warpY = Math.cos(age * 3 + win.x * 0.05) * 10;
-    ctx.translate(win.x + warpX, win.y + warpY);
-    
-    // Fake Windows 95 frame
-    ctx.fillStyle = '#C0C0C0';
-    ctx.fillRect(0, 0, win.w, win.h);
-    
-    // 3D Bevel
-    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, win.w, 2); ctx.fillRect(0, 0, 2, win.h);
-    ctx.fillStyle = '#808080'; ctx.fillRect(win.w-2, 0, 2, win.h); ctx.fillRect(0, win.h-2, win.w, 2);
-    
-    // Title bar
-    ctx.fillStyle = '#0000AA';
-    ctx.fillRect(3, 3, win.w - 6, 18);
-    
-    // Text Debris (Terminal confession / Gematria)
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText("FATAL_ERR_373", 6, 16);
-    
-    // Content area glitch
-    ctx.fillStyle = state.palettes.hyperpop[Math.floor(t * 10) % 5];
-    ctx.fillRect(5, 25, win.w - 10, win.h - 30);
-    
-    // Draw some barcode/gematria blocks inside
-    ctx.fillStyle = '#000000';
-    for(let j=0; j<10; j++) {
-        ctx.fillRect(10 + j*10, 30, Math.random()*5, Math.random()*(win.h-40));
-    }
-    
-    ctx.restore();
-    
-    if (age > 2) state.windows.splice(i, 1);
-}
-
-// --- 6. MYSPACE SPARKLES (Glamour / Trashy Cute) ---
-ctx.globalCompositeOperation = 'screen';
-for (let i = state.sparkles.length - 1; i >= 0; i--) {
-    let s = state.sparkles[i];
-    
-    ctx.save();
-    ctx.translate(s.x, s.y);
-    ctx.rotate(s.rot + t);
-    
-    let alpha = s.life;
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-    
-    // Draw 4-point star
-    ctx.beginPath();
-    ctx.moveTo(0, -s.size);
-    ctx.quadraticCurveTo(0, 0, s.size, 0);
-    ctx.quadraticCurveTo(0, 0, 0, s.size);
-    ctx.quadraticCurveTo(0, 0, -s.size, 0);
-    ctx.quadraticCurveTo(0, 0, 0, -s.size);
-    ctx.fill();
-    
-    // Inner hot pink glow
-    ctx.fillStyle = `rgba(255, 20, 147, ${alpha * 0.5})`;
-    ctx.scale(0.5, 0.5);
-    ctx.beginPath();
-    ctx.moveTo(0, -s.size);
-    ctx.quadraticCurveTo(0, 0, s.size, 0);
-    ctx.quadraticCurveTo(0, 0, 0, s.size);
-    ctx.quadraticCurveTo(0, 0, -s.size, 0);
-    ctx.quadraticCurveTo(0, 0, 0, -s.size);
-    ctx.fill();
-    
-    ctx.restore();
-    
-    s.life -= 0.05;
-    if (s.life <= 0) state.sparkles.splice(i, 1);
-}
-
-// --- 7. FINAL GLITCHCORE OVERLAY (Compression Banding) ---
-ctx.globalCompositeOperation = 'overlay';
-ctx.fillStyle = `rgba(0, 255, 255, 0.05)`;
-for(let y = 0; y < height; y += 4) {
-    if(Math.random() > 0.5) ctx.fillRect(0, y, width, 2);
-}
-// Reset for next frame
-ctx.globalCompositeOperation = 'source-over';
+renderer.setSize(grid.width, grid.height, false);
+renderer.render(scene, camera);
