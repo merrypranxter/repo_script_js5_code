@@ -1,217 +1,186 @@
 try {
-  if (!ctx) throw new Error("WebGL 2 context not available");
+    if (!canvas.__three) {
+        if (!ctx) throw new Error("WebGL 2 context not available");
+        
+        const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: true });
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, grid.width / grid.height, 0.1, 1000);
+        camera.position.z = 5;
+        
+        const vertexShader = `
+            out vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+        
+        const fragmentShader = `
+            in vec2 vUv;
+            out vec4 fragColor;
+            uniform float u_time;
+            uniform vec2 u_resolution;
 
-  if (!canvas.__three) {
-    const renderer = new THREE.WebGLRenderer({ canvas, context: ctx, alpha: true, antialias: false });
-    renderer.autoClear = false;
+            // Hash & Noise for Glitch/Artifacts
+            float hash(vec2 p) {
+                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+            }
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+            float noise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                           mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+            }
 
-    const rtOptions = {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-      type: THREE.HalfFloatType,
-      depthBuffer: false,
-      stencilBuffer: false
-    };
+            // Hyperpop / Acid Palette (Cosine)
+            vec3 palette(float t) {
+                vec3 a = vec3(0.5, 0.5, 0.5);
+                vec3 b = vec3(0.5, 0.5, 0.33);
+                vec3 c = vec3(2.0, 1.0, 1.0);
+                vec3 d = vec3(0.5, 0.2, 0.25);
+                return a + b * cos(6.28318 * (c * t + d));
+            }
 
-    const rtA = new THREE.WebGLRenderTarget(grid.width, grid.height, rtOptions);
-    const rtB = new THREE.WebGLRenderTarget(grid.width, grid.height, rtOptions);
+            // MySpace Sparkle/Blingee Generator
+            float sparkle(vec2 uv, vec2 center, float size) {
+                vec2 d = abs(uv - center);
+                float cross = max(0.0, 1.0 - (d.x * d.y * 1500.0 / size));
+                float core = max(0.0, 1.0 - length(d) * 60.0 / size);
+                return cross + core;
+            }
 
-    const vertexShader = `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
+            void main() {
+                vec2 uv = vUv;
+                vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
 
-    const fragmentShader = `
-      precision highp float;
-      in vec2 vUv;
-      out vec4 fragColor;
-      
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform sampler2D u_buffer;
-      
-      float noise(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
-      
-      vec3 oklch_to_oklab(vec3 lch) {
-          return vec3(lch.x, lch.y * cos(lch.z * 3.14159265 / 180.0), lch.y * sin(lch.z * 3.14159265 / 180.0));
-      }
-      
-      vec3 oklab_to_linear_srgb(vec3 c) {
-          float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
-          float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
-          float s_ = c.x - 0.0894841775 * c.y - 1.2914855480 * c.z;
-          float l = l_ * l_ * l_;
-          float m = m_ * m_ * m_;
-          float s = s_ * s_ * s_;
-          return vec3(
-               4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-              -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-          );
-      }
-      
-      float linear_to_srgb(float x) {
-          return x <= 0.0031308 ? x * 12.92 : 1.055 * pow(max(x, 0.0), 1.0 / 2.4) - 0.055;
-      }
-      
-      vec3 oklch_to_srgb(vec3 lch) {
-          vec3 lin = oklab_to_linear_srgb(oklch_to_oklab(lch));
-          return vec3(linear_to_srgb(lin.r), linear_to_srgb(lin.g), linear_to_srgb(lin.b));
-      }
-      
-      void main() {
-          vec2 uv = vUv;
-          float time = u_time * 0.8;
-          
-          // --- DATABENDING & COMPRESSION MACROBLOCKING ---
-          vec2 blockUv = floor(uv * vec2(32.0, 24.0)) / vec2(32.0, 24.0);
-          float glitchNoise = noise(blockUv * 8.0 + floor(time * 15.0));
-          vec2 warpedUv = uv;
-          
-          if (glitchNoise > 0.96) {
-              warpedUv.x += 0.08 * sin(time * 20.0 + uv.y * 10.0);
-              warpedUv.y -= 0.03 * cos(time * 15.0);
-          }
-          
-          // --- VHS TRACKING TEAR ---
-          float tear = step(0.992, sin(warpedUv.y * 200.0 + time * 40.0) * cos(warpedUv.y * 47.0 - time * 15.0));
-          warpedUv.x += tear * 0.15;
-          
-          vec2 p = (warpedUv - 0.5) * 2.0;
-          p.x *= u_resolution.x / u_resolution.y;
-          
-          // --- CLASSIC B&W RETINAL OP-ART TUNNEL ---
-          float r = length(p);
-          float theta = atan(p.y, p.x);
-          float spiral = log(r + 0.001) * 6.0 - time * 4.0 + theta * 3.0;
-          float bw = step(0.0, sin(spiral * 2.0)); 
-          
-          // --- EARLY INTERNET "PROGRAM NOT RESPONDING" WINDOW ---
-          vec2 winPos = vec2(sin(time * 1.4) * 0.7, cos(time * 1.1) * 0.4);
-          vec2 winUv = p - winPos;
-          float windowMask = step(abs(winUv.x), 0.35) * step(abs(winUv.y), 0.25);
-          float titleBar = step(abs(winUv.x), 0.35) * step(abs(winUv.y - 0.2), 0.05);
-          float closeBtn = step(0.28, winUv.x) * step(winUv.x, 0.33) * step(0.17, winUv.y) * step(winUv.y, 0.23);
-          
-          // Checkerboard abyss inside the window
-          float winChecker = step(0.0, sin(winUv.x * 50.0) * sin(winUv.y * 50.0 - time * 12.0));
-          
-          // --- ACID VIBRATION PALETTE ---
-          vec3 acidMagenta = oklch_to_srgb(vec3(0.65, 0.35, 330.0));
-          vec3 acidLime    = oklch_to_srgb(vec3(0.85, 0.30, 130.0));
-          vec3 cyberCyan   = oklch_to_srgb(vec3(0.75, 0.25, 195.0));
-          vec3 hyperYellow = oklch_to_srgb(vec3(0.90, 0.25, 100.0));
-          
-          vec3 sceneColor = vec3(bw);
-          
-          // Apply Window Overlay
-          if (windowMask > 0.5) {
-              sceneColor = mix(vec3(winChecker), acidMagenta, 0.4); // Toxic overlay
-              if (titleBar > 0.5) sceneColor = cyberCyan;
-              if (closeBtn > 0.5) sceneColor = hyperYellow;
-          }
-          
-          // Chromatic Interference on Op-Art Edges
-          float edge = abs(sin(spiral * 2.0));
-          if (edge < 0.15 && windowMask < 0.5) {
-              sceneColor = mix(sceneColor, acidLime, 1.0 - edge * 6.66);
-          }
-          
-          // --- MYSPACE GLITTER SCRAPING ---
-          float sparkle = step(0.993, noise(p * 250.0 + time * 8.0));
-          vec3 glitterColor = oklch_to_srgb(vec3(0.9, 0.3, time * 400.0 + r * 200.0)); // Hyperspeed hue cycle
-          sceneColor = mix(sceneColor, glitterColor, sparkle);
-          
-          // Inject Random Color Blocks (Glitchcore)
-          if (glitchNoise > 0.88 && windowMask < 0.5) {
-              sceneColor = mix(acidMagenta, cyberCyan, fract(p.y * 15.0 + time));
-          }
-          
-          // --- GHOST-FRAME BODY / TEMPORAL ECHO (FEEDBACK) ---
-          // Zoom out and twist slightly to create a tumbling, cascading "crashed desktop" trail
-          float fbTheta = 0.015 * sin(time * 0.4);
-          mat2 fbRot = mat2(cos(fbTheta), -sin(fbTheta), sin(fbTheta), cos(fbTheta));
-          vec2 fbUv = uv - 0.5;
-          fbUv = fbUv * fbRot;
-          fbUv *= 0.985; // Zoom out
-          fbUv += 0.5;
-          
-          // Chromatic Aberration in Feedback
-          float ca = 0.005 + 0.03 * tear;
-          float prevR = texture(u_buffer, fbUv + vec2(ca, 0.0)).r;
-          float prevG = texture(u_buffer, fbUv).g;
-          float prevB = texture(u_buffer, fbUv - vec2(ca, 0.0)).b;
-          vec3 prevColor = vec3(prevR, prevG, prevB);
-          
-          // Dynamic Feedback Weight (Datamosh melt vs fresh draw)
-          float fbWeight = 0.89;
-          if (glitchNoise > 0.98) fbWeight = 0.2; // Sudden break in feedback trail
-          
-          vec3 finalColor = mix(sceneColor, prevColor, fbWeight);
-          
-          // --- CRT HEAD SWITCHING NOISE ---
-          float headSwitch = step(0.94, uv.y) * noise(uv * vec2(1.0, 80.0) + time * 15.0);
-          if (headSwitch > 0.5) {
-              finalColor = mix(finalColor, vec3(1.0), 0.6);
-          }
-          
-          fragColor = vec4(finalColor, 1.0);
-      }
-    `;
+                // 1. MACROBLOCK GLITCH (Datamosh / Candy Crash)
+                float t_snap = floor(u_time * 14.0);
+                vec2 gridUV = floor(uv * vec2(24.0, 18.0));
+                float glitchTrigger = hash(gridUV + t_snap);
+                
+                if (glitchTrigger > 0.88) {
+                    p += (vec2(hash(gridUV), hash(gridUV + 1.0)) - 0.5) * 0.15;
+                    uv += (vec2(hash(gridUV + 2.0), hash(gridUV + 3.0)) - 0.5) * 0.1;
+                }
 
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        u_time: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(grid.width, grid.height) },
-        u_buffer: { value: null }
-      },
-      vertexShader,
-      fragmentShader,
-      depthWrite: false,
-      depthTest: false
-    });
+                // 2. VHS TRACKING TEAR (Analog Signal Death)
+                float tracking = step(0.92, sin(uv.y * 25.0 + u_time * 15.0)) * hash(vec2(u_time, uv.y));
+                p.x += tracking * 0.15;
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
+                // 3. ZENO TUNNEL & OP-ART (Retinal Surrealism)
+                float a = atan(p.y, p.x);
+                float r = length(p);
+                
+                // Zeno singularity / Infinite Descent
+                float z = 1.0 / (r + 0.001);
+                float depth = z + u_time * 3.0;
+                
+                // Hyperbolic funnel warp
+                a += sin(depth * 0.4) * 0.5;
 
-    canvas.__three = { renderer, scene, camera, material, rtA, rtB };
-  }
+                // B&W Op-Art Pattern (Stripes & Checkers)
+                float rings = sin(depth * 3.1415);
+                float spokes = sin(a * 16.0 + depth * 0.5);
+                float pattern = step(0.0, rings * spokes);
 
-  const { renderer, scene, camera, material } = canvas.__three;
-  let { rtA, rtB } = canvas.__three;
+                // Zeno Levels (Golden Ratio Subdivision)
+                float zenoLevel = floor(log(depth) / log(1.618));
+                float zenoFract = fract(log(depth) / log(1.618));
 
-  if (material.uniforms.u_resolution.value.x !== grid.width || material.uniforms.u_resolution.value.y !== grid.height) {
+                // 4. COLOR INJECTION (Psychedelic Acid + Blacklight)
+                vec3 col = vec3(pattern); // Base B&W structure
+                
+                // Inject acid/neon at Zeno boundaries or glitch zones
+                if (zenoFract < 0.15 || glitchTrigger > 0.94 || tracking > 0.0) {
+                    vec3 acid = palette(zenoLevel * 0.618 + u_time * 0.2);
+                    col = mix(col, acid, 0.9);
+                    // Invert pattern for retinal vibration
+                    col = mix(col, 1.0 - col, step(0.0, sin(a * 32.0)));
+                }
+
+                // 5. CHROMATIC ABERRATION (RGB Split)
+                float split = 0.03 + tracking * 0.08;
+                float rZ = 1.0 / (length(p - vec2(split, 0.0)) + 0.001) + u_time * 3.0;
+                float bZ = 1.0 / (length(p + vec2(split, 0.0)) + 0.001) + u_time * 3.0;
+                
+                float rPat = step(0.0, sin(rZ * 3.1415) * sin((a + split) * 16.0 + rZ * 0.5));
+                float bPat = step(0.0, sin(bZ * 3.1415) * sin((a - split) * 16.0 + bZ * 0.5));
+
+                if (r > 0.25 || glitchTrigger > 0.8) {
+                    col.r = mix(col.r, rPat, 0.65);
+                    col.b = mix(col.b, bPat, 0.65);
+                }
+
+                // 6. MYSPACE GLITTER / SPARKLES (Cheap Luxury)
+                float spark = 0.0;
+                for(float i = 0.0; i < 15.0; i++) {
+                    vec2 sPos = vec2(hash(vec2(i, floor(u_time * 4.0))), hash(vec2(floor(u_time * 4.0), i))) * 2.0 - 1.0;
+                    sPos.x *= u_resolution.x / u_resolution.y;
+                    float blink = sin(u_time * 20.0 + i * 1.3) * 0.5 + 0.5;
+                    spark += sparkle(p, sPos, 1.5 + hash(vec2(i))*2.5) * blink;
+                }
+                // Toxic Contrast Pairs (Hot pink / Electric Cyan)
+                vec3 sparkCol = mix(vec3(1.0, 0.1, 0.8), vec3(0.0, 1.0, 0.9), hash(vec2(t_snap)));
+                col += vec3(spark) * sparkCol;
+
+                // 7. EARLY INTERNET UI DEBRIS (Popup Ghosts & BSOD)
+                float uiFlash = step(0.96, hash(vec2(t_snap, 1.0)));
+                if (uiFlash > 0.0) {
+                    vec2 uiPos = vec2(hash(vec2(t_snap, 2.0)), hash(vec2(t_snap, 3.0))) * 0.6 + 0.2;
+                    vec2 winUV = abs(uv - uiPos) * 2.0;
+                    if (winUV.x < 0.45 && winUV.y < 0.3) {
+                        float boxBorder = step(0.42, winUV.x) + step(0.27, winUV.y);
+                        if (boxBorder > 0.0) {
+                            col = vec3(0.75); // Windows 9x gray
+                        } else {
+                            col = vec3(0.0, 0.0, 0.6); // BSOD Blue
+                            // Fake text lines
+                            col += step(0.8, sin(uv.y * 250.0 + u_time)) * 0.6;
+                        }
+                        // Title bar
+                        if (uv.y > uiPos.y + 0.1 && uv.y < uiPos.y + 0.15 && abs(uv.x - uiPos.x) < 0.21) {
+                            col = vec3(0.0, 0.0, 0.4);
+                        }
+                    }
+                }
+
+                // 8. CRT SCANLINES & VIGNETTE
+                col *= 0.9 + 0.1 * sin(uv.y * u_resolution.y * 2.5);
+                col *= 1.0 - pow(r, 2.5) * 0.6;
+
+                fragColor = vec4(col, 1.0);
+            }
+        `;
+        
+        const material = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                u_time: { value: 0 },
+                u_resolution: { value: new THREE.Vector2(grid.width, grid.height) }
+            },
+            vertexShader,
+            fragmentShader
+        });
+        
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(mesh);
+        canvas.__three = { renderer, scene, camera, material };
+    }
+
+    const { renderer, scene, camera, material } = canvas.__three;
+    
+    if (material && material.uniforms) {
+        if (material.uniforms.u_time) material.uniforms.u_time.value = time;
+        if (material.uniforms.u_resolution) {
+            material.uniforms.u_resolution.value.set(grid.width, grid.height);
+        }
+    }
+    
     renderer.setSize(grid.width, grid.height, false);
-    rtA.setSize(grid.width, grid.height);
-    rtB.setSize(grid.width, grid.height);
-    material.uniforms.u_resolution.value.set(grid.width, grid.height);
-  }
-
-  material.uniforms.u_time.value = time;
-  material.uniforms.u_buffer.value = rtA.texture;
-
-  // Pass 1: Render scene with feedback to rtB
-  renderer.setRenderTarget(rtB);
-  renderer.render(scene, camera);
-
-  // Pass 2: Render rtB to screen
-  renderer.setRenderTarget(null);
-  renderer.render(scene, camera);
-
-  // Swap buffers for the next frame
-  canvas.__three.rtA = rtB;
-  canvas.__three.rtB = rtA;
+    renderer.render(scene, camera);
 
 } catch (e) {
-  console.error("WebGL 2 initialization or render failed:", e);
+    console.error("WebGL Initialization Failed:", e);
 }
